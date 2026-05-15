@@ -147,7 +147,8 @@ If the answer is not clearly contained in the protocol excerpts, say exactly:
 When answering:
 - Be concise.
 - Mention the relevant protocol source file.
-- Include important notes from the same retrieved section.
+- Include only information directly needed to answer the user's specific question.
+- Do not mention alternative branches unless the user asks, or unless they are necessary to choose the correct pathway.
 - If the question is broad, summarize the relevant protocol pathways.
 - If the question lacks necessary pathway information, ask for the missing information.
 
