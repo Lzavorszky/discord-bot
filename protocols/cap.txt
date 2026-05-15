@@ -1,0 +1,111 @@
+COMMUNITY ACQUIRED RESPIRATORY INFECTIONS
+CAP / COPD ACUTE EXACERBATION
+
+GENERAL RULES
+- Use Biofire PCR where indicated.
+- Consider local microbiology guidance.
+- Review allergy history and renal function.
+- Ask whether patient is intubated.
+- Assess for nosocomial risk factors.
+
+INFLUENZA
+Treatment:
+- Oseltamivir
+
+Notes:
+- Antibiotics only if bacterial superinfection suspected.
+
+ASPIRATION PNEUMONIA
+Treatment:
+- Ceftriaxone
+
+Notes:
+- Antibiotics only if secondary infection suspected.
+- Not immediately after aspiration event itself.
+
+COPD ACUTE EXACERBATION
+Treatment:
+- Ceftriaxone + clarithromycin
+
+Notes:
+- Antibiotics only if bacterial superinfection suspected.
+
+COMMUNITY ACQUIRED PNEUMONIA (CAP)
+
+OUTPATIENT / DISCHARGEABLE CAP
+
+If viral test positive:
+- Antibiotics not required.
+
+If viral test negative:
+- Amoxicillin
+
+If atypical pathogen suspected:
+- Azithromycin
+
+HOSPITALIZED CAP (NON-INTUBATED)
+
+Without nosocomial risk factors:
+- Ceftriaxone + clarithromycin
+
+With nosocomial risk factors:
+- Levofloxacin
+
+INTUBATED CAP
+
+Treatment:
+- Follow Biofire-based guidance if available.
+- Until results available: ceftriaxone 2 g
+
+Notes:
+- Consider corticosteroids if shock present.
+- Example:
+  methylprednisolone 0.5 mg/kg
+
+POINT-OF-CARE TESTING
+
+OUTPATIENT DURING EPIDEMIC PERIOD
+- Combined antigen test:
+  indicated during epidemic period
+- GeneXpert four-panel:
+  not indicated
+- Biofire RP2.1:
+  not indicated
+- Urinary antigen test:
+  if clinically suspected
+- Biofire PN:
+  not indicated
+
+HOSPITALIZED DURING EPIDEMIC PERIOD
+- Combined antigen test:
+  clinical suspicion + negative rapid test
+- GeneXpert four-panel:
+  pertussis suspicion
+- Biofire RP2.1:
+  atypical pathogen suspicion
+- Urinary antigen test:
+  indicated
+- Biofire PN:
+  not indicated
+
+INTUBATED / MECHANICALLY VENTILATED DURING EPIDEMIC PERIOD
+- Combined antigen test:
+  not indicated
+- GeneXpert four-panel:
+  pertussis suspicion
+- Biofire RP2.1:
+  indicated
+- Urinary antigen test:
+  indicated
+- Biofire PN:
+  indicated
+
+SAFETY RULES FOR CHATBOT
+- Ask about allergy history.
+- Ask about renal function.
+- Ask whether patient is intubated.
+- Ask about nosocomial risk factors.
+- Ask about shock/hemodynamic instability.
+- Do not provide definitive medical decisions.
+- Escalate severe or unclear cases to senior clinician/ID specialist.
+- No patient identifiers.
