@@ -4,19 +4,36 @@ import discord
 import numpy as np
 from openai import OpenAI
 
+# Environment variables from Railway
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
+# Discord setup
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
+# Models
 EMBEDDING_MODEL = "text-embedding-3-small"
 CHAT_MODEL = "gpt-5.4-mini"
 
+# Global storage
 PROTOCOL_CHUNKS = []
+SYSTEM_RULES = ""
+
+
+def load_system_rules():
+    rule_files = glob.glob("protocols/system/*.txt")
+    rules = []
+
+    for file_path in rule_files:
+        with open(file_path, "r", encoding="utf-8") as f:
+            rules.append(f"Source: {file_path}\n{f.read()}")
+
+    return "\n\n---\n\n".join(rules)
 
 
 def chunk_text(text, source, max_chars=900):
@@ -49,7 +66,7 @@ def get_embedding(text):
 def load_protocols():
     global PROTOCOL_CHUNKS
 
-    files = glob.glob("protocols/*.txt")
+    files = glob.glob("protocols/medical/*.txt")
 
     for file_path in files:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -61,16 +78,17 @@ def load_protocols():
             chunk["embedding"] = get_embedding(chunk["text"])
             PROTOCOL_CHUNKS.append(chunk)
 
-    print(f"Loaded {len(PROTOCOL_CHUNKS)} protocol chunks")
+    print(f"Loaded {len(PROTOCOL_CHUNKS)} medical protocol chunks")
 
 
-def search_protocols(question, top_k=3):
+def search_protocols(question, top_k=4):
     question_embedding = get_embedding(question)
 
     results = []
 
     for chunk in PROTOCOL_CHUNKS:
         similarity = float(np.dot(question_embedding, chunk["embedding"]))
+
         results.append({
             "source": chunk["source"],
             "text": chunk["text"],
@@ -84,16 +102,28 @@ def search_protocols(question, top_k=3):
 
 @client.event
 async def on_ready():
+    global SYSTEM_RULES
+
     print(f"Logged in as {client.user}")
+
+    if not SYSTEM_RULES:
+        SYSTEM_RULES = load_system_rules()
+        print("Loaded system rules")
+
     if not PROTOCOL_CHUNKS:
         load_protocols()
 
 
 def ask_ai(question):
-    retrieved_chunks = search_protocols(question, top_k=3)
+    retrieved_chunks = search_protocols(question, top_k=4)
 
     context = "\n\n---\n\n".join(
-        [f"Source: {c['source']}\n{c['text']}" for c in retrieved_chunks]
+        [
+            f"Source: {chunk['source']}\n"
+            f"Similarity: {chunk['similarity']:.3f}\n"
+            f"{chunk['text']}"
+            for chunk in retrieved_chunks
+        ]
     )
 
     response = openai_client.responses.create(
@@ -102,21 +132,26 @@ def ask_ai(question):
             {
                 "role": "system",
                 "content": f"""
-You are a hospital protocol assistant.
+{SYSTEM_RULES}
 
-Answer ONLY using the protocol excerpts below.
+You are answering using retrieved hospital protocol excerpts.
 
-If the answer is not clearly contained in the protocol excerpts, say:
-"This is not specified in the uploaded protocol."
-
+Use ONLY the retrieved medical protocol excerpts below.
 Do not use outside medical knowledge.
 Do not invent recommendations.
-Do not ask for patient identifiers.
-Keep answers concise.
-Use bullet points where useful.
-Mention the source file.
+Do not treat system or safety rules as medical treatment content.
 
-PROTOCOL EXCERPTS:
+If the answer is not clearly contained in the protocol excerpts, say exactly:
+"This is not specified in the uploaded protocol."
+
+When answering:
+- Be concise.
+- Mention the relevant protocol source file.
+- Include important notes from the same retrieved section.
+- If the question is broad, summarize the relevant protocol pathways.
+- If the question lacks necessary pathway information, ask for the missing information.
+
+RETRIEVED MEDICAL PROTOCOL EXCERPTS:
 {context}
 """
             },
@@ -135,6 +170,7 @@ def split_message(text, max_length=1900):
 
     while len(text) > max_length:
         split_at = text.rfind("\n", 0, max_length)
+
         if split_at == -1:
             split_at = max_length
 
@@ -149,6 +185,7 @@ def split_message(text, max_length=1900):
 
 @client.event
 async def on_message(message):
+
     if message.author == client.user:
         return
 

@@ -2,7 +2,7 @@ COMMUNITY ACQUIRED RESPIRATORY INFECTIONS
 CAP / COPD ACUTE EXACERBATION
 
 GENERAL RULES
-- Use Biofire PCR where indicated.
+- Use Biofire Pneumonia PCR where indicated.
 - Consider local microbiology guidance.
 - Review allergy history and renal function.
 - Ask whether patient is intubated.
