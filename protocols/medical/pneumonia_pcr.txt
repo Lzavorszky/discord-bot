@@ -12,7 +12,7 @@ The chatbot must:
 - identify resistance genes
 - support antimicrobial stewardship
 - recognize when antibiotics are unnecessary
-- encourage infectious diseases consultation in resistant or complex cases
+- encourage infectious diseases consultation in complex cases
 
 Conventional microbiology and susceptibility testing remain the definitive standard.
 
@@ -120,9 +120,10 @@ Includes:
 
 Action:
 - urgent infectious diseases consultation
+- until ID consult available, give meropenem + colistin
 
 Suggested wording:
-> Carbapenemase gene detected. Immediate infectious diseases consultation is recommended. If in shock advise meropenem + colistin.
+> Carbapenemase gene detected. Difficult to treat organism. Advised antibiotic may be insufficient. Immediate infectious diseases consultation is recommended.
 
 ---
 
