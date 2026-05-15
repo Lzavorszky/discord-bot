@@ -1,81 +1,124 @@
 import os
+import glob
 import discord
+import numpy as np
 from openai import OpenAI
 
-# Load secrets
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Discord setup
 intents = discord.Intents.default()
 intents.message_content = True
-
 client = discord.Client(intents=intents)
 
-# Load CAP protocol
-with open("protocols/cap.txt", "r", encoding="utf-8") as f:
-    CAP_PROTOCOL = f.read()
+EMBEDDING_MODEL = "text-embedding-3-small"
+CHAT_MODEL = "gpt-5.4-mini"
+
+PROTOCOL_CHUNKS = []
+
+
+def chunk_text(text, source, max_chars=900):
+    sections = text.split("\n\n")
+    chunks = []
+    current = ""
+
+    for section in sections:
+        if len(current) + len(section) < max_chars:
+            current += section + "\n\n"
+        else:
+            if current.strip():
+                chunks.append({"source": source, "text": current.strip()})
+            current = section + "\n\n"
+
+    if current.strip():
+        chunks.append({"source": source, "text": current.strip()})
+
+    return chunks
+
+
+def get_embedding(text):
+    response = openai_client.embeddings.create(
+        model=EMBEDDING_MODEL,
+        input=text
+    )
+    return np.array(response.data[0].embedding)
+
+
+def load_protocols():
+    global PROTOCOL_CHUNKS
+
+    files = glob.glob("protocols/*.txt")
+
+    for file_path in files:
+        with open(file_path, "r", encoding="utf-8") as f:
+            text = f.read()
+
+        chunks = chunk_text(text, source=file_path)
+
+        for chunk in chunks:
+            chunk["embedding"] = get_embedding(chunk["text"])
+            PROTOCOL_CHUNKS.append(chunk)
+
+    print(f"Loaded {len(PROTOCOL_CHUNKS)} protocol chunks")
+
+
+def search_protocols(question, top_k=3):
+    question_embedding = get_embedding(question)
+
+    results = []
+
+    for chunk in PROTOCOL_CHUNKS:
+        similarity = float(np.dot(question_embedding, chunk["embedding"]))
+        results.append({
+            "source": chunk["source"],
+            "text": chunk["text"],
+            "similarity": similarity
+        })
+
+    results.sort(key=lambda x: x["similarity"], reverse=True)
+
+    return results[:top_k]
 
 
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
-
-
-def is_cap_question(question):
-
-    q = question.lower()
-
-    cap_keywords = [
-        "cap",
-        "pneumonia",
-        "community acquired pneumonia",
-        "chest infection"
-    ]
-
-    return any(word in q for word in cap_keywords)
+    if not PROTOCOL_CHUNKS:
+        load_protocols()
 
 
 def ask_ai(question):
+    retrieved_chunks = search_protocols(question, top_k=3)
 
-    # If CAP-related → use protocol
-    if is_cap_question(question):
-
-        system_prompt = f"""
-You are a clinical protocol assistant.
-
-You MUST answer ONLY using the following CAP protocol.
-
-If the answer is not contained in the protocol, say:
-'This is not specified in the CAP protocol.'
-
-CAP PROTOCOL:
-{CAP_PROTOCOL}
-
-Rules:
-- Keep answers concise
-- Use bullet points
-- Mention uncertainty clearly
-- Ask for missing information if needed
-- Do not invent recommendations
-"""
-
-    else:
-
-        system_prompt = """
-You are a helpful assistant.
-Keep answers concise.
-"""
+    context = "\n\n---\n\n".join(
+        [f"Source: {c['source']}\n{c['text']}" for c in retrieved_chunks]
+    )
 
     response = openai_client.responses.create(
-        model="gpt-5.4-mini",
+        model=CHAT_MODEL,
         input=[
             {
                 "role": "system",
-                "content": system_prompt
+                "content": f"""
+You are a hospital protocol assistant.
+
+Answer ONLY using the protocol excerpts below.
+
+If the answer is not clearly contained in the protocol excerpts, say:
+"This is not specified in the uploaded protocol."
+
+Do not use outside medical knowledge.
+Do not invent recommendations.
+Do not ask for patient identifiers.
+Keep answers concise.
+Use bullet points where useful.
+Mention the source file.
+
+PROTOCOL EXCERPTS:
+{context}
+"""
             },
             {
                 "role": "user",
@@ -88,13 +131,10 @@ Keep answers concise.
 
 
 def split_message(text, max_length=1900):
-
     chunks = []
 
     while len(text) > max_length:
-
         split_at = text.rfind("\n", 0, max_length)
-
         if split_at == -1:
             split_at = max_length
 
@@ -109,7 +149,6 @@ def split_message(text, max_length=1900):
 
 @client.event
 async def on_message(message):
-
     if message.author == client.user:
         return
 
@@ -119,7 +158,6 @@ async def on_message(message):
         return
 
     async with message.channel.typing():
-
         answer = ask_ai(question)
 
     for chunk in split_message(answer):
