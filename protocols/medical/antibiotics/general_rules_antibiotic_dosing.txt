@@ -1,9 +1,254 @@
-```txt
 # GENERAL_RULES_ANTIBIOTIC_DOSING
+
 The chatbot should:
 - ask for penicillin allergy if a penicillin derivative is to be advised for the asked condition
 - if renal function not specified in the conversation provide normal dose, but suggest that dosing depends on renal function and patient condition as well as indication and other factors (e.g. weight in some cases). Ask for required information as described in the individual antibiotic guidelines.
 - Individual antibiotic guidelines overwrite these generic rules (e.g. do not provide dosing for tmp/smx or amp/sul until required information is given or confirmed).
-- do not suggest antibiotic dosing reduction for renal function in the first 48 hours of treatment
+- do not suggest antibiotic dosing reduction for renal function in the first 24 hours of treatment unless the individual antibiotic protocol specifically requires reduced dosing, the patient is anuric/IHD, or toxicity risk is clinically dominant
 
-```
+---
+
+## SOURCE_PRIORITY
+
+Priority order:
+1. Individual antibiotic protocol
+2. Infection-specific protocol
+3. General dosing rules
+
+Individual antibiotic protocol overrides generic rules.
+
+---
+
+## RESPONSE_LOGIC
+
+If protocol contains a pathway but insufficient information is available:
+- ask clarifying questions
+
+If protocol truly lacks the requested information:
+- say:
+"This is not specifically addressed in the uploaded protocol."
+
+---
+
+## CONTINUOUS VS BOLUS DOSING
+
+Continuous infusion preferred for:
+- meropenem
+- piperacillin/tazobactam
+- cefepime
+- high-dose ampicillin/sulbactam
+- cefazolin
+- penicillin
+- ampicillin
+- ceftazidime
+- ceftazidime/avibactam
+- ceftolozane/tazobactam
+- cefiderocol
+- fosfomycin
+- vancomycin
+- linezolid
+
+Bolus dosing preferred for:
+- as a default for other antibiotics not specified in the previous list
+- gentamicin
+- amikacin
+- TMP/SMX
+- fluoroquinolones
+- ceftriaxone
+
+---
+
+## GENERAL_BETA_LACTAM_DOSING_PHILOSOPHY
+
+- Continuous infusion preferred in critically ill ICU patients whenever protocol specifies.
+- Full-dose therapy preferred in severe sepsis and septic shock in the first 24 hours.
+- Avoid premature dose reduction during early septic shock solely because of renal dysfunction.
+- ARC (augmented renal clearance) frequently causes underdosing.
+- Consider TDM in the specified indications.
+
+---
+
+## GENERAL_BETA_LACTAM_DOSING_PHILOSOPHY_PATHWAY_FOR_USE_WITH_24H_CONTINUOUS_INFUSION
+
+When users ask broad dosing questions, do not immediately provide all dosing tiers.
+
+If the user asks for dosing but severity/renal function/RRT/ARC status is incomplete:
+- provide ÁTLAGOS dosing only as the default standard regimen
+- clearly state it may change if shock, ARC, GFR <20, CRRT/IHD, CNS infection, or TDM result applies
+- ask only the missing questions needed to select a higher/lower tier
+
+Dosing tiers are selected using OR logic:
+
+- PLUSZ:
+  - CNS infections
+  - subtherapeutic level after TDM
+
+- MAGAS:
+  - septic shock in the first 24 hours
+  - GFR above 90 until TDM and pathogen MIC are available
+
+- ÁTLAGOS:
+  - main dosing between GFR 20–90
+
+- CSÖKKENTETT:
+  - GFR <20 and no RRT
+  - with some antibiotics dosing is further reduced if anuric or IHD
+
+- IHD/anuria:
+  - anuric or receives intermittent hemodialysis
+
+- CRRT:
+  - receives CRRT
+
+If insufficient information is available, ask targeted clarification questions.
+
+---
+
+## OBESITY_AND_BETA_LACTAMS
+
+Obesity alone does not mandate beta-lactam escalation.
+
+Do not invent mg/kg dosing unless explicitly specified in the protocol.
+
+---
+
+## TDM_REQUIRED_DAILY
+
+Daily TDM required:
+- vancomycin
+- linezolid
+- gentamicin trough
+- amikacin trough
+- ceftazidime/avibactam
+- ceftolozane/tazobactam
+
+---
+
+## TDM_CONSIDER
+
+Beta-lactam TDM should be considered ONLY for beta-lactams where TDM is available in the individual antibiotic protocol.
+
+Typically consider beta-lactam TDM when:
+- ARC suspected
+- CRRT
+- IHD
+- severe AKI
+- persistent infection
+- difficult-to-treat infection
+- septic shock
+- CNS infection
+- obesity with suspected underexposure
+- persistent bacteremia
+- poor clinical response
+- high MIC pathogen
+
+Do NOT suggest beta-lactam TDM for antibiotics where TDM is not specified as available in the individual antibiotic protocol.
+
+Individual antibiotic protocols override these general rules.
+
+---
+
+## TDM_NOT_AVAILABLE
+
+Assume TDM is NOT available unless:
+- explicitly specified in the individual antibiotic protocol
+OR
+- listed in TDM_REQUIRED_DAILY above.
+
+If TDM is not available:
+- do not invent target concentrations
+- do not invent sampling strategy
+- do not recommend unavailable monitoring
+
+---
+
+## ARC_DEFINITION
+
+ARC suspected if:
+- GFR/eGFR >90 and urine output >2000 mL/day
+- measured creatinine clearance >130
+
+ARC increases risk of beta-lactam underexposure.
+
+---
+
+## REQUIRED_CLARIFICATIONS_FOR_BETA_LACTAMS
+
+Before selecting dosing tier clarify when relevant:
+- current GFR/eGFR
+- CRRT or IHD
+- septic shock/hemodynamic instability
+- suspected ARC
+- intubated/mechanically ventilated
+- CNS infection
+- pathogen/MIC available
+- TDM available
+
+---
+
+## SAFETY_RULES
+
+If exact dosing cannot be determined from protocol:
+- ask clarifying questions
+- avoid inventing dosing
+- clearly state uncertainty
+
+State:
+"This is not specifically addressed in the uploaded protocol."
+
+---
+
+## ANSWER_STRUCTURE
+
+For beta-lactam dosing answers use this structure:
+
+1. PRIMARY_DOSING
+- provide direct dosing recommendation first
+
+2. ADMINISTRATION
+- continuous infusion/intermittent
+- preparation if available
+
+3. IMPORTANT_COMMENTS
+- ARC
+- shock
+- microbiology
+- stewardship
+
+4. REQUIRED_CLARIFICATIONS
+- only if needed for safe pathway selection
+
+5. SOURCE
+- mention protocol/section
+
+---
+
+## STEWARDSHIP_PRINCIPLES
+
+- Avoid unnecessarily broad-spectrum therapy.
+- De-escalate according to microbiology and clinical response.
+- Carbapenems should generally be reserved for:
+  - ESBL/AmpC-risk organisms
+  - severe nosocomial infection
+  - septic shock
+  - resistant gram-negative infections
+- Avoid prolonged empiric carbapenem therapy without microbiological justification.
+- Review antibiotic necessity daily.
+
+---
+
+## COLONIZATION_VS_INFECTION
+
+Do not automatically interpret positive microbiology as infection.
+
+Interpret microbiology together with:
+- clinical syndrome
+- inflammatory markers
+- imaging
+- source
+- sampling quality
+- hemodynamic status
+
+Respiratory samples may represent colonization.
+
+Positive blood cultures usually represent infection unless the organism and sampling pattern suggest contamination.

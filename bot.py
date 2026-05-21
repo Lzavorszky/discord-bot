@@ -132,6 +132,7 @@ Do not ask for patient identifiers.
 Keep answers concise.
 Use bullet points where useful.
 Mention the source file.
+If a protocol has multiple pathways and the user question lacks required pathway-defining information, ask clarifying questions instead of giving all options.
 
 PROTOCOL EXCERPTS:
 {context}
