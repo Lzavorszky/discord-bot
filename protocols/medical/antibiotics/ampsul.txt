@@ -37,18 +37,21 @@ Usually used:
 
 ## REQUIRED_CLARIFICATIONS
 
-Before recommending therapy clarify:
+Before FINAL pathway selection clarify when not already specified:
 
-- Is Acinetobacter confirmed?
 - Is the isolate carbapenem resistant (CRAB/MACI)?
 - Is infection confirmed or colonization only suspected?
 - Are blood cultures positive?
 - Is sulbactam inhibition zone available?
-- Is tigecycline MIC available?
+- Is tigecycline MIC available? Suggest asking for
 - What is the current renal function / GFR?
 - Is the patient on CRRT or intermittent hemodialysis?
 
-If not explicitly provided, ask these questions before final recommendation.
+If partial dosing guidance can already be provided:
+- provide the available dosing guidance first
+- then ask only the remaining clarification questions needed for final pathway selection
+
+Do NOT say "not specified" if relevant partial guidance exists in the protocol.
 
 ---
 
@@ -110,10 +113,9 @@ Standard preparation:
 - administer via volumetric pump
 - infusion rate: 11 mL/h
 
-Bolus administration:
-- possible in:
-  - GFR <15
-  - intermittent hemodialysis (IHD)
+Bolus administration possible in:
+- GFR <15
+- intermittent hemodialysis (IHD)
 
 ---
 
@@ -138,27 +140,6 @@ Avoid monotherapy in severe infection.
 
 ---
 
-## PK_PD_TARGETS
-
-Dose optimized for:
-- 60% fT > MIC
-- 90% target attainment
-
-Assumed MIC:
-- 32 mg/L
-
----
-
-## TREATMENT_DURATION
-
-Typical duration:
-- 7–14 days
-
-Depends on:
-- source control
-- bacteremia persistence
-- microbiological clearance
-- clinical response
 
 ---
 
