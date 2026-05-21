@@ -1,5 +1,10 @@
-```markdown
 # TMP_SMX
+
+## PROTOCOL_NAME
+
+Trimethoprim/sulfamethoxazole ICU dosing protocol
+
+---
 
 ## ALIASES
 
@@ -11,9 +16,92 @@
 - Cotrim
 
 ---
-## General behavioral remarks
-- should ask for indication and renal function unless specified in the conversation
-- give dosing advice for given indication and renal function rather than provide long tables
+
+## DRUG_CLASS
+
+- sulfonamide combination antibiotic
+- non-beta-lactam
+
+---
+
+## ANSWER_POLICY
+
+Can default dosing be given if some information is missing?
+- no
+
+TMP/SMX dosing depends strongly on:
+- indication
+- renal function
+- body weight
+
+Do NOT provide dosing before required information is known.
+
+Do NOT provide full dosing tables unless explicitly requested.
+
+Instead:
+- ask for required information first
+- then provide the matching dosing recommendation
+
+---
+
+## REQUIRED_INFORMATION
+
+Required before dosing:
+- indication/infection type
+- current renal function/GFR
+- body weight
+
+Examples of common indications:
+- PCP/PJP prophylaxis
+- Pneumocystis jirovecii pneumonia
+- invasive Stenotrophomonas infection
+- Nocardia infection
+- skin/soft tissue infection
+- bone/joint infection
+- oral step-down treatment
+
+If indication unclear:
+- ask for the suspected pathogen or infection type
+
+If body weight not provided:
+- ask for current body weight
+
+If renal function not provided:
+- ask for GFR/eGFR
+- ask if CRRT or IHD present
+
+Do NOT give empiric default dosing before these are known.
+
+---
+
+## PREFERRED_INFORMATION
+
+After providing dosing, clarify when relevant:
+- CRRT?
+- intermittent hemodialysis?
+- BMI >30?
+- enteral administration possible?
+- severe ICU infection?
+- CNS involvement?
+- hyperkalemia risk?
+- hematologic toxicity risk?
+
+---
+
+## MODIFIER_INFORMATION
+
+These may modify dosing or interpretation:
+- CRRT
+- IHD
+- BMI >30
+- CNS infection
+- ICU infection
+- severe renal dysfunction
+- hyperkalemia
+- hematologic toxicity
+- invasive disease
+
+---
 
 ## INDICATIONS
 
@@ -88,9 +176,9 @@ If clinically improving:
 
 ---
 
-# MODERATE_DOSE_TABLE
+## MODERATE_DOSE_TABLE
 
-## Target:
+### Target
 - 8–10 mg/kg/day TMP component
 
 | Weight | TMP/day | Suggested dosing | Total TMP/SMX |
@@ -105,9 +193,9 @@ If clinically improving:
 
 ---
 
-# HIGH_DOSE_TABLE
+## HIGH_DOSE_TABLE
 
-## Target:
+### Target
 - 15–20 mg/kg/day TMP component
 
 | Weight | TMP/day | Suggested dosing | Total TMP/SMX |
@@ -246,4 +334,3 @@ In severe infections:
 ## COMMENTS
 
 TMP/SMX dosing schemes are heterogeneous and not fully evidence-based. Clinical judgment and infectious diseases consultation may be necessary in severe or unusual infections.
-```

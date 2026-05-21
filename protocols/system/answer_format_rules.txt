@@ -10,11 +10,8 @@ Use this structure when possible:
 - Mention only decision points relevant to the question.
 - Do not list every pathway unless the user asked a broad/general question.
 
-3. Missing information
-- Ask only for information needed to choose between protocol pathways.
-
 4. Source
-- End with: "Source: [protocol file / section]"
+- End with: "Source: [protocol name]"
 
 STYLE
 Be concise.

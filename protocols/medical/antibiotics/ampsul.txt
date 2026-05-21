@@ -17,6 +17,71 @@ High-dose ampicillin/sulbactam protocol for multidrug-resistant Acinetobacter in
 
 ---
 
+## DRUG_CLASS
+
+- beta-lactam
+- beta-lactam/beta-lactamase inhibitor
+
+---
+
+## ANSWER_POLICY
+
+Can default dosing be given if some information is missing?
+- yes
+
+Default empiric dosing if renal function not yet specified:
+- use GFR ≥60 dosing as default empiric ICU dosing
+
+Label this as:
+- empiric high-dose ICU dosing
+- not final individualized dosing
+
+Do NOT refuse dosing solely because:
+- resistance confirmation missing
+- sulbactam inhibition zone unavailable
+- bloodstream infection status unknown
+- colonization vs infection not yet clarified
+
+Do NOT list all dosing tiers unless explicitly requested.
+
+---
+
+## REQUIRED_INFORMATION
+
+Required before FINAL individualized dosing:
+- current renal function/GFR
+- CRRT or intermittent hemodialysis (IHD)
+
+If renal function unknown:
+- provide default GFR ≥60 dosing first
+- then ask for renal function
+
+---
+
+## PREFERRED_INFORMATION
+
+After giving default or partial dosing, ask for:
+- carbapenem resistance confirmed? (CRAB/MACI)
+- confirmed infection vs colonization?
+- bloodstream infection present?
+- sulbactam inhibition zone?
+- tigecycline MIC?
+
+---
+
+## MODIFIER_INFORMATION
+
+These may modify treatment interpretation:
+- CRRT
+- IHD
+- severe renal dysfunction
+- bloodstream infection
+- sulbactam inhibition zone ≤11 mm
+- tigecycline MIC
+- confirmed carbapenem resistance
+
+---
+
 ## INDICATIONS
 
 Use only for:
@@ -36,6 +101,24 @@ Usually used:
 ---
 
 ## PRIMARY_DOSING_AND_ADMINISTRATION
+
+### DEFAULT_EMPIRIC_ICU_DOSING
+
+If renal function unknown:
+- Sulbactam: 9 g/day
+- Ampicillin: 18 g/day
+
+Administration:
+- continuous infusion preferred
+- dissolve total daily dose in 250 mL NaCl 0.9%
+- administer via volumetric pump
+- infusion rate: 11 mL/h
+
+After default dosing:
+- ask for renal function/GFR
+- ask for CRRT/IHD status
+
+---
 
 ### GFR ≥60
 
@@ -59,6 +142,9 @@ For confirmed MACI/CRAB:
 
 Administration:
 - continuous infusion preferred
+- dissolve total daily dose in 250 mL NaCl 0.9%
+- volumetric pump recommended
+- infusion rate may require local adjustment
 
 ---
 
@@ -70,6 +156,7 @@ For confirmed MACI/CRAB:
 
 Administration:
 - continuous infusion preferred
+- individualized administration may be required
 
 ---
 
@@ -92,6 +179,9 @@ For confirmed MACI/CRAB:
 
 Administration:
 - continuous infusion preferred
+- dissolve total daily dose in 250 mL NaCl 0.9%
+- administer via volumetric pump
+- infusion rate: 11 mL/h
 
 ---
 
@@ -106,27 +196,18 @@ Administration:
 
 ---
 
-## REQUIRED_CLARIFICATIONS
+## FOLLOW_UP_QUESTIONS
 
-After providing any available dosing guidance, clarify when not already specified:
+After providing dosing guidance, ask remaining relevant clarification questions:
+- current renal function/GFR?
+- CRRT or IHD?
+- confirmed MACI/CRAB?
+- bloodstream infection?
+- confirmed infection vs colonization?
+- sulbactam inhibition zone?
+- tigecycline MIC?
 
-- Is the isolate carbapenem resistant (CRAB/MACI)?
-- Is infection confirmed or colonization only suspected?
-- Are blood cultures positive?
-- Is sulbactam inhibition zone available?
-- Is tigecycline MIC available?
-- What is the current renal function / GFR?
-- Is the patient on CRRT or intermittent hemodialysis?
-
-If some clarification data are already available:
-- do NOT refuse dosing
-- provide the closest matching protocol dosing first
-- then ask only the remaining relevant clarification questions
-
-Do NOT say "not specified" if:
-- a standard/default dosing tier exists
-OR
-- partial dosing guidance exists in the protocol
+Do NOT stop after giving partial/default dosing.
 
 ---
 

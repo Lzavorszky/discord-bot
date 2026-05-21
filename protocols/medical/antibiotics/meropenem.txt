@@ -15,6 +15,67 @@ Meropenem continuous infusion ICU dosing protocol
 
 ---
 
+## DRUG_CLASS
+
+- beta-lactam
+- carbapenem
+
+---
+
+## ANSWER_POLICY
+
+Can default dosing be given if some information is missing?
+- yes
+
+Default empiric dosing if indication and/or renal function missing:
+- MAGAS dosing
+
+Label this as:
+- high-dose empiric ICU dosing
+- not final individualized dosing
+
+Do NOT refuse dosing solely because:
+- obesity present
+- indication not yet specified
+- renal function not yet specified
+
+Do NOT list all dosing tiers unless explicitly requested.
+
+---
+
+## REQUIRED_INFORMATION
+
+No absolutely required information before giving default empiric dosing.
+
+---
+
+## PREFERRED_INFORMATION
+
+After giving default or partial dosing, ask for:
+- indication/infection type
+- renal function/GFR
+- CRRT/IHD
+- ARC suspicion
+- CNS infection
+- pathogen/MIC
+- TDM availability
+
+---
+
+## MODIFIER_INFORMATION
+
+These may modify dosing tier:
+- septic shock
+- ARC
+- CNS infection
+- CRRT
+- IHD
+- severe AKI
+- TDM result
+- pathogen MIC
+
+---
+
 ## INDICATIONS
 
 Common ICU indications:
@@ -48,29 +109,6 @@ Limited or unreliable against:
 
 ---
 
-## REQUIRED_CLARIFICATIONS
-
-Before FINAL pathway selection clarify when not already specified:
-
-- What is the infection type/indication?
-- Is septic shock/hemodynamic instability present?
-- What is the current GFR/eGFR?
-- Is the patient on CRRT?
-- Is the patient on intermittent hemodialysis (IHD)?
-- Is ARC suspected?
-- Is CNS infection suspected?
-- Is the patient intubated/mechanically ventilated?
-- Is pathogen/MIC available?
-- Is TDM available or already performed?
-
-If partial dosing guidance can already be provided:
-- provide the available dosing guidance first
-- then ask only the remaining clarification questions needed for final pathway selection
-
-Do NOT say "not specified" if relevant partial guidance exists in the protocol.
-
----
-
 ## DOSING_PHILOSOPHY
 
 - Continuous infusion preferred
@@ -92,8 +130,13 @@ Used for:
 - persistent subtherapeutic levels after TDM
 - step-up dosing
 
-Typical dose:
+Dose:
 - 6 g/day
+
+Administration:
+- continuous infusion over 24h
+- 1 g meropenem in 50 mL NaCl 0.9%
+- pump: 12.5 mL/h
 
 ---
 
@@ -105,8 +148,13 @@ Used for:
 - suspected ARC
 - GFR >90 until TDM and pathogen MIC available
 
-Typical dose:
+Dose:
 - 4 g/day
+
+Administration:
+- continuous infusion over 24h
+- 1 g meropenem in 50 mL NaCl 0.9%
+- pump: 8.4 mL/h
 
 ---
 
@@ -117,8 +165,13 @@ Used for:
 - GFR 20–90
 - clinically stable patients without ARC/shock
 
-Typical dose:
+Dose:
 - 3 g/day
+
+Administration:
+- continuous infusion over 24h
+- 1 g meropenem in 50 mL NaCl 0.9%
+- pump: 6.3 mL/h
 
 ---
 
@@ -128,68 +181,73 @@ Used for:
 - GFR <20
 - severe renal dysfunction without CRRT
 
-Typical dose:
+Dose:
 - 1 g/day
 OR
 - 0.5 g q12h
+
+Administration:
+- continuous infusion possible
+- reduced-dose regimens may require modified preparation
+
+Typical pump:
+- 4.2 mL/h
 
 ---
 
 ### CRRT
 
-Typical dose:
+Used for:
+- CRRT
+- standard effluent rate <40 mL/kg/h
+
+Dose:
 - 3 g/day
 
-Assumes:
-- standard effluent rate <40 mL/kg/h
+Administration:
+- continuous infusion over 24h
+- 1 g meropenem in 50 mL NaCl 0.9%
+- pump: 6.3 mL/h
 
 ---
 
 ### IHD
 
-Typical dose:
+Used for:
+- intermittent hemodialysis
+
+Dose:
 - 0.5 g q12h
 
-Requires:
+Administration:
 - individualized consideration
-- TDM strongly encouraged
+- intermittent dosing may be preferred
+
+TDM strongly encouraged.
 
 ---
 
-## PRIMARY_DOSING
+## UNDER_SPECIFIED_DOSING_REQUESTS
 
-| Tier | Daily dose |
-|---|---|
-| PLUSZ | 6 g/day |
-| MAGAS | 4 g/day |
-| ÁTLAGOS | 3 g/day |
-| CSÖKKENTETT | 1 g/day |
-| CRRT | 3 g/day |
+If the user asks:
+- generic meropenem dosing
+- dosing for obesity
+- dosing without indication
+- dosing without renal function
 
----
+Do NOT list all dosing tiers.
 
-## ADMINISTRATION
+Instead:
+- provide MAGAS dosing as high-dose empiric ICU dosing
+- then ask for:
+  - indication/infection type
+  - renal function/GFR
+  - CRRT/IHD
+  - septic shock
+  - ARC suspicion
 
-Preferred administration:
-- continuous infusion over 24 hours
-
-Standard preparation:
-- 1 g meropenem in 50 mL NaCl 0.9%
-
-Pump settings:
-- PLUSZ:
-  - 12.5 mL/h
-- MAGAS:
-  - 8.4 mL/h
-- ÁTLAGOS:
-  - 6.3 mL/h
-- CSÖKKENTETT:
-  - 4.2 mL/h
-
-Reduced-dose regimens may require modified preparation/administration.
-
----
-
+If the user insists on generic/default dosing:
+- provide ÁTLAGOS dosing.
 
 ---
 
@@ -225,7 +283,6 @@ Recommended when:
 - infective endocarditis
 - abscess systems
 - persistent infection
-- obesity with suspected underexposure
 
 ---
 
@@ -271,7 +328,7 @@ Common targeted pathogens:
 - Pseudomonas aeruginosa
 - polymicrobial abdominal infection
 
-Not works for:
+Does not reliably cover:
 - MRSA
 - VRE
 - many carbapenemase-producing organisms
