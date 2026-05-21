@@ -35,23 +35,98 @@ Usually used:
 
 ---
 
+## PRIMARY_DOSING_AND_ADMINISTRATION
+
+### GFR ≥60
+
+For confirmed MACI/CRAB:
+- Sulbactam: 9 g/day
+- Ampicillin: 18 g/day
+
+Administration:
+- continuous infusion preferred
+- dissolve total daily dose in 250 mL NaCl 0.9%
+- administer via volumetric pump
+- infusion rate: 11 mL/h
+
+---
+
+### GFR 30–60
+
+For confirmed MACI/CRAB:
+- Sulbactam: 6 g/day
+- Ampicillin: 12 g/day
+
+Administration:
+- continuous infusion preferred
+
+---
+
+### GFR 15–30
+
+For confirmed MACI/CRAB:
+- Sulbactam: 3 g/day
+- Ampicillin: 6 g/day
+
+Administration:
+- continuous infusion preferred
+
+---
+
+### GFR <15
+
+For confirmed MACI/CRAB:
+- Sulbactam: 2 g/day
+- Ampicillin: 4 g/day
+
+Administration:
+- bolus/intermittent dosing may be preferred
+
+---
+
+### CRRT
+
+For confirmed MACI/CRAB:
+- Sulbactam: 9 g/day
+- Ampicillin: 18 g/day
+
+Administration:
+- continuous infusion preferred
+
+---
+
+### IHD
+
+For confirmed MACI/CRAB:
+- Sulbactam: 1.5 g/day
+- Ampicillin: 3 g/day
+
+Administration:
+- bolus/intermittent dosing may be preferred
+
+---
+
 ## REQUIRED_CLARIFICATIONS
 
-Before FINAL pathway selection clarify when not already specified:
+After providing any available dosing guidance, clarify when not already specified:
 
 - Is the isolate carbapenem resistant (CRAB/MACI)?
 - Is infection confirmed or colonization only suspected?
 - Are blood cultures positive?
 - Is sulbactam inhibition zone available?
-- Is tigecycline MIC available? Suggest asking for
+- Is tigecycline MIC available?
 - What is the current renal function / GFR?
 - Is the patient on CRRT or intermittent hemodialysis?
 
-If partial dosing guidance can already be provided:
-- provide the available dosing guidance first
-- then ask only the remaining clarification questions needed for final pathway selection
+If some clarification data are already available:
+- do NOT refuse dosing
+- provide the closest matching protocol dosing first
+- then ask only the remaining relevant clarification questions
 
-Do NOT say "not specified" if relevant partial guidance exists in the protocol.
+Do NOT say "not specified" if:
+- a standard/default dosing tier exists
+OR
+- partial dosing guidance exists in the protocol
 
 ---
 
@@ -70,52 +145,6 @@ Tigecycline:
 - MIC <2 mg/L considered favorable
 
 Conventional susceptibility testing remains definitive.
-
----
-
-## PRIMARY_DOSING
-
-### GFR ≥60
-
-For a standard 70 kg patient:
-- Sulbactam: 9 g/day
-- Ampicillin: 18 g/day
-
-### GFR 30–60
-- Sulbactam: 6 g/day
-- Ampicillin: 12 g/day
-
-### GFR 15–30
-- Sulbactam: 3 g/day
-- Ampicillin: 6 g/day
-
-### GFR <15
-- Sulbactam: 2 g/day
-- Ampicillin: 4 g/day
-
-### CRRT
-- Sulbactam: 9 g/day
-- Ampicillin: 18 g/day
-
-### IHD
-- Sulbactam: 1.5 g/day
-- Ampicillin: 3 g/day
-
----
-
-## ADMINISTRATION
-
-Preferred administration:
-- continuous infusion
-
-Standard preparation:
-- dissolve total daily dose in 250 mL NaCl 0.9%
-- administer via volumetric pump
-- infusion rate: 11 mL/h
-
-Bolus administration possible in:
-- GFR <15
-- intermittent hemodialysis (IHD)
 
 ---
 
@@ -140,17 +169,37 @@ Avoid monotherapy in severe infection.
 
 ---
 
+## PK_PD_TARGETS
+
+Dose optimized for:
+- 60% fT > MIC
+- 90% target attainment
+
+Assumed MIC:
+- 32 mg/L
+
+---
+
+## TREATMENT_DURATION
+
+Typical duration:
+- 7–14 days
+
+Depends on:
+- source control
+- bacteremia persistence
+- microbiological clearance
+- clinical response
 
 ---
 
 ## IMPORTANT_COMMENTS
 
-- Continuous infusion preferred
+- Continuous infusion preferred in ICU patients
 - Primarily intended for severe ICU infections
 - Particularly intended for bloodstream infection due to resistant Acinetobacter
 - Early microbiology consultation recommended
 - Infectious diseases consultation strongly advised
-- Evidence quality limited in severe renal dysfunction
 - Monitor renal function closely
 - Monitor microbiological response carefully
 

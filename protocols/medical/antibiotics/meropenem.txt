@@ -190,20 +190,6 @@ Reduced-dose regimens may require modified preparation/administration.
 
 ---
 
-## OBESITY
-
-Obesity alone does not mandate meropenem dose escalation.
-
-Morbid obesity may increase suspicion for:
-- ARC
-- underexposure
-- altered PK
-
-Do not invent mg/kg dosing unless explicitly specified.
-
-Consider:
-- ARC evaluation
-- TDM
 
 ---
 

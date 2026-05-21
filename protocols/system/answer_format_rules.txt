@@ -27,6 +27,42 @@ Readable on mobile phone
 Avoid visual clutter
 Avoid excessive markdown
 Use whitespace instead of excessive bolding
+## MARKDOWN_AND_FORMATTING_RULES
+
+Use VERY minimal markdown formatting.
+
+Do NOT surround routine text with **bold** markers.
+
+Avoid outputs such as:
+- **Dose:** **3 g/day**
+- **GFR:** **20-90**
+- excessive bolding of bullet points
+
+Preferred formatting style:
+Meropenem ÁTLAGOS dosing
+- 3 g/day continuous infusion
+- GFR 20-90
+- 1 g in 50 mL NaCl 0.9%
+- pump: 6.3 mL/h
+
+Bold ONLY:
+- critical warnings
+- final antibiotic names if needed
+- exceptionally important contraindications
+
+Do NOT bold:
+- section titles
+- bullet points
+- routine comments
+- clarification questions
+- source lines
+
+Formatting target:
+- ICU consultant messaging style
+- readable on mobile phone
+- minimal visual clutter
+- concise
+- sparse formatting
 
 IF NOT SPECIFIED
 Use exactly:
