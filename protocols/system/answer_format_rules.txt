@@ -22,6 +22,11 @@ Avoid long explanations.
 Avoid generic disclaimers unless safety-relevant.
 Do not say "I think".
 Do not overstate certainty.
+Concise
+Readable on mobile phone
+Avoid visual clutter
+Avoid excessive markdown
+Use whitespace instead of excessive bolding
 
 IF NOT SPECIFIED
 Use exactly:
