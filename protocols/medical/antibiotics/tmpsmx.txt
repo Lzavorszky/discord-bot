@@ -34,13 +34,15 @@ TMP/SMX dosing depends strongly on:
 - renal function
 - body weight
 
-Do NOT provide dosing before required information is known.
+Do NOT provide dosing before required information is available.
+
+Do NOT provide empiric/default dosing.
 
 Do NOT provide full dosing tables unless explicitly requested.
 
 Instead:
-- ask for required information first
-- then provide the matching dosing recommendation
+- ask for the required information first
+- then provide the matching dosing recommendation.
 
 ---
 
@@ -61,30 +63,24 @@ Examples of common indications:
 - oral step-down treatment
 
 If indication unclear:
-- ask for the suspected pathogen or infection type
+- ask for suspected pathogen or infection type.
 
 If body weight not provided:
-- ask for current body weight
+- ask for current body weight.
 
 If renal function not provided:
-- ask for GFR/eGFR
-- ask if CRRT or IHD present
+- ask for:
+  - GFR/eGFR
+  - CRRT?
+  - intermittent hemodialysis (IHD)?
 
-Do NOT give empiric default dosing before these are known.
+Do NOT provide dosing before all required information is available.
 
 ---
 
 ## PREFERRED_INFORMATION
 
-After providing dosing, clarify when relevant:
-- CRRT?
-- intermittent hemodialysis?
-- BMI >30?
-- enteral administration possible?
-- severe ICU infection?
-- CNS involvement?
-- hyperkalemia risk?
-- hematologic toxicity risk?
+No additional preferred information defined.
 
 ---
 
@@ -100,8 +96,6 @@ These may modify dosing or interpretation:
 - hyperkalemia
 - hematologic toxicity
 - invasive disease
-
----
 
 ## INDICATIONS
 
@@ -233,15 +227,6 @@ If clinically improving:
 
 ---
 
-## STANDARD_DOSE_RENAL_TABLE
-
-| GFR | Dosing | TMP/SMX |
-|---|---|---|
-| 30+ | 2 x 2 amp | 320/1600 mg |
-| 15–30 | 2 x 1 amp | 160/800 mg |
-| <15 | avoid without HD due to toxicity risk |
-| CRRT | 2 x 2 amp | 320/1600 mg |
-| IHD | 1 amp after HD | 80/400 mg |
 
 ---
 

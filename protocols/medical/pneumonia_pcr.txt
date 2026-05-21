@@ -2,19 +2,121 @@
 
 ---
 
-# GENERAL PRINCIPLES
+## PROTOCOL_NAME
 
-The BioFire Pneumonia Panel is used for rapid identification of respiratory pathogens and selected resistance markers.
+BioFire Pneumonia Panel interpretation protocol
 
-The chatbot must:
-- interpret detected pathogens
-- recommend protocol-based antimicrobial therapy
-- identify resistance genes
-- support antimicrobial stewardship
-- recognize when antibiotics are unnecessary
-- encourage infectious diseases consultation in complex cases
+---
 
-Conventional microbiology and susceptibility testing remain the definitive standard.
+## ALIASES
+
+- BioFire PN
+- pneumonia PCR
+- Biofire pneumonia panel
+- pneumonia panel
+- respiratory PCR
+- PN panel
+
+---
+
+## REQUIRED_INFORMATION
+
+Required before final pathway selection:
+- Was any pathogen detected on the BioFire Pneumonia Panel?
+
+Relevant bacterial pathogens include:
+- Acinetobacter calcoaceticus-baumannii complex
+- Enterobacter cloacae
+- Escherichia coli
+- Haemophilus influenzae
+- Klebsiella aerogenes
+- Klebsiella oxytoca
+- Klebsiella pneumoniae group
+- Moraxella catarrhalis
+- Proteus spp.
+- Pseudomonas aeruginosa
+- Serratia marcescens
+- Staphylococcus aureus
+- Streptococcus agalactiae
+- Streptococcus pneumoniae
+- Streptococcus pyogenes
+
+Relevant atypical pathogens:
+- Legionella pneumophila
+- Mycoplasma pneumoniae
+- Chlamydia pneumoniae
+
+Relevant viral pathogens:
+- Influenza A/B
+- Adenovirus
+- Coronavirus
+- Parainfluenza virus
+- RSV
+- Rhinovirus/Enterovirus
+- Human metapneumovirus
+- MERS coronavirus
+
+If no pathogen/result specified:
+- ask which organism/pathogen/resistance marker was detected.
+
+Do NOT provide organism-specific interpretation before pathogen information is available.
+
+---
+
+## PREFERRED_INFORMATION
+
+Helpful for interpretation and escalation:
+- Any resistance genes positive?
+- Polymicrobial infection present?
+- Intubated/mechanically ventilated?
+- CAP vs VAP?
+- Shock/hemodynamic instability?
+- Prior microbiology available?
+- Colonization vs confirmed infection suspected?
+
+Resistance markers include:
+- CTX-M
+- IMP
+- KPC
+- NDM
+- VIM
+- OXA-48-like
+- mecA/C
+- MREJ
+
+If resistance information missing:
+- provide organism-based interpretation first if possible
+- then ask for resistance markers when relevant.
+
+---
+
+## MODIFIER_INFORMATION
+
+These may modify therapy/escalation:
+- CTX-M positivity
+- carbapenemase genes
+- mecA/C or MREJ positivity
+- polymicrobial infection
+- VAP/mechanical ventilation
+- septic shock
+- colonization vs infection
+- prior resistant microbiology
+
+---
+
+## DEFAULT_ANSWER
+
+No default answer defined.
+
+If pathogen/result information missing:
+- ask which pathogen or resistance marker was detected.
+- do NOT list the full organism-treatment table unless explicitly requested.
+
+If partial BioFire information exists:
+- provide the matching interpretation first
+- then ask for missing preferred information.
+
+---
 
 ---
 

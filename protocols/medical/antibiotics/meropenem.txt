@@ -34,46 +34,80 @@ Label this as:
 - high-dose empiric ICU dosing
 - not final individualized dosing
 
-Do NOT refuse dosing solely because:
-- obesity present
-- indication not yet specified
-- renal function not yet specified
+If the user asks a broad/under-specified meropenem dosing question:
+- provide MAGAS dosing first
+- then ask for the missing preferred information.
 
-Do NOT list all dosing tiers unless explicitly requested.
+Do NOT:
+- refuse dosing solely because information incomplete
+- list all dosing tiers unless explicitly requested.
 
 ---
 
 ## REQUIRED_INFORMATION
 
-No absolutely required information before giving default empiric dosing.
+No absolutely required information before giving default empiric ICU dosing.
 
 ---
 
 ## PREFERRED_INFORMATION
 
-After giving default or partial dosing, ask for:
+After providing default or partial dosing, ask for:
+
 - indication/infection type
+  Examples:
+  - septic shock
+  - HAP/VAP
+  - CNS infection
+  - intraabdominal infection
+  - ESBL infection
+  - empiric ICU sepsis treatment
+
 - renal function/GFR
+
 - CRRT/IHD
+
+- pathogen or microbiology result if available
+
+- septic shock present?
+  - specifically:
+    - first 24h of septic shock?
+
 - ARC suspicion
+
 - CNS infection
-- pathogen/MIC
+
 - TDM availability
 
 ---
 
 ## MODIFIER_INFORMATION
 
-These may modify dosing tier:
-- septic shock
-- ARC
-- CNS infection
-- CRRT
-- IHD
-- severe AKI
-- TDM result
-- pathogen MIC
+These modify dosing tier selection:
 
+- first 24h of septic shock
+  -> MAGAS
+
+- ARC
+  -> MAGAS
+
+- CNS infection
+  -> PLUSZ
+
+- persistent subtherapeutic TDM
+  -> PLUSZ
+
+- GFR <20 without CRRT
+  -> CSÖKKENTETT
+
+- CRRT
+  -> CRRT pathway
+
+- intermittent hemodialysis
+  -> IHD pathway
+
+- pathogen MIC/TDM result
+  -> individualized adjustment
 ---
 
 ## INDICATIONS

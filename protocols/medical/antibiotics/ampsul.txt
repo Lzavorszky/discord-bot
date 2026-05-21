@@ -27,45 +27,50 @@ High-dose ampicillin/sulbactam protocol for multidrug-resistant Acinetobacter in
 ## ANSWER_POLICY
 
 Can default dosing be given if some information is missing?
-- yes
+- no
 
-Default empiric dosing if renal function not yet specified:
-- use GFR ≥60 dosing as default empiric ICU dosing
+High-dose ampicillin/sulbactam dosing depends strongly on:
+- renal function
+- CRRT/IHD status
+- confirmed MACI/CRAB infection
 
-Label this as:
-- empiric high-dose ICU dosing
-- not final individualized dosing
+Do NOT provide dosing before required information is available.
 
-Do NOT refuse dosing solely because:
-- resistance confirmation missing
-- sulbactam inhibition zone unavailable
-- bloodstream infection status unknown
-- colonization vs infection not yet clarified
+Do NOT provide empiric/default dosing.
 
 Do NOT list all dosing tiers unless explicitly requested.
+
+Instead:
+- ask for the required information first
+- then provide the matching dosing recommendation.
 
 ---
 
 ## REQUIRED_INFORMATION
 
-Required before FINAL individualized dosing:
+Required before dosing:
 - current renal function/GFR
-- CRRT or intermittent hemodialysis (IHD)
+- CRRT or intermittent hemodialysis (IHD)?
+- is this confirmed MACI/CRAB infection?
 
-If renal function unknown:
-- provide default GFR ≥60 dosing first
-- then ask for renal function
+Preferably clarify:
+- bloodstream infection present?
+
+If renal function not provided:
+- ask for GFR/eGFR
+- ask if CRRT or IHD present
+
+If resistance confirmation unclear:
+- ask whether Acinetobacter is carbapenem resistant (CRAB/MACI)
+
+Do NOT provide dosing before required information is available.
 
 ---
 
 ## PREFERRED_INFORMATION
 
-After giving default or partial dosing, ask for:
-- carbapenem resistance confirmed? (CRAB/MACI)
-- confirmed infection vs colonization?
-- bloodstream infection present?
+After providing dosing, clarify when relevant:
 - sulbactam inhibition zone?
-- tigecycline MIC?
 
 ---
 
@@ -79,7 +84,6 @@ These may modify treatment interpretation:
 - sulbactam inhibition zone ≤11 mm
 - tigecycline MIC
 - confirmed carbapenem resistance
-
 ---
 
 ## INDICATIONS
