@@ -1,0 +1,249 @@
+```markdown
+# TMP_SMX
+
+## ALIASES
+
+- TMP/SMX
+- trimethoprim/sulfamethoxazole
+- cotrimoxazole
+- co-trimoxazole
+- Sumetrolim
+- Cotrim
+
+---
+## General behavioral remarks
+- should ask for indication and renal function unless specified in the conversation
+- give dosing advice for given indication and renal function rather than provide long tables
+
+## INDICATIONS
+
+### PROPHYLAXIS
+
+#### PCP prophylaxis in immunosuppressed patients
+
+Recommended regimen:
+- 1 tablet daily
+OR
+- 1 tablet three times weekly
+
+Recommendation:
+- discuss with hematologist
+
+---
+
+### STANDARD_DOSE
+
+Used for:
+- susceptible organism infections
+- non-septic patients
+- oral step-down treatment
+
+Typical dosing:
+- 2 x 2 ampoules IV
+
+---
+
+### MODERATE_DOSE
+
+Used for:
+- severe infections
+- treatment-refractory infections
+- CNS infections
+- skin/soft tissue infections
+- bone/joint infections
+- critically ill patients
+
+Target dose:
+- 8–10 mg/kg/day TMP component
+
+---
+
+### HIGH_DOSE
+
+Used for:
+- Pneumocystis jirovecii pneumonia
+- invasive Stenotrophomonas infection
+- Nocardia infection
+
+Target dose:
+- 15–20 mg/kg/day TMP component
+
+---
+
+## FORMULATION
+
+1 tablet or 1 ampoule contains:
+- 80 mg trimethoprim
+- 400 mg sulfamethoxazole
+
+---
+
+## ENTERAL_ADMINISTRATION
+
+Enteral administration:
+- same dose as IV
+
+If clinically improving:
+- oral conversion recommended
+
+---
+
+# MODERATE_DOSE_TABLE
+
+## Target:
+- 8–10 mg/kg/day TMP component
+
+| Weight | TMP/day | Suggested dosing | Total TMP/SMX |
+|---|---|---|---|
+| 40 kg | 320 mg | 2 x 2 amp | 320/1600 mg |
+| 50 kg | 480 mg | 2 x 3 amp | 480/2400 mg |
+| 60 kg | 480 mg | 2 x 3 amp | 480/2400 mg |
+| 70 kg | 640 mg | 2 x 4 amp | 640/3200 mg |
+| 80 kg | 720 mg | 3 x 3 amp | 720/3600 mg |
+| 90 kg | 720 mg | 3 x 3 amp | 720/3600 mg |
+| 100 kg | 960 mg | 3 x 4 amp | 960/4800 mg |
+
+---
+
+# HIGH_DOSE_TABLE
+
+## Target:
+- 15–20 mg/kg/day TMP component
+
+| Weight | TMP/day | Suggested dosing | Total TMP/SMX |
+|---|---|---|---|
+| 40 kg | 600 mg | 4 x 2 amp | 640/3200 mg |
+| 50 kg | 750 mg | 3 x 3 amp | 720/3600 mg |
+| 60 kg | 900 mg | 3 x 4 amp | 960/4800 mg |
+| 70 kg | 1050 mg | 3 x 4 amp | 960/4800 mg |
+| 80 kg | 1200 mg | 3 x 5 amp | 1200/6000 mg |
+| 90 kg | 1350 mg | 4 x 4 amp | 1280/6400 mg |
+| 100 kg | 1500 mg | 3 x 6 amp | 1440/7200 mg |
+
+---
+
+## WEIGHT_RULES
+
+- Use actual body weight
+- If BMI >30:
+  - use adjusted body weight (ABW)
+- >100 kg:
+  - individualized dosing decision required
+
+---
+
+## RENAL_DOSING
+
+### General principles
+
+| Renal function | Adjustment |
+|---|---|
+| GFR >30 | no adjustment |
+| GFR 15–30 | give 50% dose |
+| GFR <15 | avoid if alternative exists |
+| CRRT | full dose |
+
+---
+
+## STANDARD_DOSE_RENAL_TABLE
+
+| GFR | Dosing | TMP/SMX |
+|---|---|---|
+| 30+ | 2 x 2 amp | 320/1600 mg |
+| 15–30 | 2 x 1 amp | 160/800 mg |
+| <15 | avoid without HD due to toxicity risk |
+| CRRT | 2 x 2 amp | 320/1600 mg |
+| IHD | 1 amp after HD | 80/400 mg |
+
+---
+
+## MICROBIOLOGY_NOTES
+
+Particularly important pathogens:
+- Pneumocystis jirovecii
+- Stenotrophomonas maltophilia
+- Nocardia spp.
+
+High-dose therapy frequently required in:
+- invasive disease
+- ICU patients
+- pulmonary infections
+
+---
+
+## TOXICITY
+
+Potential adverse effects:
+
+### Hematologic
+- leukopenia
+- thrombocytopenia
+- pancytopenia
+- megaloblastic anemia
+
+### Electrolyte
+- hyperkalemia
+- hyponatremia
+
+### Renal
+- AKI
+- crystalluria
+- pseudo-creatinine elevation
+
+### Hepatic
+- benign liver enzyme elevation
+
+### Hypersensitivity
+- SJS/TEN
+- DRESS
+- idiosyncratic reactions
+
+### Gastrointestinal
+- nausea
+- vomiting
+
+---
+
+## IMPORTANT_WARNINGS
+
+- Hyperkalemia risk significant
+- Toxicity risk increases substantially with renal dysfunction
+- Avoid in severe renal failure if alternatives exist
+- Monitor:
+  - CBC
+  - creatinine
+  - potassium
+  - sodium
+
+---
+
+## ICU_NOTES
+
+- High-dose therapy commonly needed in ICU infections
+- Particularly useful for:
+  - Stenotrophomonas
+  - Pneumocystis
+  - Nocardia
+
+In severe infections:
+- do not underdose
+
+---
+
+## SPECIAL_POPULATIONS
+
+### Obesity
+- use ABW if BMI >30
+
+### CRRT
+- full dosing generally required
+
+### IHD
+- dose after dialysis
+
+---
+
+## COMMENTS
+
+TMP/SMX dosing schemes are heterogeneous and not fully evidence-based. Clinical judgment and infectious diseases consultation may be necessary in severe or unusual infections.
+```

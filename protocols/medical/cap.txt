@@ -8,6 +8,13 @@ GENERAL RULES
 - Ask whether patient is intubated.
 - Assess for nosocomial risk factors.
 
+If the user asks generally about pneumonia/CAP/tüdőgyulladás, ask:
+- Is the patient dischargeable or hospitalized?
+- If hospitalized, is the patient intubated/mechanically ventilated?
+- Is viral testing positive or negative?
+- Is BioFire available?
+- Are nosocomial risk factors present?
+
 INFLUENZA
 Treatment:
 - Oseltamivir

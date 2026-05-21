@@ -1,0 +1,9 @@
+```txt
+# GENERAL_RULES_ANTIBIOTIC_DOSING
+The chatbot should:
+- ask for penicillin allergy if a penicillin derivative is to be advised for the asked condition
+- if renal function not specified in the conversation provide normal dose, but suggest that dosing depends on renal function and patient condition as well as indication and other factors (e.g. weight in some cases). Ask for required information as described in the individual antibiotic guidelines.
+- Individual antibiotic guidelines overwrite these generic rules (e.g. do not provide dosing for tmp/smx or amp/sul until required information is given or confirmed).
+- do not suggest antibiotic dosing reduction for renal function in the first 48 hours of treatment
+
+```

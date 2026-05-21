@@ -1,0 +1,154 @@
+```markdown
+# AMPICILLIN_SULBACTAM_HIGH_DOSE
+
+## ALIASES
+
+- ampicillin/sulbactam
+- AMP/SUL
+- sulbactam high-dose
+
+---
+
+## INDICATIONS
+
+Used only of:
+- MACI (multidrug-resistant Acinetobacter) bloodstream infection
+- this dosing is exclusively for carbapenem resistant Acinetobacter infections (MACI/CRAB)
+- unless explicitly stated in the conversation ask if sulbactam inhibition zone is available, suggest using it only if inhibition zone larger than 11mm
+- unless explicitly stated in the conversation ask if blood cultures are positive for Acinetobacter spp. that is carbapenem resistant (CRAB/MACI)
+- unless blood cultures are positive for CRAB ask if infection is certain/confirmed, suggest using it only for confirmed MACI infections 
+- suggest using it in a combination with an other active agent based on antibiogram (e.g. colistin, tigecyclin)
+
+Usually used:
+- as combination therapy
+- together with another active agent based on antibiogram
+
+---
+
+## SPECTRUM
+
+
+Sulbactam activity is considered clinically useful when:
+- inhibition zone >11 mm
+
+---
+
+## DOSING_PHILOSOPHY
+
+- Continuous infusion preferred
+- Dose optimized for PK/PD target:
+  - 60% fT > MIC
+  - 90% attainment
+  - assuming MIC 32 mg/L
+
+Evidence quality for severe renal dysfunction dosing:
+- low
+
+---
+
+## CONTINUOUS_INFUSION
+
+Standard preparation:
+- dissolve total daily dose in 250 mL NaCl 0.9%
+- administer via volumetric pump
+- infusion rate: 11 mL/h
+
+Bolus administration:
+- possible in:
+  - GFR <15
+  - IHD
+
+---
+
+## GFR_BASED_DOSING
+
+| GFR | Sulbactam | Ampicillin |
+|---|---|---|
+| 60+ | 9 g/day | 18 g/day |
+| 30–60 | 6 g/day | 12 g/day |
+| 15–30 | 3 g/day | 6 g/day |
+| <15 | 2 g/day | 4 g/day |
+| CRRT | 9 g/day | 18 g/day |
+| IHD | 1.5 g/day | 3 g/day |
+
+---
+
+## MICROBIOLOGY_NOTES
+
+At treatment initiation:
+- request:
+  - sulbactam inhibition zone
+  - tigecycline MIC
+
+Interpretation:
+- tigecycline MIC <2 mg/L considered favorable
+- sulbactam inhibition zone >11 mm considered favorable
+
+If inhibition zone <11 mm:
+- sulbactam efficacy questionable
+
+---
+
+## COMBINATION_THERAPY
+
+Treat with:
+- TWO active agents
+
+One should be:
+- sulbactam (if inhibition zone >11 mm)
+
+Second agent:
+- any active agent based on antibiogram
+
+Possible examples:
+- colistin
+- tigecycline
+- cefiderocol
+- others according to susceptibility
+
+---
+
+## TREATMENT_DURATION
+
+Typical duration:
+- 7–14 days
+
+Depends on:
+- source control
+- bacteremia persistence
+- clinical response
+
+---
+
+## PK_PD_TARGETS
+
+Target:
+- 60% fT > MIC
+
+Assumed MIC:
+- 32 mg/L
+
+---
+
+## TOXICITY_AND_WARNINGS
+
+- Evidence base limited in severe renal dysfunction
+- Monitor renal function closely
+- Monitor microbiological response carefully
+- Avoid monotherapy in severe MACI infection
+
+---
+
+## ICU_NOTES
+
+- Primarily intended for severe ICU infections
+- Particularly bloodstream infection due to resistant Acinetobacter
+- Early microbiology consultation recommended
+- Infectious diseases consultation strongly advised
+
+---
+
+## COMMENTS
+
+This protocol is intended for severe multidrug-resistant Acinetobacter infections and should generally be interpreted together with local microbiology and infectious diseases consultation.
+```

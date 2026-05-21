@@ -1,0 +1,245 @@
+```markdown
+# MEROPENEM
+
+## ALIASES
+
+- meropenem
+- mero
+
+---
+
+## INDICATIONS
+
+Common ICU indications:
+- severe sepsis
+- septic shock
+- nosocomial pneumonia
+- HAP/VAP
+- ESBL-producing Enterobacterales
+- severe intraabdominal infection
+- CNS infection
+- empiric ICU therapy
+- AmpC-risk Enterobacter infections
+- resistant gram-negative infections
+
+---
+
+## SPECTRUM
+
+Broad-spectrum carbapenem with activity against:
+- Enterobacterales
+- ESBL-producing organisms
+- Pseudomonas aeruginosa
+- anaerobes
+- many gram-positive organisms
+
+Limited or unreliable against:
+- MRSA
+- VRE
+- some carbapenem-resistant organisms
+- MACI
+
+---
+
+## DOSING_PHILOSOPHY
+
+- Continuous infusion preferred
+- PK/PD-driven dosing
+- Full-dose therapy recommended in early septic shock
+- Higher doses may be required in:
+  - ARC
+  - CNS infection
+  - severe infections
+
+---
+
+## PREPARATION
+
+Standard preparation:
+- 1 g meropenem in 50 mL NaCl 0.9%
+
+Administered:
+- as continuous infusion over 24 hours
+
+---
+
+# DOSING_TIERS
+
+| Tier | Typical indication |
+|---|---|
+| PLUSZ | CNS infection, subtherapeutic level, step-up |
+| MAGAS | septic shock first 24 h, ARC suspicion |
+| ÁTLAGOS | standard ICU dosing |
+| CSÖKKENTETT | severe renal dysfunction |
+
+---
+
+## GFR_BASED_DOSING
+
+| Tier | Daily dose | Administration interval | Pump setting |
+|---|---|---|---|
+| PLUSZ | 6 g/day | q4h | 12.5 mL/h |
+| MAGAS | 4 g/day | q6h | 8.4 mL/h |
+| ÁTLAGOS | 3 g/day | q8h | 6.3 mL/h |
+| CSÖKKENTETT | 1 g/day | 0.5 g q12h | 4.2 mL/h |
+| CRRT | 3 g/day | q8h | 6.3 mL/h |
+
+---
+
+## PLUSZ_DOSE
+
+Used for:
+- CNS infections
+- persistent subtherapeutic levels
+- step-up dosing
+
+Dose:
+- 6 g/day
+
+---
+
+## HIGH_DOSE
+
+Used for:
+- septic shock empiric therapy
+- first 24 hours
+- GFR >90 until TDM result available
+
+Dose:
+- 4 g/day
+
+---
+
+## STANDARD_DOSE
+
+Used for:
+- GFR 20–90
+- standard ICU infections
+
+Dose:
+- 3 g/day
+
+---
+
+## REDUCED_DOSE
+
+Used for:
+- GFR <20
+- IHD patients
+
+Dose:
+- 1 g/day
+OR
+- 0.5 g q12h
+
+Important:
+- due to low daily dose, administration differs from standard regimen
+
+---
+
+## CRRT
+
+Typical CRRT dosing:
+- 3 g/day
+
+Assumes:
+- standard effluent rate <40 mL/kg/h
+
+---
+
+## IHD
+
+Typical dosing:
+- 0.5 g q12h
+
+Requires:
+- individualized consideration
+- TDM strongly encouraged
+
+---
+
+## TDM
+
+### Availability
+
+- external laboratory
+- Semmelweis University
+
+### Sampling
+
+- send morning sample
+- during continuous infusion
+
+---
+
+## TDM_INDICATIONS
+
+Routine TDM:
+- NOT generally required
+
+Recommended when:
+- ARC suspected
+- GFR >90 with urine output >2000 mL/day
+- severe AKI
+- IHD
+- CRRT
+- difficult-to-control infection
+- poor clinical response
+- infective endocarditis
+- abscess systems
+- persistent infection
+
+---
+
+## PK_PD_TARGETS
+
+Target:
+- concentration above pathogen MIC
+
+If MIC unknown:
+- >8 mg/L generally acceptable
+
+---
+
+## TOXICITY
+
+Known toxic threshold:
+- not fully established
+
+Generally considered safe:
+- <45 mg/L
+
+If >45 mg/L:
+- dose reduction recommended
+
+---
+
+## IMPORTANT_WARNINGS
+
+- ARC frequently causes underdosing
+- Continuous infusion strongly preferred in ICU
+- CNS infections may require higher exposure
+- Do not reduce dose early in septic shock solely due to renal dysfunction
+
+---
+
+## MICROBIOLOGY_NOTES
+
+Common targeted pathogens:
+- ESBL Enterobacterales
+- AmpC-risk Enterobacter spp.
+- Pseudomonas aeruginosa
+- polymicrobial abdominal infection
+
+Not reliable for:
+- MRSA
+- VRE
+- many carbapenemase-producing organisms
+
+---
+
+
+## COMMENTS
+
+Continuous infusion meropenem is used to maximize PK/PD target attainment in critically ill patients. Dose individualization and microbiology-guided de-escalation are central stewardship principles.
+```
