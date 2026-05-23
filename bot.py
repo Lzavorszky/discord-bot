@@ -234,10 +234,24 @@ def get_source_label_for_file(file_path, text):
     return derive_source_label(file_path)
 
 
+# Rule files that must never be loaded as protocol chunks even if they end up
+# inside the protocols/ folder by mistake.
+EXCLUDED_FROM_PROTOCOLS = {
+    "system_rules.txt",
+    "answer_format_rules.txt",
+    "answer_style_rules.txt",
+    "safety_rules.txt",
+    "aliases.json",
+}
+
+
 def load_protocols():
     global PROTOCOL_CHUNKS
     files = glob.glob("protocols/**/*.txt", recursive=True)
     for file_path in files:
+        if Path(file_path).name in EXCLUDED_FROM_PROTOCOLS:
+            print(f"Skipping rule file found inside protocols/: {file_path}")
+            continue
         with open(file_path, "r", encoding="utf-8") as f:
             text = f.read()
         source_label = get_source_label_for_file(file_path, text)
