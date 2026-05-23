@@ -54,9 +54,7 @@ CHAT_MODEL      = "gpt-4o-mini"
 
 MAX_HISTORY_TURNS = 10
 
-SAFETY_FOOTER = (
-    "\n⚠️ A végső döntés a tiéd."
-)
+SAFETY_FOOTER = "  ⚠️ de ellenőrizd!"
 
 START_MESSAGE = (
     "Bár sokat tud, ez végső soron csak egy chatbot, aki néhány txt fájlt olvasgat.\n"
@@ -672,7 +670,7 @@ def clean_response(text, source_label):
         text = _NOT_SPEC_RE.sub('', text)       # 4. remove contradictory "not specified"
     text = _BLANK_RE.sub('\n\n', text).strip()  # 5. tidy blank lines
     if source_label:
-        text = text + f'\n\nSource: {source_label}'   # 6. append correct source
+        text = text + f'\n\nSource: {source_label}{SAFETY_FOOTER}'   # 6. append correct source
     return text
 
 
@@ -762,7 +760,6 @@ def ask_ai(question, chat_id):
 
     source_label = recognized.get("source_label") if recognized else None
     answer = clean_response(raw_answer, source_label)
-    answer = answer + SAFETY_FOOTER
 
     # Update conversation history, trim to MAX_HISTORY_TURNS pairs
     history = history + [
