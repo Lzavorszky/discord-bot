@@ -248,22 +248,46 @@ def load_protocols():
     print(f"Loaded {len(PROTOCOL_CHUNKS)} protocol chunks")
 
 
-def search_protocols(question, top_k=3, preferred_file=None):
+def search_protocols(question, top_k=3, preferred_file=None, guaranteed_slots=2):
+    """
+    When preferred_file is set, guarantee at least `guaranteed_slots` of the
+    returned chunks come from that file — regardless of how other files score.
+    This prevents a semantically strong but wrong protocol from crowding out
+    the actively selected one during a multi-turn dosing conversation.
+    """
     question_embedding = get_embedding(question)
     preferred_file_norm = normalize_path(preferred_file) if preferred_file else None
-    results = []
+
+    preferred_chunks = []
+    other_chunks = []
+
     for chunk in PROTOCOL_CHUNKS:
         similarity = float(np.dot(question_embedding, chunk["embedding"]))
-        if preferred_file_norm and normalize_path(chunk["source"]) == preferred_file_norm:
-            similarity += 0.20
-        results.append({
+        entry = {
             "source":       chunk["source"],
             "source_label": chunk["source_label"],
             "text":         chunk["text"],
             "similarity":   similarity,
-        })
-    results.sort(key=lambda x: x["similarity"], reverse=True)
-    return results[:top_k]
+        }
+        if preferred_file_norm and normalize_path(chunk["source"]) == preferred_file_norm:
+            preferred_chunks.append(entry)
+        else:
+            other_chunks.append(entry)
+
+    preferred_chunks.sort(key=lambda x: x["similarity"], reverse=True)
+    other_chunks.sort(key=lambda x: x["similarity"], reverse=True)
+
+    if preferred_file_norm and preferred_chunks:
+        # Always give the active protocol file its guaranteed slots first,
+        # then fill the remainder with the best chunks from other files.
+        slots_for_preferred = min(guaranteed_slots, len(preferred_chunks), top_k)
+        slots_for_others = top_k - slots_for_preferred
+        return preferred_chunks[:slots_for_preferred] + other_chunks[:slots_for_others]
+
+    # No preferred file — pure semantic search across everything
+    all_chunks = preferred_chunks + other_chunks
+    all_chunks.sort(key=lambda x: x["similarity"], reverse=True)
+    return all_chunks[:top_k]
 
 
 def format_debug_output(retrieved_chunks):
@@ -340,8 +364,11 @@ def ask_ai(question, channel_id):
         normalized_question, top_k=3, preferred_file=preferred_file
     )
 
+    # Expose only the human-readable source_label to the model, never the file path.
+    # This prevents the model from echoing "protocols/medical/antibiotics/tmpsmx.txt"
+    # in its replies despite the answer_format_rules telling it not to.
     context = "\n\n---\n\n".join(
-        f"Source label: {c['source_label']}\n{c['text']}"
+        f"Source: {c['source_label']}\n{c['text']}"
         for c in retrieved_chunks
     )
 
