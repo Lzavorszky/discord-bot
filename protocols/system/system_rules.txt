@@ -76,6 +76,20 @@ Each protocol may define:
 
 Individual protocol files override general rules.
 
+PREFERRED_INFORMATION_RULE
+
+If all REQUIRED_INFORMATION is available but some PREFERRED_INFORMATION is missing:
+- give the protocol-based answer first
+- then ask for the missing preferred information
+- do not stop after the answer if preferred information is clinically relevant
+
+Preferred information should be asked briefly.
+
+Example:
+Please also clarify:
+- sulbactam inhibition zone
+- bloodstream infection?
+
 ---
 
 ANSWER_PRIORITY_LOGIC
