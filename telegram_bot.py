@@ -21,6 +21,11 @@ import os
 import glob
 import json
 import re
+import hashlib
+import sqlite3
+import logging
+import time
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +54,23 @@ CHAT_MODEL      = "gpt-4o-mini"
 
 MAX_HISTORY_TURNS = 10
 
+SAFETY_FOOTER = (
+    "\n⚠️ A végső döntés a tiéd."
+)
+
+START_MESSAGE = (
+    "Bár sokat tud, ez végső soron csak egy chatbot, aki néhány txt fájlt olvasgat.\n"
+    "\n"
+    "Első a józan ész.\n"
+    "\n"
+    "Parancsok:\n"
+    "  /reset  — beszélgetési előzmények törlése\n"
+    "  /debug <kérdés>  — mutatja, melyik protokoll részletek töltődtek be"
+)
+
+CACHE_DB = "embeddings_cache.db"
+LOG_FILE  = "bot_queries.log"
+
 # ---------------------------------------------------------------------------
 # Global state
 # ---------------------------------------------------------------------------
@@ -66,6 +88,200 @@ SAFETY_RULES        = ""
 # Per-chat conversation state:
 # { chat_id: {"history": [...], "active_recognized": {...} or None} }
 CONVERSATION_STATE = {}
+
+
+# ---------------------------------------------------------------------------
+# Allowlist
+#
+# Only Telegram user IDs in this set can use the bot.
+# Set the ALLOWED_USER_IDS environment variable as a comma-separated list:
+#   ALLOWED_USER_IDS=123456789,987654321
+#
+# To find a Telegram user ID: message @userinfobot on Telegram.
+# If the env var is not set, the bot runs open (no restriction) — fine for
+# local testing but set it before giving access to anyone else.
+# ---------------------------------------------------------------------------
+
+def _load_allowlist():
+    """Return a set of allowed integer user IDs, or empty set if unrestricted."""
+    raw = os.getenv("ALLOWED_USER_IDS", "").strip()
+    if not raw:
+        return set()
+    ids = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            ids.add(int(part))
+        else:
+            print(f"[allowlist] WARNING: ignoring non-numeric entry: {part!r}")
+    return ids
+
+
+ALLOWED_USER_IDS: set = set()  # populated at startup
+
+
+def _is_allowed(user_id: int) -> bool:
+    """Return True if allowlist is empty (open) or user_id is in it."""
+    return not ALLOWED_USER_IDS or user_id in ALLOWED_USER_IDS
+
+
+# ---------------------------------------------------------------------------
+# Startup checks
+# Runs before anything else. Exits immediately with a clear error if
+# something critical is missing — better to crash loudly at boot than
+# silently return wrong answers at 2am.
+# ---------------------------------------------------------------------------
+
+def run_startup_checks():
+    import sys
+    errors = []
+    warnings = []
+
+    # 1. Required environment variables
+    if not os.getenv("TELEGRAM_TOKEN"):
+        errors.append("TELEGRAM_TOKEN environment variable is not set.")
+    if not os.getenv("OPENAI_API_KEY"):
+        errors.append("OPENAI_API_KEY environment variable is not set.")
+
+    # 2. Rule files — bot will answer without personality/safety rules if missing
+    for rule_file in ["system_rules.txt", "answer_format_rules.txt",
+                       "answer_style_rules.txt", "safety_rules.txt"]:
+        if not os.path.exists(rule_file):
+            warnings.append(f"Rule file missing: {rule_file}")
+
+    # 3. aliases.json — must exist and be valid JSON
+    aliases_path = "protocols/aliases.json"
+    if not os.path.exists(aliases_path):
+        errors.append(
+            f"{aliases_path} not found. "
+            "This file must exist at protocols/aliases.json — "
+            "do not keep a copy in the root folder."
+        )
+    else:
+        try:
+            with open(aliases_path, "r", encoding="utf-8") as f:
+                alias_data = json.load(f)
+        except json.JSONDecodeError as e:
+            errors.append(f"{aliases_path} is not valid JSON: {e}")
+            alias_data = {}
+
+        # 4. Every protocol_file referenced in aliases.json must exist on disk
+        for category in ["drugs", "conditions"]:
+            for key, item in alias_data.get(category, {}).items():
+                pf = item.get("protocol_file", "")
+                if pf and not os.path.exists(pf):
+                    errors.append(
+                        f"aliases.json → {key}: protocol_file not found: {pf}"
+                    )
+
+    # 5. protocols/ folder must exist and contain at least one .txt file
+    if not os.path.isdir("protocols"):
+        errors.append("protocols/ folder not found.")
+    else:
+        txt_files = (
+            glob.glob("protocols/*.txt") +
+            glob.glob("protocols/**/*.txt", recursive=True)
+        )
+        real_files = [f for f in txt_files
+                      if Path(f).name not in EXCLUDED_FROM_PROTOCOLS]
+        if not real_files:
+            errors.append("protocols/ folder contains no .txt protocol files.")
+        else:
+            print(f"[startup] Found {len(real_files)} protocol file(s): "
+                  f"{[Path(f).name for f in real_files]}")
+
+    # Report
+    for w in warnings:
+        print(f"[startup] WARNING: {w}")
+    if errors:
+        print()
+        print("=" * 60)
+        print("STARTUP FAILED — fix the following before running the bot:")
+        for e in errors:
+            print(f"  ✗  {e}")
+        print("=" * 60)
+        sys.exit(1)
+
+    if not os.getenv("ALLOWED_USER_IDS", "").strip():
+        print("[startup] WARNING: ALLOWED_USER_IDS is not set — bot is open to everyone.")
+    print(f"[startup] All checks passed.")
+
+
+# ---------------------------------------------------------------------------
+# Structured logging
+#
+# Every query is written as a JSON line to bot_queries.log AND to stdout.
+# JSON-lines format: one complete JSON object per line, easy to grep and parse.
+# The file rotates at 5 MB, keeping 3 old copies (so max ~20 MB on disk).
+# On Railway, stdout is captured in the Railway log viewer automatically.
+#
+# Each log entry contains:
+#   ts              — ISO timestamp
+#   chat_id_hash    — MD5 of the real chat_id (traceable but not identifiable)
+#   user_message    — exactly what the user typed
+#   recognized      — matched drug/condition and confidence, or null
+#   retrieved       — list of {source_label, similarity} for retrieved chunks
+#   raw_llm         — the LLM response before post-processing
+#   final           — the response sent to the user
+#   duration_ms     — total time from message received to response sent
+# ---------------------------------------------------------------------------
+
+def setup_logging():
+    """Call once at startup. Logs go to bot_queries.log and stdout."""
+    # Root logger for general bot messages (print-style)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[logging.StreamHandler()],
+    )
+
+    # Separate structured logger for query audit trail
+    query_logger = logging.getLogger("query")
+    query_logger.setLevel(logging.INFO)
+    query_logger.propagate = False  # don't double-log to root
+
+    # Rotating file: max 5 MB, keep 3 backups
+    fh = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+    fh.setFormatter(logging.Formatter("%(message)s"))  # raw JSON only
+    query_logger.addHandler(fh)
+
+    # Also mirror query log to stdout so Railway captures it
+    sh = logging.StreamHandler()
+    sh.setFormatter(logging.Formatter("%(message)s"))
+    query_logger.addHandler(sh)
+
+    logging.info(f"Logging initialised → {LOG_FILE}")
+    return query_logger
+
+
+# Module-level query logger (populated by setup_logging())
+_query_log = None
+
+
+def _log_query(chat_id, user_message, recognized, retrieved_chunks,
+               raw_llm, final_response, duration_ms):
+    """Write one structured JSON line to the query audit log."""
+    if _query_log is None:
+        return
+    entry = {
+        "ts":            __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "chat_id_hash":  hashlib.md5(str(chat_id).encode()).hexdigest()[:12],
+        "user_message":  user_message,
+        "recognized":    {
+            "display":       recognized["display"],
+            "matched_alias": recognized.get("matched_alias", ""),
+            "confidence":    recognized["confidence"],
+            "protocol_file": recognized.get("protocol_file", ""),
+        } if recognized else None,
+        "retrieved": [
+            {"source_label": c["source_label"], "similarity": round(c["similarity"], 4)}
+            for c in retrieved_chunks
+        ],
+        "raw_llm":    raw_llm,
+        "final":      final_response,
+        "duration_ms": duration_ms,
+    }
+    _query_log.info(json.dumps(entry, ensure_ascii=False))
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +437,83 @@ def normalize_question(question):
 
 
 # ---------------------------------------------------------------------------
+# Embeddings cache (SQLite)
+#
+# Avoids calling the OpenAI embeddings API on every restart.
+# Logic: hash each protocol file's contents; if the hash is already in the
+# cache DB, load stored embeddings instead of recomputing them.
+# The cache file (embeddings_cache.db) lives in the bot root directory.
+# On Railway hobby tier the filesystem is ephemeral (wiped on deploy), so
+# the cache helps with crash-restarts but not fresh deploys. Add a Railway
+# persistent volume later to make it survive deploys too.
+# ---------------------------------------------------------------------------
+
+def _compute_file_hash(file_path):
+    """MD5 fingerprint of a file's contents. Changes if the file changes."""
+    h = hashlib.md5()
+    with open(file_path, "rb") as f:
+        h.update(f.read())
+    return h.hexdigest()
+
+
+def _init_cache_db():
+    """Create the cache table if it doesn't exist yet."""
+    con = sqlite3.connect(CACHE_DB)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS embedding_cache (
+            file_hash    TEXT PRIMARY KEY,
+            source       TEXT NOT NULL,
+            source_label TEXT NOT NULL,
+            chunks_json  TEXT NOT NULL,
+            created_at   TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    con.commit()
+    con.close()
+
+
+def _load_from_cache(file_hash):
+    """Return list of chunk dicts if hash found, else None."""
+    con = sqlite3.connect(CACHE_DB)
+    row = con.execute(
+        "SELECT chunks_json FROM embedding_cache WHERE file_hash = ?",
+        (file_hash,)
+    ).fetchone()
+    con.close()
+    if row is None:
+        return None
+    raw = json.loads(row[0])
+    # Restore numpy arrays from plain lists
+    for chunk in raw:
+        chunk["embedding"] = np.array(chunk["embedding"])
+    return raw
+
+
+def _save_to_cache(file_hash, chunks):
+    """Persist chunks (with embeddings as plain lists) under file_hash."""
+    serialisable = []
+    for chunk in chunks:
+        serialisable.append({
+            "source":       chunk["source"],
+            "source_label": chunk["source_label"],
+            "text":         chunk["text"],
+            "embedding":    chunk["embedding"].tolist(),
+        })
+    con = sqlite3.connect(CACHE_DB)
+    con.execute(
+        """INSERT OR REPLACE INTO embedding_cache
+           (file_hash, source, source_label, chunks_json)
+           VALUES (?, ?, ?, ?)""",
+        (file_hash,
+         chunks[0]["source"],
+         chunks[0]["source_label"],
+         json.dumps(serialisable))
+    )
+    con.commit()
+    con.close()
+
+
+# ---------------------------------------------------------------------------
 # Protocol loading and retrieval
 # ---------------------------------------------------------------------------
 
@@ -266,28 +559,46 @@ def get_source_label_for_file(file_path, text):
 
 def load_protocols():
     global PROTOCOL_CHUNKS
+    _init_cache_db()
+
     # Support both flat and nested protocol folder
     files = list(set(
         glob.glob("protocols/*.txt") +
         glob.glob("protocols/**/*.txt", recursive=True)
     ))
 
-    loaded = 0
+    loaded = cached = fresh = 0
     for file_path in sorted(files):
         if Path(file_path).name in EXCLUDED_FROM_PROTOCOLS:
             print(f"Skipping excluded file: {file_path}")
             continue
+
         with open(file_path, "r", encoding="utf-8") as f:
             text = f.read()
-        source_label = get_source_label_for_file(file_path, text)
-        chunks = chunk_text(text=text, source=file_path, source_label=source_label)
-        for chunk in chunks:
-            chunk["embedding"] = get_embedding(chunk["text"])
-            PROTOCOL_CHUNKS.append(chunk)
-        loaded += 1
-        print(f"  Loaded: {file_path} ({source_label})")
 
-    print(f"Total: {len(PROTOCOL_CHUNKS)} chunks from {loaded} files")
+        file_hash = _compute_file_hash(file_path)
+        cached_chunks = _load_from_cache(file_hash)
+
+        if cached_chunks is not None:
+            # File unchanged — use stored embeddings, no API call
+            PROTOCOL_CHUNKS.extend(cached_chunks)
+            print(f"  [cache] {file_path} ({len(cached_chunks)} chunks)")
+            cached += 1
+        else:
+            # File is new or changed — embed and store
+            source_label = get_source_label_for_file(file_path, text)
+            chunks = chunk_text(text=text, source=file_path, source_label=source_label)
+            for chunk in chunks:
+                chunk["embedding"] = get_embedding(chunk["text"])
+            _save_to_cache(file_hash, chunks)
+            PROTOCOL_CHUNKS.extend(chunks)
+            print(f"  [fresh] {file_path} ({len(chunks)} chunks, embeddings computed)")
+            fresh += 1
+
+        loaded += 1
+
+    print(f"Total: {len(PROTOCOL_CHUNKS)} chunks from {loaded} files "
+          f"({cached} from cache, {fresh} freshly embedded)")
 
 
 def search_protocols(question, top_k=3, preferred_file=None, guaranteed_slots=2):
@@ -404,7 +715,8 @@ def get_chat_state(chat_id):
 
 
 def ask_ai(question, chat_id):
-    state = get_chat_state(chat_id)
+    t_start = time.monotonic()
+    state   = get_chat_state(chat_id)
 
     normalized_question, recognized = normalize_question(question)
 
@@ -446,6 +758,7 @@ def ask_ai(question, chat_id):
 
     source_label = recognized.get("source_label") if recognized else None
     answer = clean_response(raw_answer, source_label)
+    answer = answer + SAFETY_FOOTER
 
     # Update conversation history, trim to MAX_HISTORY_TURNS pairs
     history = history + [
@@ -456,6 +769,17 @@ def ask_ai(question, chat_id):
     if len(history) > max_messages:
         history = history[-max_messages:]
     state["history"] = history
+
+    # Structured audit log — written after response is ready
+    _log_query(
+        chat_id       = chat_id,
+        user_message  = question,
+        recognized    = recognized,
+        retrieved_chunks = retrieved_chunks,
+        raw_llm       = raw_answer,
+        final_response = answer,
+        duration_ms   = round((time.monotonic() - t_start) * 1000),
+    )
 
     return answer
 
@@ -499,13 +823,25 @@ def split_message(text, max_length=4000):
 # Telegram handlers
 # ---------------------------------------------------------------------------
 
+async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(START_MESSAGE)
+
+
 async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update.effective_user.id):
+        return
     chat_id = update.effective_chat.id
     CONVERSATION_STATE.pop(chat_id, None)
     await update.message.reply_text("Conversation history cleared.")
 
 
 async def handle_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update.effective_user.id):
+        await update.message.reply_text(
+            "Ez a bot kórházi dolgozók számára érhető el. "
+            "Ha jogosult vagy a hozzáférésre, kérj meghívót."
+        )
+        return
     chat_id = update.effective_chat.id
     # context.args contains words after /debug
     debug_question = " ".join(context.args).strip() if context.args else ""
@@ -551,6 +887,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not question:
         return
 
+    user_id = update.effective_user.id
+    if not _is_allowed(user_id):
+        await update.message.reply_text(
+            "Ez a bot kórházi dolgozók számára érhető el. "
+            "Ha jogosult vagy a hozzáférésre, kérj meghívót."
+        )
+        return
+
     chat_id = update.effective_chat.id
     await update.message.chat.send_action(action="typing")
 
@@ -565,6 +909,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 def main():
+    run_startup_checks()
+    global _query_log, ALLOWED_USER_IDS
+    ALLOWED_USER_IDS = _load_allowlist()
+    if ALLOWED_USER_IDS:
+        print(f"[startup] Allowlist active: {len(ALLOWED_USER_IDS)} user(s) authorised.")
+    _query_log = setup_logging()
+    logging.info("Bot starting up")
     print("Loading rule files...")
     load_rule_files()
 
@@ -577,6 +928,7 @@ def main():
     print("Starting Telegram bot...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("reset", handle_reset))
     app.add_handler(CommandHandler("clear", handle_reset))
     app.add_handler(CommandHandler("debug", handle_debug))
