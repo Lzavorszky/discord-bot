@@ -304,6 +304,56 @@ def search_protocols(question, top_k=3, preferred_file=None, guaranteed_slots=2)
     return all_chunks[:top_k]
 
 
+# Patterns used by clean_response
+_BOLD_RE        = re.compile(r'\*\*(.+?)\*\*', re.DOTALL)
+_SOURCE_LINE_RE = re.compile(
+    r'[\n\r]?[ \t]*[-•]?[ \t]*'
+    r'(?:Source|Forrás|Source file[s]?|Forrás fájl[ok]?)'
+    r'[ \t]*[:\*]*[ \t]*[`"]?[^\n\r]*',
+    re.IGNORECASE
+)
+_FILE_PATH_RE   = re.compile(r'`?protocols/[^\s`\n\r,;]+`?', re.IGNORECASE)
+_NOT_SPEC_RE    = re.compile(
+    r'[-•]?[ \t]*This is not specified in the uploaded protocol\.?[ \t]*[\n\r]?',
+    re.IGNORECASE
+)
+_BLANK_RE       = re.compile(r'\n{3,}')
+_HAS_DOSING_RE  = re.compile(r'\d+\s*(mg|g|amp|ml|mmol|mcg)', re.IGNORECASE)
+
+
+def clean_response(text, source_label):
+    """
+    Guarantee formatting rules that gpt-4o-mini does not reliably follow:
+      1. Strip markdown bold (**word** → word)
+      2. Remove any model-generated Source / Forrás lines (we append our own)
+      3. Remove stray file paths (protocols/...)
+      4. Remove 'not specified' contradictions when actual dosing was given
+      5. Collapse excessive blank lines
+      6. Append a clean source line at the very end
+    """
+    # 1. Strip bold
+    text = _BOLD_RE.sub(r'\1', text)
+
+    # 2. Remove model-generated source lines
+    text = _SOURCE_LINE_RE.sub('', text)
+
+    # 3. Remove stray file paths
+    text = _FILE_PATH_RE.sub('', text)
+
+    # 4. Remove "not specified" contradiction when dosing content exists
+    if _HAS_DOSING_RE.search(text):
+        text = _NOT_SPEC_RE.sub('', text)
+
+    # 5. Tidy blank lines
+    text = _BLANK_RE.sub('\n\n', text).strip()
+
+    # 6. Append correct source
+    if source_label:
+        text = text + f'\n\nSource: {source_label}'
+
+    return text
+
+
 def format_debug_output(retrieved_chunks):
     debug_text = "DEBUG — retrieved protocol chunks:\n\n"
     for i, chunk in enumerate(retrieved_chunks, start=1):
@@ -334,12 +384,20 @@ def build_recognition_context(recognized):
     )
 
 
+SOURCE_INSTRUCTION = (
+    "DO NOT write a Source line in your response. "
+    "The source is appended automatically after your answer. "
+    "Do not write 'Source:', 'Forrás:', 'Source file:', or any file path."
+)
+
+
 def build_system_prompt(recognized, context):
     return "\n\n".join(filter(None, [
         SYSTEM_RULES,
         ANSWER_FORMAT_RULES,
         ANSWER_STYLE_RULES,
         SAFETY_RULES,
+        SOURCE_INSTRUCTION,
         build_recognition_context(recognized),
         f"PROTOCOL EXCERPTS:\n{context}",
     ]))
@@ -396,7 +454,12 @@ def ask_ai(question, channel_id):
         messages=[{"role": "system", "content": system_prompt}] + messages,
     )
 
-    answer = response.choices[0].message.content
+    raw_answer = response.choices[0].message.content
+
+    # Post-process: strip bold, remove stray file paths, fix source line.
+    # This enforces formatting rules that gpt-4o-mini does not reliably follow.
+    source_label = recognized.get("source_label") if recognized else None
+    answer = clean_response(raw_answer, source_label)
 
     # Update history, trim to MAX_HISTORY_TURNS pairs
     history = history + [
