@@ -4,61 +4,37 @@
       "canonical": "trimethoprim/sulfamethoxazole",
       "display": "TMP/SMX",
       "source_label": "TMP/SMX",
-      "protocol_file": "protocols/medical/antibiotics/tmpsmx.txt",
+      "protocol_file": "protocols/tmpsmx.txt",
       "aliases": [
-        "tmp/smx",
-        "tmp-smx",
-        "tmpsmx",
-        "tmp smx",
-        "trimethoprim sulfamethoxazole",
-        "trimethoprim/sulfamethoxazole",
-        "trimethoprim-sulfamethoxazole",
-        "sulfamethoxazole trimethoprim",
-        "sulfamethoxazole/trimethoprim",
-        "co-trimoxazole",
-        "cotrimoxazole",
-        "co trimoxazole",
-        "sumetrolim",
-        "sumetrolim forte",
-        "sumetrolim tbl",
-        "sumetrolim tablet",
-        "bactrim",
-        "septrin"
+        "tmp/smx", "tmp-smx", "tmpsmx", "tmp smx",
+        "trimethoprim sulfamethoxazole", "trimethoprim/sulfamethoxazole",
+        "trimethoprim-sulfamethoxazole", "sulfamethoxazole trimethoprim",
+        "sulfamethoxazole/trimethoprim", "co-trimoxazole", "cotrimoxazole",
+        "co trimoxazole", "sumetrolim", "sumetrolim forte",
+        "sumetrolim tbl", "sumetrolim tablet", "bactrim", "septrin"
       ]
     },
     "ampicillin_sulbactam": {
       "canonical": "ampicillin/sulbactam",
       "display": "ampicillin/sulbactam",
       "source_label": "ampicillin/sulbactam",
-      "protocol_file": "protocols/medical/antibiotics/ampicillin_sulbactam.txt",
+      "protocol_file": "protocols/ampsul.txt",
       "aliases": [
-        "ampicillin sulbactam",
-        "ampicillin/sulbactam",
-        "ampicillin-sulbactam",
-        "amp sul",
-        "amp/sul",
-        "amp-sul",
-        "ampsul",
-        "ampi sulbactam",
-        "ampicillin + sulbactam",
-        "unasyn",
-        "unacid",
-        "sultamicillin"
+        "ampicillin sulbactam", "ampicillin/sulbactam", "ampicillin-sulbactam",
+        "amp sul", "amp/sul", "amp-sul", "ampsul", "ampi sulbactam",
+        "ampicillin + sulbactam", "unasyn", "unacid", "sultamicillin",
+        "maci", "crab", "sulbactam", "high-dose sulbactam", "sulbactam high dose"
       ]
     },
     "meropenem": {
       "canonical": "meropenem",
       "display": "meropenem",
       "source_label": "meropenem",
-      "protocol_file": "protocols/medical/antibiotics/meropenem.txt",
+      "protocol_file": "protocols/meropenem.txt",
       "aliases": [
-        "meropenem",
-        "mero",
-        "meronem",
-        "meropenemum",
-        "meropenem iv",
-        "meropenem dose",
-        "meropenem dosing"
+        "meropenem", "mero", "meronem", "meropenemum",
+        "meropenem iv", "meropenem dose", "meropenem dosing",
+        "mem", "magas meropenem", "carbapenem"
       ]
     }
   },
@@ -67,42 +43,27 @@
       "canonical": "community-acquired pneumonia",
       "display": "CAP",
       "source_label": "CAP",
-      "protocol_file": "protocols/medical/cap.txt",
+      "protocol_file": "protocols/cap.txt",
       "aliases": [
-        "cap",
-        "community acquired pneumonia",
-        "community-acquired pneumonia",
-        "community pneumonia",
-        "otthon szerzett pneumonia",
-        "területen szerzett pneumonia",
-        "teruleten szerzett pneumonia",
-        "pneumonia cap",
-        "tüdőgyulladás",
-        "tudogyulladas",
-        "pneumonia"
+        "cap", "community acquired pneumonia", "community-acquired pneumonia",
+        "community pneumonia", "otthon szerzett pneumonia",
+        "területen szerzett pneumonia", "teruleten szerzett pneumonia",
+        "pneumonia cap", "tüdőgyulladás", "tudogyulladas", "pneumonia",
+        "copd exacerbation", "copd exacerbáció", "aspiration pneumonia",
+        "aspirációs pneumonia"
       ]
     },
     "biofire": {
       "canonical": "BioFire PCR protocol",
       "display": "BioFire",
       "source_label": "BioFire",
-      "protocol_file": "protocols/medical/biofire.txt",
+      "protocol_file": "protocols/pneumonia_pcr.txt",
       "aliases": [
-        "biofire",
-        "biofire pcr",
-        "biofire panel",
-        "pcr panel",
-        "multiplex pcr",
-        "pneumonia pcr",
-        "pneumonia panel",
-        "ji panel",
-        "joint infection panel",
-        "biofire joint infection",
-        "biofire pneumonia",
-        "filmarray",
-        "film array",
-        "filmarray pneumonia",
-        "filmarray ji"
+        "biofire", "biofire pcr", "biofire panel", "pcr panel",
+        "multiplex pcr", "pneumonia pcr", "pneumonia panel",
+        "ji panel", "joint infection panel", "biofire joint infection",
+        "biofire pneumonia", "filmarray", "film array",
+        "filmarray pneumonia", "filmarray ji"
       ]
     }
   }

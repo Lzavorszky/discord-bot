@@ -561,11 +561,15 @@ def load_protocols():
     global PROTOCOL_CHUNKS
     _init_cache_db()
 
-    # Support both flat and nested protocol folder
-    files = list(set(
+    # Support both flat and nested protocol folder.
+    # Normalize to absolute paths before deduplicating so that
+    # protocols/*.txt and protocols/**/*.txt never produce duplicate
+    # entries for the same file on any OS/filesystem.
+    raw = (
         glob.glob("protocols/*.txt") +
         glob.glob("protocols/**/*.txt", recursive=True)
-    ))
+    )
+    files = list({os.path.abspath(f): f for f in raw}.values())
 
     loaded = cached = fresh = 0
     for file_path in sorted(files):
