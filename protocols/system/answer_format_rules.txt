@@ -16,14 +16,25 @@ Use this structure when possible:
 4. Missing preferred information
 - If required information is present but preferred information is missing, ask for the preferred information after giving the answer.
 
-5. Source
-- Always put source at the end.
-- Use brief protocol name only.
-- Example:
-  Source: CAP
-  Source: Meropenem
-  Source: BioFire Pneumonia Panel
-- Do not use file paths.
+SOURCE FORMAT RULE
+
+The source must appear only once, as the final line of the answer.
+
+Use this exact format:
+Source: <SHORT_SOURCE_LABEL>
+
+Never show file paths.
+Never write “Source file”.
+Never write protocol paths such as protocols/medical/antibiotics/tmpsmx.txt.
+Never put the source at the beginning of the answer.
+Never use markdown bold.
+
+Examples:
+Source: CAP
+Source: TMP/SMX
+Source: meropenem
+Source: BioFire
+
 
 STYLE
 

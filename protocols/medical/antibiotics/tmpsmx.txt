@@ -5,15 +5,10 @@
 Trimethoprim/sulfamethoxazole ICU dosing protocol
 
 ---
-
-## ALIASES
-
-- TMP/SMX
-- trimethoprim/sulfamethoxazole
-- cotrimoxazole
-- co-trimoxazole
-- Sumetrolim
-- Cotrim
+source_label: TMP/SMX
+canonical_name: trimethoprim/sulfamethoxazole
+aliases: tmp/smx, tmpsmx, co-trimoxazole, cotrimoxazole, sumetrolim, sumetrolim forte
+---
 
 ---
 
