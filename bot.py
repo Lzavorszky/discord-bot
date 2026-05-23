@@ -25,7 +25,7 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 EMBEDDING_MODEL = "text-embedding-3-small"
-CHAT_MODEL = "gpt-5.4-mini"
+CHAT_MODEL = "gpt-4o-mini"
 
 PROTOCOL_CHUNKS = []
 
@@ -36,6 +36,10 @@ PROTOCOL_FILE_TO_LABEL = {}
 SYSTEM_RULES = ""
 ANSWER_FORMAT_RULES = ""
 ANSWER_STYLE_RULES = ""
+
+# Per-channel conversation history: {channel_id: [{"role": ..., "content": ...}, ...]}
+CONVERSATION_HISTORY = {}
+MAX_HISTORY_TURNS = 10   # keep last N user+assistant pairs
 
 
 # -----------------------------
@@ -232,7 +236,7 @@ def normalize_question(question):
 
         normalized_question = (
             question
-            + f"\n\nPossible recognized term: {data['display']}"
+            + f"\nPossible recognized term: {data['display']}"
             + f"\nCanonical term: {data['canonical']}"
         )
 
@@ -386,7 +390,22 @@ Confidence: {recognized["confidence"]}
 """.strip()
 
 
-def ask_ai(question):
+def build_system_prompt(recognized, context):
+    return f"""
+{SYSTEM_RULES}
+
+{ANSWER_FORMAT_RULES}
+
+{ANSWER_STYLE_RULES}
+
+{build_recognition_context(recognized)}
+
+PROTOCOL EXCERPTS:
+{context}
+""".strip()
+
+
+def ask_ai(question, channel_id):
     normalized_question, recognized = normalize_question(question)
 
     preferred_file = recognized.get("protocol_file") if recognized else None
@@ -404,36 +423,36 @@ def ask_ai(question):
         ]
     )
 
-    recognition_context = build_recognition_context(recognized)
+    system_prompt = build_system_prompt(recognized, context)
 
-    system_content = f"""
-{SYSTEM_RULES}
+    # Retrieve or initialise per-channel history
+    history = CONVERSATION_HISTORY.get(channel_id, [])
 
-{ANSWER_FORMAT_RULES}
+    # Build the message list: history + current user message
+    messages = history + [{"role": "user", "content": question}]
 
-{ANSWER_STYLE_RULES}
-
-{recognition_context}
-
-PROTOCOL EXCERPTS:
-{context}
-""".strip()
-
-    response = openai_client.responses.create(
+    # Call OpenAI chat completions (compatible with gpt-4o-mini and similar)
+    response = openai_client.chat.completions.create(
         model=CHAT_MODEL,
-        input=[
-            {
-                "role": "system",
-                "content": system_content
-            },
-            {
-                "role": "user",
-                "content": question
-            }
-        ],
+        messages=[{"role": "system", "content": system_prompt}] + messages,
     )
 
-    return response.output_text
+    answer = response.choices[0].message.content
+
+    # Update history
+    history = history + [
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": answer},
+    ]
+
+    # Trim to last MAX_HISTORY_TURNS pairs (each pair = 2 messages)
+    max_messages = MAX_HISTORY_TURNS * 2
+    if len(history) > max_messages:
+        history = history[-max_messages:]
+
+    CONVERSATION_HISTORY[channel_id] = history
+
+    return answer
 
 
 # -----------------------------
@@ -481,7 +500,15 @@ async def on_message(message):
     if not question:
         return
 
+    channel_id = message.channel.id
+
     async with message.channel.typing():
+
+        # /reset clears conversation history for this channel
+        if question.lower() in ("/reset", "/clear"):
+            CONVERSATION_HISTORY.pop(channel_id, None)
+            await message.channel.send("Conversation history cleared.")
+            return
 
         if question.lower().startswith("/debug"):
             debug_question = question.replace("/debug", "", 1).strip()
@@ -512,7 +539,7 @@ async def on_message(message):
                 answer += format_debug_output(retrieved_chunks)
 
         else:
-            answer = ask_ai(question)
+            answer = ask_ai(question, channel_id)
 
     for chunk in split_message(answer):
         await message.channel.send(chunk)
