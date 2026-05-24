@@ -225,15 +225,21 @@ def run_startup_checks():
 # ---------------------------------------------------------------------------
 
 def setup_logging():
-    """Call once at startup. Logs go to bot_queries.log and stdout."""
-    # Root logger for general bot messages (print-style)
+    """Call once at startup. Full JSON logs go to bot_queries.log (file only).
+    Short human-readable summaries go to stdout so Railway captures them cleanly."""
+    import sys
+
+    # Root logger for general bot messages — stdout, so Railway shows them without [err]
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[logging.StreamHandler()],
+        handlers=[logging.StreamHandler(sys.stdout)],
     )
 
-    # Separate structured logger for query audit trail
+    # Separate structured logger for full JSON audit trail — FILE ONLY.
+    # We do NOT add a StreamHandler here: Railway truncates long JSON lines when
+    # copying/downloading logs, making them appear blank. Use _log_query_stdout()
+    # for a short human-readable summary instead.
     query_logger = logging.getLogger("query")
     query_logger.setLevel(logging.INFO)
     query_logger.propagate = False  # don't double-log to root
@@ -242,11 +248,6 @@ def setup_logging():
     fh = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
     fh.setFormatter(logging.Formatter("%(message)s"))  # raw JSON only
     query_logger.addHandler(fh)
-
-    # Also mirror query log to stdout so Railway captures it
-    sh = logging.StreamHandler()
-    sh.setFormatter(logging.Formatter("%(message)s"))
-    query_logger.addHandler(sh)
 
     logging.info(f"Logging initialised → {LOG_FILE}")
     return query_logger
@@ -258,28 +259,62 @@ _query_log = None
 
 def _log_query(chat_id, user_message, recognized, retrieved_chunks,
                raw_llm, final_response, duration_ms):
-    """Write one structured JSON line to the query audit log."""
-    if _query_log is None:
-        return
-    entry = {
-        "ts":            __import__("datetime").datetime.utcnow().isoformat() + "Z",
-        "chat_id_hash":  hashlib.md5(str(chat_id).encode()).hexdigest()[:12],
-        "user_message":  user_message,
-        "recognized":    {
-            "display":       recognized["display"],
-            "matched_alias": recognized.get("matched_alias", ""),
-            "confidence":    recognized["confidence"],
-            "protocol_file": recognized.get("protocol_file", ""),
-        } if recognized else None,
-        "retrieved": [
-            {"source_label": c["source_label"], "similarity": round(c["similarity"], 4)}
-            for c in retrieved_chunks
-        ],
-        "raw_llm":    raw_llm,
-        "final":      final_response,
-        "duration_ms": duration_ms,
-    }
-    _query_log.info(json.dumps(entry, ensure_ascii=False))
+    """Write full JSON to the audit log file AND a short readable summary to stdout.
+
+    The JSON in the file is the full audit record (raw_llm + final included).
+    The stdout summary is intentionally short so Railway log copy/download never
+    truncates it — it's what you read when debugging.
+
+    Summary format example:
+      [Q] a3f2c1 | "Sumetrolim, Steno BSI, 60 kg, GFR 60" → TMP/SMX (exact)
+      [R] TMP/SMX:0.89  TMP/SMX:0.85  TMP/SMX:0.81
+      [A] Stenotrophomonas BSI → high-dose TMP/SMX. GFR 60: no renal adjustment...  [1843ms]
+    """
+    import sys
+
+    ts = __import__("datetime").datetime.utcnow().isoformat() + "Z"
+    chat_hash = hashlib.md5(str(chat_id).encode()).hexdigest()[:8]
+
+    # ── Full JSON to file ──────────────────────────────────────────────────
+    if _query_log is not None:
+        entry = {
+            "ts":            ts,
+            "chat_id_hash":  chat_hash,
+            "user_message":  user_message,
+            "recognized":    {
+                "display":       recognized["display"],
+                "matched_alias": recognized.get("matched_alias", ""),
+                "confidence":    recognized["confidence"],
+                "protocol_file": recognized.get("protocol_file", ""),
+            } if recognized else None,
+            "retrieved": [
+                {"source_label": c["source_label"], "similarity": round(c["similarity"], 4)}
+                for c in retrieved_chunks
+            ],
+            "raw_llm":    raw_llm,
+            "final":      final_response,
+            "duration_ms": duration_ms,
+        }
+        _query_log.info(json.dumps(entry, ensure_ascii=False))
+
+    # ── Short readable summary to stdout (survives Railway log copy) ───────
+    rec_str = (
+        f"{recognized['display']} ({recognized['confidence']})"
+        if recognized else "NO MATCH"
+    )
+    chunks_str = "  ".join(
+        f"{c['source_label']}:{round(c['similarity'], 2)}"
+        for c in retrieved_chunks
+    ) or "none"
+
+    # Truncate the final answer at 120 chars for the summary line
+    answer_preview = (final_response or "").replace("\n", " ").strip()
+    if len(answer_preview) > 120:
+        answer_preview = answer_preview[:117] + "..."
+
+    print(f"[Q] {chat_hash} | {user_message!r} → {rec_str}", flush=True)
+    print(f"[R] {chunks_str}", flush=True)
+    print(f"[A] {answer_preview}  [{duration_ms}ms]", flush=True)
 
 
 # ---------------------------------------------------------------------------
