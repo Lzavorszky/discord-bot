@@ -276,7 +276,9 @@ def _log_query(chat_id, user_message, recognized, retrieved_chunks,
     """
     import sys
 
-    ts = __import__("datetime").datetime.utcnow().isoformat() + "Z"
+    # Timezone-aware UTC (datetime.utcnow() is deprecated in Python 3.12+).
+    import datetime as _dt
+    ts = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
     chat_hash = hashlib.md5(str(chat_id).encode()).hexdigest()[:8]
 
     # ── Full JSON to file ──────────────────────────────────────────────────

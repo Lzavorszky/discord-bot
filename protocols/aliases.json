@@ -49,8 +49,16 @@
         "community pneumonia", "otthon szerzett pneumonia",
         "területen szerzett pneumonia", "teruleten szerzett pneumonia",
         "pneumonia cap", "tüdőgyulladás", "tudogyulladas", "pneumonia",
+        "pneumoniara", "pneumoniában", "pneumoniás", "pneumoniat",
+        "penumonia", "penumoniara", "pneuomonia", "pneuomoniara",
+        "tüdőgyulladásra", "tüdőgyulladásban", "tüdőgyulladással",
+        "tudogyulladasra", "tudogyulladasban",
+        "légúti fertőzés", "leguti fertozes", "leguti", "lrti",
         "copd exacerbation", "copd exacerbáció", "aspiration pneumonia",
-        "aspirációs pneumonia"
+        "aspirációs pneumonia", "aspirachos pneumonia",
+        "hap", "vap", "hospital acquired pneumonia",
+        "ventilator associated pneumonia", "nozokomiális pneumonia",
+        "nosocomial pneumonia", "atipusos pneumonia", "atípusos pneumonia"
       ]
     },
     "biofire": {

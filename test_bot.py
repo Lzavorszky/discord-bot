@@ -202,6 +202,23 @@ ALIAS_CASES = [
 ]
 
 
+# Fuzzy / misspell cases — these exercise the per-word fuzzy + partial_ratio
+# cascade in the real normalize_question(). Match via inline substring matcher
+# would always say None for these, so we test against the real function.
+FUZZY_CASES = [
+    # one-letter swap (ne ↔ en) in the keyword + sentence noise
+    ("Penumoniara mit adjak?",     "CAP"),
+    ("penumonia mit adjak?",       "CAP"),
+    # misspelled drug + sentence noise
+    ("meronemet adjak?",           "meropenem"),
+    # compound alias with typo — exercises partial_ratio fallback
+    ("ampicilin sulbaktam dose",   "ampicillin/sulbactam"),
+    # genuine no-match — must NOT spuriously match to anything
+    ("uti-re mit adjak?",          None),
+    ("vancomycin dose",            None),
+]
+
+
 def test_alias_recognition():
     print("\n=== 1. Alias recognition ===")
     alias_index, _ = load_alias_index()
@@ -212,6 +229,32 @@ def test_alias_recognition():
         result = match_alias(text, alias_index)
         got_display = result["display"] if result else None
         assert_equal(f'recognize: "{text[:50]}"', got_display, expected_display)
+
+
+def test_fuzzy_recognition():
+    """Test the real normalize_question() — covers per-word fuzzy + partial_ratio.
+
+    Requires rapidfuzz and a loaded ALIAS_INDEX. We import the bot module
+    only here so the simple alias tests above stay zero-dependency.
+    """
+    print("\n=== 1b. Fuzzy / misspell recognition ===")
+    try:
+        from telegram_bot import normalize_question, load_aliases, ALIAS_INDEX
+    except ImportError as e:
+        print(f"  WARNING: Could not import telegram_bot: {e}")
+        return
+
+    if not ALIAS_INDEX:
+        load_aliases("protocols/aliases.json")
+        from telegram_bot import ALIAS_INDEX as AI2
+        if not AI2:
+            print("  WARNING: ALIAS_INDEX empty after load — skipping")
+            return
+
+    for text, expected_display in FUZZY_CASES:
+        _, recognized = normalize_question(text)
+        got_display = recognized["display"] if recognized else None
+        assert_equal(f'fuzzy: "{text[:50]}"', got_display, expected_display)
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +373,46 @@ def test_clean_response():
 
 
 # ---------------------------------------------------------------------------
+# 4b. Policy-header extraction (no API)
+# Verifies extract_policy_header() parses ## ANSWER_POLICY / DEFAULT_QUESTION
+# / REQUIRED_INFORMATION / PATHWAY_PRIORITY out of a protocol file and
+# discards other sections. This is what gets injected into the LLM context
+# when an alias-matched protocol is recognized.
+# ---------------------------------------------------------------------------
+
+def test_policy_header_extraction():
+    print("\n=== 4b. Policy-header extraction ===")
+    try:
+        from telegram_bot import extract_policy_header
+    except ImportError as e:
+        print(f"  WARNING: Could not import telegram_bot: {e}")
+        return
+
+    cap_path = "protocols/cap.txt"
+    if not os.path.exists(cap_path):
+        print(f"  WARNING: {cap_path} not found — skipping")
+        return
+
+    with open(cap_path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    header = extract_policy_header(text)
+
+    assert_contains("cap.txt header has ANSWER_POLICY",       header, "## ANSWER_POLICY")
+    assert_contains("cap.txt header has DEFAULT_QUESTION",    header, "## DEFAULT_QUESTION")
+    assert_contains("cap.txt header has REQUIRED_INFORMATION", header, "## REQUIRED_INFORMATION")
+    assert_contains("cap.txt header has PATHWAY_PRIORITY",    header, "## PATHWAY_PRIORITY")
+    # And explicitly does NOT include the treatment-pathway sections —
+    # those should come in via semantic search only, after the gate clears.
+    assert_not_contains("cap.txt header excludes OUTPATIENT_DISCHARGEABLE_CAP",
+                        header, "## OUTPATIENT_DISCHARGEABLE_CAP")
+    assert_not_contains("cap.txt header excludes HOSPITALIZED_CAP_NON_INTUBATED",
+                        header, "## HOSPITALIZED_CAP_NON_INTUBATED")
+    assert_not_contains("cap.txt header excludes INTUBATED_CAP",
+                        header, "## INTUBATED_CAP")
+
+
+# ---------------------------------------------------------------------------
 # 5. Integration tests (require OPENAI_API_KEY + protocol files)
 # ---------------------------------------------------------------------------
 
@@ -371,6 +454,20 @@ INTEGRATION_CASES = [
         "CAP: intubated not specified → ask for it",
         "CAP treatment",
         ["intubated"],
+    ),
+    # Patient status MUST be asked before pathway info. Verifies the
+    # policy-header injection works: even though semantic search returns
+    # treatment-pathway chunks, the ANSWER_POLICY block is always in context.
+    (
+        "CAP: 'mit adjak' without patient status → asks DEFAULT_QUESTION",
+        "Pneumoniara mit adjak?",
+        ["hazaengedhető"],   # part of the DEFAULT_QUESTION wording
+    ),
+    # Same, with misspell — exercises the fuzzy fix AND policy injection together
+    (
+        "CAP: misspelled 'penumoniara' → recognized + asks status",
+        "Penumoniara mit adjak?",
+        ["hazaengedhető"],
     ),
     (
         "Source never contains file path",
@@ -441,9 +538,11 @@ if __name__ == "__main__":
     run_integration = "--all" in sys.argv
 
     test_alias_recognition()
+    test_fuzzy_recognition()
     test_protocol_file_paths()
     test_source_label_derivation()
     test_clean_response()
+    test_policy_header_extraction()
 
     if run_integration:
         test_integration()
