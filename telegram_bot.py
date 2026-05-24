@@ -73,10 +73,14 @@ LOG_FILE  = "bot_queries.log"
 # Global state
 # ---------------------------------------------------------------------------
 
-PROTOCOL_CHUNKS        = []
-ALIASES                = {}
-ALIAS_INDEX            = {}
-PROTOCOL_FILE_TO_LABEL = {}
+PROTOCOL_CHUNKS         = []
+ALIASES                 = {}
+ALIAS_INDEX             = {}
+PROTOCOL_FILE_TO_LABEL  = {}
+# Always-included gating header per protocol file (ANSWER_POLICY,
+# DEFAULT_QUESTION, REQUIRED_INFORMATION, PATHWAY_PRIORITY).
+# Keyed by normalized file path.
+PROTOCOL_POLICY_BY_FILE = {}
 
 SYSTEM_RULES        = ""
 ANSWER_FORMAT_RULES = ""
@@ -413,13 +417,27 @@ def _build_alias_index(alias_data):
 def normalize_question(question):
     """
     Returns (normalized_question, recognized_metadata_or_None).
-    Tries exact match first (longest alias first), then fuzzy if rapidfuzz available.
+
+    Matching cascade (each step short-circuits on hit):
+      1. Substring exact (longest alias first) — catches all spellings
+         already known in aliases.json.
+      2. Per-word fuzzy — split the query into words ≥5 chars and fuzz each
+         word against the alias index. Isolates the keyword from sentence
+         noise like "mit adjak?", which otherwise drags WRatio below the
+         threshold for typical misspells.
+      3. Whole-text partial_ratio — safety net for compound aliases like
+         "ampicillin sulbactam" that are not a single token.
+
+    Thresholds: HIGH ≥88, MED ≥80. Per-word fuzzy on an isolated word
+    scores typical one-letter misspells around 90, so 88 is the sweet
+    spot — high enough to reject random text, low enough to catch the
+    misspells we care about.
     """
     text = question.lower().strip()
     if not ALIAS_INDEX:
         return question, None
 
-    # Exact match — longest first to avoid short-alias collisions
+    # ── 1. Substring exact — longest alias first to avoid short-alias collisions
     for alias in sorted(ALIAS_INDEX.keys(), key=len, reverse=True):
         data = ALIAS_INDEX[alias]
         if len(alias) <= 4:
@@ -437,15 +455,41 @@ def normalize_question(question):
                 "confidence": "exact", "score": 100,
             }
 
-    # Fuzzy match
     if not RAPIDFUZZ_AVAILABLE:
         return question, None
-    match = process.extractOne(text, list(ALIAS_INDEX.keys()), scorer=fuzz.WRatio)
-    if not match:
+
+    # Only fuzz against aliases ≥5 chars. Short aliases like "cap", "mem",
+    # "hap", "vap" produce noisy partial-string matches against unrelated
+    # words (e.g. partial_ratio("vancomycin", "cap") flagged "vancomycin
+    # dose" as CAP). Short aliases are already handled by step 1's exact
+    # word-boundary substring match — bypassing them here removes a class
+    # of false positives without losing any real match.
+    alias_keys = [a for a in ALIAS_INDEX.keys() if len(a) >= 5]
+    best = {"alias": None, "score": 0, "source": ""}
+
+    # ── 2. Per-word fuzzy — only consider words long enough to be meaningful.
+    # Short tokens like "mit", "a", "re", "is" are filler — fuzzing them
+    # against the alias index produces noisy matches.
+    for word in re.findall(r"\w+", text):
+        if len(word) < 5:
+            continue
+        m = process.extractOne(word, alias_keys, scorer=fuzz.WRatio)
+        if m and m[1] > best["score"]:
+            best = {"alias": m[0], "score": m[1], "source": f"word:{word}"}
+
+    # ── 3. Whole-text partial_ratio — multi-word aliases.
+    m2 = process.extractOne(text, alias_keys, scorer=fuzz.partial_ratio)
+    if m2 and m2[1] > best["score"]:
+        best = {"alias": m2[0], "score": m2[1], "source": "partial_ratio"}
+
+    if not best["alias"]:
         return question, None
-    alias, score, _ = match
-    if score >= 90:
-        data = ALIAS_INDEX[alias]
+
+    alias = best["alias"]
+    score = best["score"]
+    data = ALIAS_INDEX[alias]
+
+    if score >= 88:
         normalized_question = (
             question
             + f"\n\nRecognized term: {data['display']}"
@@ -456,7 +500,6 @@ def normalize_question(question):
             "confidence": "high", "score": score,
         }
     if score >= 80:
-        data = ALIAS_INDEX[alias]
         normalized_question = (
             question
             + f"\nPossible recognized term: {data['display']}"
@@ -559,6 +602,42 @@ EXCLUDED_FROM_PROTOCOLS = {
 }
 
 
+# Section headers that define the gating rules for a protocol.
+# These are ALWAYS prepended to the LLM context when the protocol is
+# alias-recognized, regardless of what semantic search returned — otherwise
+# treatment-pathway chunks crowd them out and the LLM dumps pathway info
+# without first asking the required clarifying question.
+POLICY_SECTIONS = {
+    "ANSWER_POLICY",
+    "DEFAULT_QUESTION",
+    "REQUIRED_INFORMATION",
+    "PATHWAY_PRIORITY",
+}
+
+
+def extract_policy_header(text):
+    """Return the concatenated text of all POLICY_SECTIONS found in `text`,
+    or an empty string if none are present.
+
+    Sections are delimited by lines starting with `## SECTION_NAME` and
+    end at the next `## ` heading or end of file.
+    """
+    pattern = re.compile(r"^##\s+([A-Z_]+)\s*$", re.MULTILINE)
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return ""
+
+    kept = []
+    for i, m in enumerate(matches):
+        name = m.group(1)
+        if name not in POLICY_SECTIONS:
+            continue
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        kept.append(text[start:end].strip())
+    return "\n\n".join(kept)
+
+
 def chunk_text(text, source, source_label, max_chars=900):
     sections = text.split("\n\n")
     chunks = []
@@ -612,6 +691,12 @@ def load_protocols():
 
         with open(file_path, "r", encoding="utf-8") as f:
             text = f.read()
+
+        # Always (re)extract policy header — cheap, no API call, and we want
+        # it picked up even when chunks come from the embeddings cache.
+        policy_header = extract_policy_header(text)
+        if policy_header:
+            PROTOCOL_POLICY_BY_FILE[normalize_path(file_path)] = policy_header
 
         file_hash = _compute_file_hash(file_path)
         cached_chunks = _load_from_cache(file_hash)
@@ -719,6 +804,14 @@ SOURCE_INSTRUCTION = (
     "Do not write 'Source:', 'Forrás:', 'Source file:', or any file path."
 )
 
+POLICY_INSTRUCTION = (
+    "If the context contains a 'PROTOCOL GATING RULES' block, it is binding. "
+    "Follow ANSWER_POLICY exactly: when REQUIRED_INFORMATION is missing, ask "
+    "the DEFAULT_QUESTION verbatim and do NOT list treatment pathways, do NOT "
+    "suggest antibiotics, do NOT explain options yet. Wait for the user's "
+    "answer, then apply PATHWAY_PRIORITY."
+)
+
 
 def build_recognition_context(recognized):
     if not recognized:
@@ -740,6 +833,7 @@ def build_system_prompt(recognized, context):
         ANSWER_STYLE_RULES,
         SAFETY_RULES,
         SOURCE_INSTRUCTION,
+        POLICY_INSTRUCTION,
         build_recognition_context(recognized),
         f"PROTOCOL EXCERPTS:\n{context}",
     ]))
@@ -780,6 +874,22 @@ def ask_ai(question, chat_id):
         f"Source: {c['source_label']}\n{c['text']}"
         for c in retrieved_chunks
     )
+
+    # Always prepend the matched protocol's gating header (ANSWER_POLICY,
+    # DEFAULT_QUESTION, REQUIRED_INFORMATION, PATHWAY_PRIORITY).
+    # Semantic search alone picks treatment-pathway chunks that crowd these
+    # out, so the LLM never sees "ask patient status first" — and dumps
+    # pathway info instead. Injecting the policy header guarantees the gate
+    # is visible to the model.
+    if preferred_file:
+        policy_header = PROTOCOL_POLICY_BY_FILE.get(normalize_path(preferred_file), "")
+        if policy_header:
+            label = recognized.get("source_label", "") if recognized else ""
+            context = (
+                f"PROTOCOL GATING RULES (must be followed before any treatment info)\n"
+                f"Source: {label}\n{policy_header}\n\n---\n\n"
+                + context
+            )
 
     system_prompt = build_system_prompt(recognized, context)
 
