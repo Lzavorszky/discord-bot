@@ -1,10 +1,11 @@
 # AMPICILLIN_SULBACTAM_HIGH_DOSE
 
-## PROTOCOL_NAME
+## METADATA
 
-High-dose ampicillin/sulbactam protocol for multidrug-resistant Acinetobacter infections (MACI/CRAB)
-
----
+protocol_name: High-dose ampicillin/sulbactam protocol for MACI/CRAB infections
+drug_class: beta-lactam, beta-lactam/beta-lactamase inhibitor
+source_label: ampicillin/sulbactam
+protocol_file: protocols/ampsul.txt
 
 ## ALIASES
 
@@ -14,22 +15,16 @@ High-dose ampicillin/sulbactam protocol for multidrug-resistant Acinetobacter in
 - high-dose sulbactam
 - CRAB protocol
 - MACI protocol
-
----
-
-## DRUG_CLASS
-
-- beta-lactam
-- beta-lactam/beta-lactamase inhibitor
-
----
+- ampsul
+- unasyn
+- unacid
 
 ## ANSWER_POLICY
 
 Can default dosing be given if some information is missing?
 - no
 
-High-dose ampicillin/sulbactam dosing depends strongly on:
+High-dose ampicillin/sulbactam dosing depends on:
 - renal function
 - CRRT/IHD status
 - confirmed MACI/CRAB infection
@@ -38,20 +33,15 @@ Do NOT provide dosing before required information is available.
 
 Do NOT provide empiric/default dosing.
 
-Do NOT list all dosing tiers unless explicitly requested.
-
 Instead:
-- ask for the required information first
-- then provide the matching dosing recommendation.
-
----
+- use the decision tree to collect confirmation and renal function first.
 
 ## REQUIRED_INFORMATION
 
 Required before dosing:
+- confirmed MACI/CRAB infection (microbiologically)
 - current renal function/GFR
 - CRRT or intermittent hemodialysis (IHD)?
-- is this confirmed MACI/CRAB infection?
 
 Preferably clarify:
 - bloodstream infection present?
@@ -63,16 +53,10 @@ If renal function not provided:
 If resistance confirmation unclear:
 - ask whether Acinetobacter is carbapenem resistant (CRAB/MACI)
 
-Do NOT provide dosing before required information is available.
-
----
-
 ## PREFERRED_INFORMATION
 
 After providing dosing, clarify when relevant:
 - sulbactam inhibition zone?
-
----
 
 ## MODIFIER_INFORMATION
 
@@ -84,9 +68,84 @@ These may modify treatment interpretation:
 - sulbactam inhibition zone ≤11 mm
 - tigecycline MIC
 - confirmed carbapenem resistance
----
 
-## INDICATIONS
+## DEFAULT_QUESTION
+
+(none)
+
+## PATHWAY_PRIORITY
+
+Tree-driven — see DECISION_TREE.
+
+Direct reference (first match wins):
+1. CRRT / GFR ≥60    -> Sulbactam 9 g/day (continuous, 11 mL/h)
+2. GFR 30–60         -> Sulbactam 6 g/day
+3. GFR 15–30         -> Sulbactam 3 g/day
+4. GFR <15           -> Sulbactam 2 g/day
+5. IHD               -> Sulbactam 1.5 g/day
+
+MIC interpretation:
+- inhibition zone >11 mm  -> favourable, proceed
+- inhibition zone ≤11 mm  -> questionable, ID consultation required
+
+## DECISION_TREE
+
+ROOT: ask_maci
+
+NODE: ask_maci
+  TYPE: question
+  ASK_HU: Megerősített MACI/CRAB fertőzés? (mikrobiológiailag igazolt)
+  ASK_EN: Confirmed MACI/CRAB infection? (microbiologically confirmed)
+  BRANCHES:
+    yes -> collect_renal
+    no -> dose_empiric
+    unknown -> dose_empiric
+
+NODE: collect_renal
+  TYPE: collect
+  ASK_HU: Vesefunkció? (GFR értéke, CRRT, vagy IHD)
+  ASK_EN: Renal function? (GFR value, CRRT, or IHD)
+  COLLECT:
+    - name: renal_status
+      type: text
+  NEXT: ask_mic
+
+NODE: ask_mic
+  TYPE: question
+  ASK_HU: Sulbactam gátlási zóna? (>11mm kedvező / ≤11mm kérdéses / ismeretlen)
+  ASK_EN: Sulbactam inhibition zone? (>11mm favourable / ≤11mm questionable / unknown)
+  BRANCHES:
+    favorable -> dose_favorable
+    questionable -> dose_questionable
+    unknown -> dose_favorable
+
+NODE: dose_empiric
+  TYPE: answer
+  ANSWER_REF: DEFAULT_EMPIRIC_ICU_DOSING
+  THEN: end
+
+NODE: dose_favorable
+  TYPE: answer
+  ANSWER_REF: MACI_DOSING_BY_RENAL
+  THEN: end
+
+NODE: dose_questionable
+  TYPE: answer
+  ANSWER_HU: |
+    Sulbactam gátlási zóna ≤11 mm — hatékonyság kérdéses.
+    Vesefunkció: {renal_status}
+    Tájékoztató dózis: lásd MACI_DOSING_BY_RENAL táblázat.
+    ID konzultáció szükséges a kombinációs kezelés meghatározásához.
+  ANSWER_EN: |
+    Sulbactam inhibition zone ≤11 mm — efficacy questionable.
+    Renal function: {renal_status}
+    Reference dose: see MACI_DOSING_BY_RENAL table.
+    ID consultation required to define combination therapy.
+  THEN: end
+
+## TREATMENT_PATHWAYS
+
+### INDICATIONS
 
 Use only for:
 - confirmed multidrug-resistant Acinetobacter infection (MACI)
@@ -102,13 +161,9 @@ Usually used:
 - as combination therapy
 - together with another active agent based on antibiogram
 
----
-
-## PRIMARY_DOSING_AND_ADMINISTRATION
-
 ### DEFAULT_EMPIRIC_ICU_DOSING
 
-If renal function unknown:
+If renal function unknown or not yet confirmed MACI:
 - Sulbactam: 9 g/day
 - Ampicillin: 18 g/day
 
@@ -121,119 +176,47 @@ Administration:
 After default dosing:
 - ask for renal function/GFR
 - ask for CRRT/IHD status
+- confirm MACI/CRAB microbiologically
 
----
+### MACI_DOSING_BY_RENAL
 
-### GFR ≥60
+Select based on renal function (continuous infusion preferred):
 
-For confirmed MACI/CRAB:
-- Sulbactam: 9 g/day
-- Ampicillin: 18 g/day
+CRRT or GFR ≥60:
+- Sulbactam: 9 g/day / Ampicillin: 18 g/day
+- Dissolve in 250 mL NaCl 0.9%, pump: 11 mL/h
 
-Administration:
-- continuous infusion preferred
-- dissolve total daily dose in 250 mL NaCl 0.9%
-- administer via volumetric pump
-- infusion rate: 11 mL/h
+GFR 30–60:
+- Sulbactam: 6 g/day / Ampicillin: 12 g/day
+- Dissolve in 250 mL NaCl 0.9%, pump: adjust locally
 
----
+GFR 15–30:
+- Sulbactam: 3 g/day / Ampicillin: 6 g/day
+- Continuous infusion; individualize administration
 
-### GFR 30–60
+GFR <15:
+- Sulbactam: 2 g/day / Ampicillin: 4 g/day
+- Bolus/intermittent dosing may be preferred
 
-For confirmed MACI/CRAB:
-- Sulbactam: 6 g/day
-- Ampicillin: 12 g/day
+IHD:
+- Sulbactam: 1.5 g/day / Ampicillin: 3 g/day
+- Bolus/intermittent dosing may be preferred
 
-Administration:
-- continuous infusion preferred
-- dissolve total daily dose in 250 mL NaCl 0.9%
-- volumetric pump recommended
-- infusion rate may require local adjustment
-
----
-
-### GFR 15–30
-
-For confirmed MACI/CRAB:
-- Sulbactam: 3 g/day
-- Ampicillin: 6 g/day
-
-Administration:
-- continuous infusion preferred
-- individualized administration may be required
-
----
-
-### GFR <15
-
-For confirmed MACI/CRAB:
-- Sulbactam: 2 g/day
-- Ampicillin: 4 g/day
-
-Administration:
-- bolus/intermittent dosing may be preferred
-
----
-
-### CRRT
-
-For confirmed MACI/CRAB:
-- Sulbactam: 9 g/day
-- Ampicillin: 18 g/day
-
-Administration:
-- continuous infusion preferred
-- dissolve total daily dose in 250 mL NaCl 0.9%
-- administer via volumetric pump
-- infusion rate: 11 mL/h
-
----
-
-### IHD
-
-For confirmed MACI/CRAB:
-- Sulbactam: 1.5 g/day
-- Ampicillin: 3 g/day
-
-Administration:
-- bolus/intermittent dosing may be preferred
-
----
-
-## FOLLOW_UP_QUESTIONS
-
-After providing dosing guidance, ask remaining relevant clarification questions:
-- current renal function/GFR?
-- CRRT or IHD?
-- confirmed MACI/CRAB?
-- bloodstream infection?
-- confirmed infection vs colonization?
-- sulbactam inhibition zone?
-- tigecycline MIC?
-
-Do NOT stop after giving partial/default dosing.
-
----
-
-## MICROBIOLOGY_REQUIREMENTS
+### MICROBIOLOGY_REQUIREMENTS
 
 Sulbactam activity considered favorable when:
 - inhibition zone >11 mm
 
 Interpretation:
-- inhibition zone >11 mm:
-  - sulbactam potentially useful
-- inhibition zone ≤11 mm:
-  - sulbactam efficacy questionable
+- inhibition zone >11 mm: sulbactam potentially useful
+- inhibition zone ≤11 mm: sulbactam efficacy questionable
 
 Tigecycline:
 - MIC <2 mg/L considered favorable
 
 Conventional susceptibility testing remains definitive.
 
----
-
-## COMBINATION_THERAPY
+### COMBINATION_THERAPY
 
 Recommended approach:
 - use TWO active agents
@@ -241,10 +224,7 @@ Recommended approach:
 One agent:
 - sulbactam (if inhibition zone >11 mm)
 
-Second agent:
-- based on antibiogram
-
-Possible examples:
+Second agent based on antibiogram:
 - colistin
 - tigecycline
 - cefiderocol
@@ -252,20 +232,16 @@ Possible examples:
 
 Avoid monotherapy in severe infection.
 
----
+### PK_PD_TARGETS
 
-## PK_PD_TARGETS
-
-Dose optimized for:
+Dose optimised for:
 - 60% fT > MIC
 - 90% target attainment
 
 Assumed MIC:
 - 32 mg/L
 
----
-
-## TREATMENT_DURATION
+### TREATMENT_DURATION
 
 Typical duration:
 - 7–14 days
@@ -276,9 +252,20 @@ Depends on:
 - microbiological clearance
 - clinical response
 
----
+### FOLLOW_UP_QUESTIONS
 
-## IMPORTANT_COMMENTS
+After providing dosing guidance, ask remaining relevant clarification:
+- current renal function/GFR?
+- CRRT or IHD?
+- confirmed MACI/CRAB?
+- bloodstream infection?
+- confirmed infection vs colonization?
+- sulbactam inhibition zone?
+- tigecycline MIC?
+
+## SAFETY_NOTES
+
+### IMPORTANT_COMMENTS
 
 - Continuous infusion preferred in ICU patients
 - Primarily intended for severe ICU infections
@@ -288,9 +275,7 @@ Depends on:
 - Monitor renal function closely
 - Monitor microbiological response carefully
 
----
-
-## ESCALATION_AND_WARNINGS
+### ESCALATION_AND_WARNINGS
 
 Escalate to infectious diseases / microbiology consultation if:
 - persistent bacteremia
@@ -301,8 +286,10 @@ Escalate to infectious diseases / microbiology consultation if:
 - severe renal dysfunction
 - unclear distinction between colonization and infection
 
----
-
-## COMMENTS
+### COMMENTS
 
 This protocol is intended for severe multidrug-resistant Acinetobacter infections and should generally be interpreted together with local microbiology and infectious diseases consultation.
+
+## DEFAULT_FOOTER
+
+MACI: ID konzultáció ajánlott súlyos eseteknél.

@@ -1,10 +1,11 @@
 # MEROPENEM
 
-## PROTOCOL_NAME
+## METADATA
 
-Meropenem continuous infusion ICU dosing protocol
-
----
+protocol_name: Meropenem continuous infusion ICU dosing protocol
+drug_class: beta-lactam, carbapenem
+source_label: meropenem
+protocol_file: protocols/meropenem.txt
 
 ## ALIASES
 
@@ -12,15 +13,6 @@ Meropenem continuous infusion ICU dosing protocol
 - mero
 - MEM
 - meronem
-
----
-
-## DRUG_CLASS
-
-- beta-lactam
-- carbapenem
-
----
 
 ## ANSWER_POLICY
 
@@ -42,13 +34,9 @@ Do NOT:
 - refuse dosing solely because information incomplete
 - list all dosing tiers unless explicitly requested.
 
----
-
 ## REQUIRED_INFORMATION
 
-No absolutely required information before giving default empiric ICU dosing.
-
----
+(none)
 
 ## PREFERRED_INFORMATION
 
@@ -79,8 +67,6 @@ After providing default or partial dosing, ask for:
 
 - TDM availability
 
----
-
 ## MODIFIER_INFORMATION
 
 These modify dosing tier selection:
@@ -108,9 +94,30 @@ These modify dosing tier selection:
 
 - pathogen MIC/TDM result
   -> individualized adjustment
----
 
-## INDICATIONS
+## DEFAULT_QUESTION
+
+(none)
+
+## PATHWAY_PRIORITY
+
+Priority order (first match wins):
+
+1. CNS infection                       -> PLUSZ
+2. First 24h of septic shock           -> MAGAS
+3. ARC suspected                       -> MAGAS
+4. CRRT                                -> CRRT
+5. Intermittent hemodialysis (IHD)     -> IHD
+6. GFR <20 (no CRRT)                  -> CSÖKKENTETT
+7. Default / all other ICU patients    -> ÁTLAGOS
+
+## DECISION_TREE
+
+(none)
+
+## TREATMENT_PATHWAYS
+
+### INDICATIONS
 
 Common ICU indications:
 - severe sepsis
@@ -124,9 +131,7 @@ Common ICU indications:
 - AmpC-risk Enterobacter infections
 - resistant gram-negative infections
 
----
-
-## SPECTRUM
+### SPECTRUM
 
 Broad-spectrum carbapenem with activity against:
 - Enterobacterales
@@ -141,9 +146,7 @@ Limited or unreliable against:
 - some carbapenem-resistant organisms
 - MACI
 
----
-
-## DOSING_PHILOSOPHY
+### DOSING_PHILOSOPHY
 
 - Continuous infusion preferred
 - PK/PD-driven dosing
@@ -152,10 +155,6 @@ Limited or unreliable against:
   - ARC
   - CNS infection
   - severe infections
-
----
-
-## PATHWAY_SELECTION
 
 ### PLUSZ
 
@@ -171,8 +170,6 @@ Administration:
 - continuous infusion over 24h
 - 1 g meropenem in 50 mL NaCl 0.9%
 - pump: 12.5 mL/h
-
----
 
 ### MAGAS
 
@@ -190,8 +187,6 @@ Administration:
 - 1 g meropenem in 50 mL NaCl 0.9%
 - pump: 8.4 mL/h
 
----
-
 ### ÁTLAGOS
 
 Used for:
@@ -206,8 +201,6 @@ Administration:
 - continuous infusion over 24h
 - 1 g meropenem in 50 mL NaCl 0.9%
 - pump: 6.3 mL/h
-
----
 
 ### CSÖKKENTETT
 
@@ -227,8 +220,6 @@ Administration:
 Typical pump:
 - 4.2 mL/h
 
----
-
 ### CRRT
 
 Used for:
@@ -242,8 +233,6 @@ Administration:
 - continuous infusion over 24h
 - 1 g meropenem in 50 mL NaCl 0.9%
 - pump: 6.3 mL/h
-
----
 
 ### IHD
 
@@ -259,9 +248,7 @@ Administration:
 
 TDM strongly encouraged.
 
----
-
-## UNDER_SPECIFIED_DOSING_REQUESTS
+### UNDER_SPECIFIED_DOSING_REQUESTS
 
 If the user asks:
 - generic meropenem dosing
@@ -283,25 +270,19 @@ Instead:
 If the user insists on generic/default dosing:
 - provide ÁTLAGOS dosing.
 
----
+### TDM
 
-## TDM
-
-### AVAILABILITY
+#### AVAILABILITY
 
 - external laboratory
 - Semmelweis University
 
----
-
-### SAMPLING
+#### SAMPLING
 
 - send morning sample
 - sample during continuous infusion
 
----
-
-### TDM_INDICATIONS
+#### TDM_INDICATIONS
 
 Routine TDM:
 - NOT generally required
@@ -318,9 +299,7 @@ Recommended when:
 - abscess systems
 - persistent infection
 
----
-
-## PK_PD_TARGETS
+### PK_PD_TARGETS
 
 Target:
 - concentration above pathogen MIC
@@ -328,9 +307,9 @@ Target:
 If MIC unknown:
 - >8 mg/L generally acceptable
 
----
+## SAFETY_NOTES
 
-## TOXICITY
+### TOXICITY
 
 Known toxic threshold:
 - not fully established
@@ -341,9 +320,7 @@ Generally considered safe:
 If >45 mg/L:
 - dose reduction recommended
 
----
-
-## IMPORTANT_WARNINGS
+### IMPORTANT_WARNINGS
 
 - ARC frequently causes underdosing
 - Continuous infusion strongly preferred in ICU
@@ -352,9 +329,7 @@ If >45 mg/L:
 - Carbapenem stewardship important
 - De-escalate when microbiology allows
 
----
-
-## MICROBIOLOGY_NOTES
+### MICROBIOLOGY_NOTES
 
 Common targeted pathogens:
 - ESBL Enterobacterales
@@ -367,9 +342,7 @@ Does not reliably cover:
 - VRE
 - many carbapenemase-producing organisms
 
----
-
-## ESCALATION_AND_WARNINGS
+### ESCALATION_AND_WARNINGS
 
 Escalate to infectious diseases / microbiology consultation if:
 - persistent bacteremia
@@ -381,10 +354,9 @@ Escalate to infectious diseases / microbiology consultation if:
 - severe renal dysfunction with uncertain dosing
 - CNS infection with poor response
 
----
-
-## COMMENTS
-
 Continuous infusion meropenem is used to maximize PK/PD target attainment in critically ill patients.
-
 Dose individualization, microbiology-guided de-escalation, and ARC recognition are central stewardship principles.
+
+## DEFAULT_FOOTER
+
+Minden meropenem 24-órás folyamatos infúzióban.

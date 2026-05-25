@@ -1,23 +1,27 @@
 # TMP_SMX
 
-## PROTOCOL_NAME
+## METADATA
 
-Trimethoprim/sulfamethoxazole ICU dosing protocol
-
----
+protocol_name: Trimethoprim/sulfamethoxazole ICU dosing protocol
+drug_class: sulfonamide combination antibiotic, non-beta-lactam
 source_label: TMP/SMX
 canonical_name: trimethoprim/sulfamethoxazole
-aliases: tmp/smx, tmpsmx, co-trimoxazole, cotrimoxazole, sumetrolim, sumetrolim forte
----
+protocol_file: protocols/tmpsmx.txt
 
----
+## ALIASES
 
-## DRUG_CLASS
-
-- sulfonamide combination antibiotic
-- non-beta-lactam
-
----
+- TMP/SMX
+- tmp/smx
+- tmpsmx
+- tmp-smx
+- co-trimoxazole
+- cotrimoxazole
+- sumetrolim
+- sumetrolim forte
+- trimethoprim/sulfamethoxazole
+- trimethoprim-sulfamethoxazole
+- bactrim
+- septrin
 
 ## ANSWER_POLICY
 
@@ -38,8 +42,6 @@ Do NOT provide full dosing tables unless explicitly requested.
 Instead:
 - ask for the required information first
 - then provide the matching dosing recommendation.
-
----
 
 ## REQUIRED_INFORMATION
 
@@ -71,13 +73,9 @@ If renal function not provided:
 
 Do NOT provide dosing before all required information is available.
 
----
-
 ## PREFERRED_INFORMATION
 
-No additional preferred information defined.
-
----
+(none)
 
 ## MODIFIER_INFORMATION
 
@@ -92,7 +90,27 @@ These may modify dosing or interpretation:
 - hematologic toxicity
 - invasive disease
 
-## INDICATIONS
+## DEFAULT_QUESTION
+
+(none)
+
+## PATHWAY_PRIORITY
+
+Priority order (first match wins):
+
+1. PCP/PJP treatment, invasive Stenotrophomonas, Nocardia   -> HIGH_DOSE (15-20 mg/kg/day TMP)
+2. Severe / CNS / bone-joint / refractory / ICU infection   -> MODERATE_DOSE (8-10 mg/kg/day TMP)
+3. Standard susceptible infection / oral step-down           -> STANDARD_DOSE (2 x 2 amp)
+4. Prophylaxis in immunosuppressed patient                   -> PROPHYLAXIS
+
+Apply renal adjustment (RENAL_DOSING) after selecting tier.
+Apply weight rules (WEIGHT_RULES) for dose calculation.
+
+## DECISION_TREE
+
+(none)
+
+## TREATMENT_PATHWAYS
 
 ### PROPHYLAXIS
 
@@ -106,8 +124,6 @@ OR
 Recommendation:
 - discuss with hematologist
 
----
-
 ### STANDARD_DOSE
 
 Used for:
@@ -117,8 +133,6 @@ Used for:
 
 Typical dosing:
 - 2 x 2 ampoules IV
-
----
 
 ### MODERATE_DOSE
 
@@ -133,8 +147,6 @@ Used for:
 Target dose:
 - 8–10 mg/kg/day TMP component
 
----
-
 ### HIGH_DOSE
 
 Used for:
@@ -145,17 +157,13 @@ Used for:
 Target dose:
 - 15–20 mg/kg/day TMP component
 
----
-
-## FORMULATION
+### FORMULATION
 
 1 tablet or 1 ampoule contains:
 - 80 mg trimethoprim
 - 400 mg sulfamethoxazole
 
----
-
-## ENTERAL_ADMINISTRATION
+### ENTERAL_ADMINISTRATION
 
 Enteral administration:
 - same dose as IV
@@ -163,11 +171,9 @@ Enteral administration:
 If clinically improving:
 - oral conversion recommended
 
----
+### MODERATE_DOSE_TABLE
 
-## MODERATE_DOSE_TABLE
-
-### Target
+#### Target
 - 8–10 mg/kg/day TMP component
 
 | Weight | TMP/day | Suggested dosing | Total TMP/SMX |
@@ -180,11 +186,9 @@ If clinically improving:
 | 90 kg | 720 mg | 3 x 3 amp | 720/3600 mg |
 | 100 kg | 960 mg | 3 x 4 amp | 960/4800 mg |
 
----
+### HIGH_DOSE_TABLE
 
-## HIGH_DOSE_TABLE
-
-### Target
+#### Target
 - 15–20 mg/kg/day TMP component
 
 | Weight | TMP/day | Suggested dosing | Total TMP/SMX |
@@ -197,9 +201,7 @@ If clinically improving:
 | 90 kg | 1350 mg | 4 x 4 amp | 1280/6400 mg |
 | 100 kg | 1500 mg | 3 x 6 amp | 1440/7200 mg |
 
----
-
-## WEIGHT_RULES
+### WEIGHT_RULES
 
 - Use actual body weight
 - If BMI >30:
@@ -207,11 +209,9 @@ If clinically improving:
 - >100 kg:
   - individualized dosing decision required
 
----
+### RENAL_DOSING
 
-## RENAL_DOSING
-
-### General principles
+#### General principles
 
 | Renal function | Adjustment |
 |---|---|
@@ -220,12 +220,31 @@ If clinically improving:
 | GFR <15 | avoid if alternative exists |
 | CRRT | full dose |
 
----
+### ICU_NOTES
 
+- High-dose therapy commonly needed in ICU infections
+- Particularly useful for:
+  - Stenotrophomonas
+  - Pneumocystis
+  - Nocardia
 
----
+In severe infections:
+- do not underdose
 
-## MICROBIOLOGY_NOTES
+### SPECIAL_POPULATIONS
+
+#### Obesity
+- use ABW if BMI >30
+
+#### CRRT
+- full dosing generally required
+
+#### IHD
+- dose after dialysis
+
+## SAFETY_NOTES
+
+### MICROBIOLOGY_NOTES
 
 Particularly important pathogens:
 - Pneumocystis jirovecii
@@ -237,42 +256,38 @@ High-dose therapy frequently required in:
 - ICU patients
 - pulmonary infections
 
----
-
-## TOXICITY
+### TOXICITY
 
 Potential adverse effects:
 
-### Hematologic
+#### Hematologic
 - leukopenia
 - thrombocytopenia
 - pancytopenia
 - megaloblastic anemia
 
-### Electrolyte
+#### Electrolyte
 - hyperkalemia
 - hyponatremia
 
-### Renal
+#### Renal
 - AKI
 - crystalluria
 - pseudo-creatinine elevation
 
-### Hepatic
+#### Hepatic
 - benign liver enzyme elevation
 
-### Hypersensitivity
+#### Hypersensitivity
 - SJS/TEN
 - DRESS
 - idiosyncratic reactions
 
-### Gastrointestinal
+#### Gastrointestinal
 - nausea
 - vomiting
 
----
-
-## IMPORTANT_WARNINGS
+### IMPORTANT_WARNINGS
 
 - Hyperkalemia risk significant
 - Toxicity risk increases substantially with renal dysfunction
@@ -283,34 +298,10 @@ Potential adverse effects:
   - potassium
   - sodium
 
----
-
-## ICU_NOTES
-
-- High-dose therapy commonly needed in ICU infections
-- Particularly useful for:
-  - Stenotrophomonas
-  - Pneumocystis
-  - Nocardia
-
-In severe infections:
-- do not underdose
-
----
-
-## SPECIAL_POPULATIONS
-
-### Obesity
-- use ABW if BMI >30
-
-### CRRT
-- full dosing generally required
-
-### IHD
-- dose after dialysis
-
----
-
-## COMMENTS
+### COMMENTS
 
 TMP/SMX dosing schemes are heterogeneous and not fully evidence-based. Clinical judgment and infectious diseases consultation may be necessary in severe or unusual infections.
+
+## DEFAULT_FOOTER
+
+TMP/SMX: 48 órán belül ellenőrizd a K+ és a kreatinin szintet.

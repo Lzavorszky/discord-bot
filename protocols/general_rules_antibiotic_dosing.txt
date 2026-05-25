@@ -1,14 +1,54 @@
 # GENERAL_RULES_ANTIBIOTIC_DOSING
 
+## METADATA
+
+protocol_name: General antibiotic dosing rules supplement
+source_label: General rules
+protocol_file: protocols/general_rules_antibiotic_dosing.txt
+
+## ALIASES
+
+(none)
+
+## ANSWER_POLICY
+
+(none)
+
+## REQUIRED_INFORMATION
+
+(none)
+
+## PREFERRED_INFORMATION
+
+(none)
+
+## MODIFIER_INFORMATION
+
+(none)
+
+## DEFAULT_QUESTION
+
+(none)
+
+## PATHWAY_PRIORITY
+
+(none)
+
+## DECISION_TREE
+
+(none)
+
+## TREATMENT_PATHWAYS
+
+### GENERAL_RULES
+
 The chatbot should:
 - ask for penicillin allergy if a penicillin derivative is to be advised for the asked condition
 - if renal function not specified in the conversation provide normal dose, but suggest that dosing depends on renal function and patient condition as well as indication and other factors (e.g. weight in some cases). Ask for required information as described in the individual antibiotic guidelines.
 - Individual antibiotic guidelines overwrite these generic rules (e.g. do not provide dosing for tmp/smx or amp/sul until required information is given or confirmed).
 - do not suggest antibiotic dosing reduction for renal function in the first 24 hours of treatment unless the individual antibiotic protocol specifically requires reduced dosing, the patient is anuric/IHD, or toxicity risk is clinically dominant
 
----
-
-## SOURCE_PRIORITY
+### SOURCE_PRIORITY
 
 Priority order:
 1. Individual antibiotic protocol
@@ -17,7 +57,7 @@ Priority order:
 
 Individual antibiotic protocol overrides generic rules.
 
----
+### INTERACTION_RULES
 
 If the user asks:
 - "how much meropenem?"
@@ -31,8 +71,8 @@ Do NOT:
 Instead:
 - provide allowed default guidance if defined
 - ask the minimum questions needed for pathway selection
----
-## INFORMATION_HIERARCHY
+
+### INFORMATION_HIERARCHY
 
 Individual protocols may define:
 - REQUIRED_INFORMATION
@@ -44,8 +84,7 @@ Follow the hierarchy defined in system rules.
 
 Individual protocols override these general rules.
 
-
-## CONTINUOUS VS BOLUS DOSING
+### CONTINUOUS_VS_BOLUS_DOSING
 
 Continuous infusion is a must for:
 - meropenem
@@ -71,9 +110,7 @@ Bolus dosing preferred for:
 - fluoroquinolones
 - ceftriaxone
 
----
-
-## GENERAL_BETA_LACTAM_DOSING_PHILOSOPHY
+### GENERAL_BETA_LACTAM_DOSING_PHILOSOPHY
 
 - Continuous infusion preferred in critically ill ICU patients whenever protocol specifies.
 - Full-dose therapy preferred in severe sepsis and septic shock in the first 24 hours.
@@ -81,20 +118,13 @@ Bolus dosing preferred for:
 - ARC (augmented renal clearance) frequently causes underdosing.
 - Consider TDM in the specified indications.
 
----
-
-
----
-
-## OBESITY_AND_BETA_LACTAMS
+### OBESITY_AND_BETA_LACTAMS
 
 Obesity alone does not mandate beta-lactam escalation.
 
 Do not invent mg/kg dosing unless explicitly specified in the protocol.
 
----
-
-## TDM_REQUIRED_DAILY
+### TDM_REQUIRED_DAILY
 
 Daily TDM required:
 - vancomycin
@@ -104,9 +134,7 @@ Daily TDM required:
 - ceftazidime/avibactam
 - ceftolozane/tazobactam
 
----
-
-## TDM_CONSIDER
+### TDM_CONSIDER
 
 Beta-lactam TDM should be considered ONLY for beta-lactams where TDM is available in the individual antibiotic protocol.
 
@@ -128,9 +156,7 @@ Do NOT suggest beta-lactam TDM for antibiotics where TDM is not specified as ava
 
 Individual antibiotic protocols override these general rules.
 
----
-
-## TDM_NOT_AVAILABLE
+### TDM_NOT_AVAILABLE
 
 Assume TDM is NOT available unless:
 - explicitly specified in the individual antibiotic protocol
@@ -142,9 +168,7 @@ If TDM is not available:
 - do not invent sampling strategy
 - do not recommend unavailable monitoring
 
----
-
-## ARC_DEFINITION
+### ARC_DEFINITION
 
 ARC suspected if:
 - GFR/eGFR >90 and urine output >2000 mL/day
@@ -152,14 +176,7 @@ ARC suspected if:
 
 ARC increases risk of beta-lactam underexposure.
 
----
-
-
----
-
----
-
-## ANSWER_STRUCTURE
+### ANSWER_STRUCTURE
 
 For beta-lactam dosing answers use this structure:
 
@@ -182,9 +199,7 @@ For beta-lactam dosing answers use this structure:
 5. SOURCE
 - mention protocol/section
 
----
-
-## STEWARDSHIP_PRINCIPLES
+### STEWARDSHIP_PRINCIPLES
 
 - Avoid unnecessarily broad-spectrum therapy.
 - De-escalate according to microbiology and clinical response.
@@ -196,9 +211,7 @@ For beta-lactam dosing answers use this structure:
 - Avoid prolonged empiric carbapenem therapy without microbiological justification.
 - Review antibiotic necessity daily.
 
----
-
-## COLONIZATION_VS_INFECTION
+### COLONIZATION_VS_INFECTION
 
 Do not automatically interpret positive microbiology as infection.
 
@@ -213,3 +226,11 @@ Interpret microbiology together with:
 Respiratory samples may represent colonization.
 
 Positive blood cultures usually represent infection unless the organism and sampling pattern suggest contamination.
+
+## SAFETY_NOTES
+
+(none)
+
+## DEFAULT_FOOTER
+
+(none)

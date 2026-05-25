@@ -1,12 +1,10 @@
 # BioFire Pneumonia Panel — Protocol Knowledge File
 
----
+## METADATA
 
-## PROTOCOL_NAME
-
-BioFire Pneumonia Panel interpretation protocol
-
----
+protocol_name: BioFire Pneumonia Panel interpretation protocol
+source_label: BioFire
+protocol_file: protocols/pneumonia_pcr.txt
 
 ## ALIASES
 
@@ -16,8 +14,22 @@ BioFire Pneumonia Panel interpretation protocol
 - pneumonia panel
 - respiratory PCR
 - PN panel
+- biofire
+- filmarray pneumonia
 
----
+## ANSWER_POLICY
+
+Can default interpretation be given if pathogen information is missing?
+- no
+
+Do NOT provide organism-specific interpretation before pathogen information is available.
+
+If pathogen/result not specified:
+- ask which organism/pathogen/resistance marker was detected.
+
+If partial BioFire information exists:
+- provide the matching interpretation first
+- then ask for missing preferred information (e.g. resistance markers).
 
 ## REQUIRED_INFORMATION
 
@@ -59,10 +71,6 @@ Relevant viral pathogens:
 If no pathogen/result specified:
 - ask which organism/pathogen/resistance marker was detected.
 
-Do NOT provide organism-specific interpretation before pathogen information is available.
-
----
-
 ## PREFERRED_INFORMATION
 
 Helpful for interpretation and escalation:
@@ -88,8 +96,6 @@ If resistance information missing:
 - provide organism-based interpretation first if possible
 - then ask for resistance markers when relevant.
 
----
-
 ## MODIFIER_INFORMATION
 
 These may modify therapy/escalation:
@@ -102,29 +108,80 @@ These may modify therapy/escalation:
 - colonization vs infection
 - prior resistant microbiology
 
----
+## DEFAULT_QUESTION
 
-## DEFAULT_ANSWER
+Ha az eredmény még nem ismert vagy nincs megadva:
+"Melyik kórokozót / rezisztencia markert detektálta a BioFire Pneumonia panel?"
 
-No default answer defined.
+(If result unknown or not provided:
+"Which pathogen or resistance marker was detected on the BioFire Pneumonia Panel?")
 
-If pathogen/result information missing:
-- ask which pathogen or resistance marker was detected.
-- do NOT list the full organism-treatment table unless explicitly requested.
+## PATHWAY_PRIORITY
 
-If partial BioFire information exists:
-- provide the matching interpretation first
-- then ask for missing preferred information.
+Priority order (first match wins):
 
----
+1. Carbapenemase gene (IMP/KPC/NDM/VIM/OXA-48)  -> RESISTANCE_GENES (urgent ID consult)
+2. mecA/C or MREJ detected (MRSA suspected)       -> RESISTANCE_GENES
+3. CTX-M detected (ESBL suspected)                -> RESISTANCE_GENES
+4. Polymicrobial infection                         -> POLYMICROBIAL_ESCALATION
+5. Single bacterial pathogen                       -> ORGANISM_TIER_MAPPING
+6. Atypical pathogen only                          -> ATYPICAL_PATHOGENS
+7. Viral pathogen only                             -> VIRAL_PATHOGENS
 
----
+## DECISION_TREE
 
-# ANTIMICROBIAL SPECTRUM HIERARCHY
+ROOT: ask_result
 
-The original protocol table is organized from LEFT to RIGHT by increasing antimicrobial spectrum.
+NODE: ask_result
+  TYPE: question
+  ASK_HU: BioFire PN eredmény típusa? (egy_baktérium / polimikrobiális / csak_atípusos / csak_vírus / rezisztencia_gén / negatív)
+  ASK_EN: BioFire PN result type? (single_bacterial / polymicrobial / atypical_only / viral_only / resistance_gene / negative)
+  BRANCHES:
+    single_bacterial -> tier_bacterial
+    polymicrobial -> tier_polymicrobial
+    atypical_only -> tier_atypical
+    viral_only -> tier_viral
+    resistance_gene -> tier_resistance
+    negative -> tier_negative
 
-## Spectrum tiers
+NODE: tier_bacterial
+  TYPE: answer
+  ANSWER_REF: ORGANISM_TIER_MAPPING
+  THEN: end
+
+NODE: tier_polymicrobial
+  TYPE: answer
+  ANSWER_REF: POLYMICROBIAL_ESCALATION
+  THEN: end
+
+NODE: tier_atypical
+  TYPE: answer
+  ANSWER_REF: ATYPICAL_PATHOGENS
+  THEN: end
+
+NODE: tier_viral
+  TYPE: answer
+  ANSWER_REF: VIRAL_PATHOGENS
+  THEN: end
+
+NODE: tier_resistance
+  TYPE: answer
+  ANSWER_REF: RESISTANCE_GENES
+  THEN: end
+
+NODE: tier_negative
+  TYPE: answer
+  ANSWER_HU: Negatív BioFire: ha erős klinikai gyanú áll fenn, folytasd az empirikus kezelést és konzultálj mikrobiológiával.
+  ANSWER_EN: Negative BioFire: if strong clinical suspicion persists, continue empiric therapy and consult microbiology.
+  THEN: end
+
+## TREATMENT_PATHWAYS
+
+### SPECTRUM_HIERARCHY
+
+The protocol table is organised from left to right by increasing antimicrobial spectrum.
+
+#### Spectrum tiers
 
 | Tier | Antimicrobial |
 |---|---|
@@ -133,47 +190,42 @@ The original protocol table is organized from LEFT to RIGHT by increasing antimi
 | 3 | ertapenem |
 | 4 | meropenem + colistin |
 
----
+### POLYMICROBIAL_ESCALATION
 
-# POLYMICROBIAL ESCALATION RULES
-
-## Core rule
+#### Core rule
 
 In polymicrobial infections:
 - select therapy corresponding to the HIGHEST antimicrobial tier detected
-- the rightmost column in the original protocol represents the broadest required coverage
 - therapy must cover ALL detected organisms
 
-## Escalation logic
+#### Escalation logic
 
 Examples:
 
 - Streptococcus pneumoniae + Haemophilus influenzae
-→ Tier 1 → ceftriaxone
+  -> Tier 1 -> ceftriaxone
 
 - Streptococcus pneumoniae + Pseudomonas aeruginosa
-→ Tier 2 → cefepime
+  -> Tier 2 -> cefepime
 
 - Escherichia coli + CTX-M positive
-→ Tier 3 → ertapenem
+  -> Tier 3 -> ertapenem
 
 - Pseudomonas aeruginosa + CTX-M positive Enterobacterales
-→ conflicting broad-spectrum requirements
-→ recommend infectious diseases consultation
+  -> conflicting broad-spectrum requirements
+  -> recommend infectious diseases consultation
 
 - Acinetobacter calcoaceticus-baumannii complex
-→ Tier 4 → meropenem + colistin
+  -> Tier 4 -> meropenem + colistin
 
-## Important behaviour
+#### Important behaviour
 
 When multiple organisms are detected:
 - explicitly state polymicrobial infection
 - explain escalation rationale briefly
 - recommend ID consultation but still provide recommendation
 
----
-
-# ORGANISM → TIER → THERAPY MAPPING
+### ORGANISM_TIER_MAPPING
 
 | Organism | Tier | Recommended therapy | Notes |
 |---|---|---|---|
@@ -193,11 +245,9 @@ When multiple organisms are detected:
 | Streptococcus pneumoniae | 1 | ceftriaxone | |
 | Streptococcus pyogenes | 2 | penicillin + clindamycin | toxin suppression important |
 
----
+### RESISTANCE_GENES
 
-# RESISTANCE GENES
-
-## CTX-M
+#### CTX-M
 
 Interpretation:
 - probable ESBL-producing organism
@@ -207,29 +257,20 @@ Escalation:
 - recommended therapy: ertapenem
 
 Suggested wording:
-> CTX-M positivity suggests ESBL production. Escalation to ertapenem is recommended.
+CTX-M positivity suggests ESBL production. Escalation to ertapenem is recommended.
 
----
+#### Carbapenemases
 
-## Carbapenemases
-
-Includes:
-- IMP
-- KPC
-- NDM
-- VIM
-- OXA-48-like
+Includes: IMP, KPC, NDM, VIM, OXA-48-like
 
 Action:
 - urgent infectious diseases consultation
-- until ID consult available, give meropenem + colistin
+- until ID consult available: meropenem + colistin
 
 Suggested wording:
-> Carbapenemase gene detected. Difficult to treat organism. Advised antibiotic may be insufficient. Immediate infectious diseases consultation is recommended.
+Carbapenemase gene detected. Difficult to treat organism. Advised antibiotic may be insufficient. Immediate infectious diseases consultation is recommended.
 
----
-
-## mecA/C & MREJ
+#### mecA_C and MREJ
 
 Interpretation:
 - MRSA likely
@@ -238,15 +279,12 @@ Recommended therapy:
 - vancomycin
 
 Special rule:
-- if Staphylococcus aureus is the only pathogen:
-  - vancomycin monotherapy is sufficient
+- if Staphylococcus aureus is the only pathogen: vancomycin monotherapy is sufficient
 
 Suggested wording:
-> mecA/C & MREJ positivity suggests MRSA. Start vancomycin.
+mecA/C & MREJ positivity suggests MRSA. Start vancomycin.
 
----
-
-# ATYPICAL PATHOGENS
+### ATYPICAL_PATHOGENS
 
 Includes:
 - Legionella pneumophila
@@ -257,71 +295,37 @@ Recommended therapy:
 - clarithromycin
 
 Rules:
-- if ONLY atypical pathogen present:
-  - clarithromycin monotherapy
-- if bacterial coinfection present:
-  - ADD clarithromycin to bacterial coverage
+- if ONLY atypical pathogen present: clarithromycin monotherapy
+- if bacterial coinfection present: ADD clarithromycin to bacterial coverage
 
 Suggested wording:
-> Atypical pathogen detected. Add clarithromycin to the regimen.
+Atypical pathogen detected. Add clarithromycin to the regimen.
 
----
+### VIRAL_PATHOGENS
 
-# VIRAL PATHOGENS
-
-## Influenza A/B
+#### Influenza A/B
 
 Recommended therapy:
 - oseltamivir 75 mg BID
 
----
+#### Other respiratory viruses
 
-## Other respiratory viruses
-
-Includes:
-- Adenovirus
-- Coronavirus
-- Parainfluenza virus
-- RSV
-- Rhinovirus/Enterovirus
-- Human metapneumovirus
-- MERS coronavirus
+Includes: Adenovirus, Coronavirus, Parainfluenza virus, RSV, Rhinovirus/Enterovirus, Human metapneumovirus, MERS coronavirus
 
 Management:
 - supportive therapy
 - antibacterial therapy generally not indicated unless bacterial coinfection suspected
 
 Suggested wording:
-> Viral pathogen only detected. Supportive therapy is recommended. Antibacterial therapy is not routinely indicated.
+Viral pathogen only detected. Supportive therapy is recommended. Antibacterial therapy is not routinely indicated.
 
----
-
-# VAP LIMITATIONS
-
-Routine use in ventilator-associated pneumonia is generally discouraged because:
-- many nosocomial pathogens are absent from the panel
-- resistant ICU flora incompletely represented
-- Stenotrophomonas is not included
-- positive respiratory PCR may represent colonization
-- prior microbiology data is often already available
-
-The panel may still be used for targeted diagnostic questions.
-
-When discussing VAP:
-- explicitly mention limitations
-- avoid overconfident interpretation
-
----
-
-# DOSING PRINCIPLES
+### DOSING_PRINCIPLES
 
 In septic patients during the first 24–48 hours:
 - use full-dose antibiotics
 - do not reduce dose solely because of renal dysfunction
 
----
-
-# ABBREVIATIONS & SYNONYMS
+### ABBREVIATIONS
 
 | Canonical term | Accept aliases |
 |---|---|
@@ -336,3 +340,24 @@ In septic patients during the first 24–48 hours:
 | Escherichia coli | e. coli |
 | ventilator-associated pneumonia | VAP |
 | community acquired pneumonia | CAP |
+
+## SAFETY_NOTES
+
+### VAP_LIMITATIONS
+
+Routine use in ventilator-associated pneumonia is generally discouraged because:
+- many nosocomial pathogens are absent from the panel
+- resistant ICU flora incompletely represented
+- Stenotrophomonas is not included
+- positive respiratory PCR may represent colonization
+- prior microbiology data is often already available
+
+The panel may still be used for targeted diagnostic questions.
+
+When discussing VAP:
+- explicitly mention limitations
+- avoid overconfident interpretation
+
+## DEFAULT_FOOTER
+
+BioFire interpretáció mikrobiológia konzultációval együtt.

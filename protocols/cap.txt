@@ -1,13 +1,11 @@
 COMMUNITY ACQUIRED RESPIRATORY INFECTIONS
 CAP / COPD ACUTE EXACERBATION
 
----
+## METADATA
 
-## PROTOCOL_NAME
-
-Community acquired respiratory infection protocol
-
----
+protocol_name: Community acquired respiratory infection protocol
+source_label: CAP
+protocol_file: protocols/cap.txt
 
 ## ALIASES
 
@@ -17,106 +15,117 @@ Community acquired respiratory infection protocol
 - pneumonia
 - COPD exacerbation
 - aspiration pneumonia
+- HAP
+- VAP
 
----
+## ANSWER_POLICY
+
+Can default dosing be given if some information is missing?
+- no
+
+Before selecting any treatment pathway, patient status MUST be established.
+
+If patient status not specified:
+- ask ONE short question only (see DEFAULT_QUESTION below)
+- do NOT list pathways
+- do NOT suggest any antibiotic yet
 
 ## REQUIRED_INFORMATION
 
-Required before final pathway selection:
-- Is the patient intubated/mechanically ventilated?
-
-If not specified:
-- ask this first before selecting CAP pathway.
-
----
+Required before any pathway selection:
+- patient status: intubated / hospitalized / dischargeable
 
 ## PREFERRED_INFORMATION
 
-Helpful for pathway selection and individualization:
-- Is viral testing positive or negative?
-- Is atypical pathogen suggested by history/symptoms?
-- Is the patient hospitalized?
+Ask AFTER giving initial pathway guidance, not before:
+- viral test result (positive / negative)
+- atypical pathogen suspicion
+- nosocomial risk factors (hospitalized non-intubated only)
 - COPD exacerbation present?
-- Are nosocomial risk factors present?
-- Is BioFire available?
-
-If missing:
-- ask after initial pathway guidance when relevant.
-
----
+- BioFire result (if available)
+- shock / hemodynamic instability
 
 ## MODIFIER_INFORMATION
 
-These may modify treatment pathway:
-- intubation/mechanical ventilation
-- nosocomial risk factors
+These may modify treatment — ask only after initial pathway given:
 - positive viral testing
 - atypical pathogen suspicion
 - COPD exacerbation
 - aspiration event
-- BioFire result
-- shock/hemodynamic instability
+- BioFire Pneumonia Panel result
+- shock / hemodynamic instability
 
----
+## DEFAULT_QUESTION
 
-## DEFAULT_ANSWER
+When patient status is unknown, respond with EXACTLY this — nothing more:
 
-No default answer defined.
+In hungarian: "Milyen a beteg? Hazaengedhető / hospitalizált / intubált kritikus állapotú?"
 
-If required pathway information is missing:
-- ask for the minimum information needed to choose the correct pathway.
-- do NOT list the full CAP treatment tree unless explicitly requested.
 
-For broad pneumonia questions:
-- first clarify:
-  - outpatient vs hospitalized?
-  - intubated/mechanically ventilated?
+Do not add explanation. Do not list treatment options. Wait for the answer.
 
-Then continue pathway selection.
+## PATHWAY_PRIORITY
 
----
+STRICT HIERARCHY — apply the FIRST matching pathway, ignore the rest:
 
-## GENERAL_RULES
+1. INTUBATED → go to INTUBATED_CAP immediately.
+   - Do NOT ask about nosocomial risk factors.
+   - Do NOT apply hospitalized pathway.
+   - Nosocomial risk factors are irrelevant for intubated patients.
 
-- Use Biofire Pneumonia PCR where indicated.
-- Consider local microbiology guidance.
-- Review allergy history and renal function.
-- Assess for nosocomial risk factors.
+2. HOSPITALIZED, not intubated → go to HOSPITALIZED_CAP_NON_INTUBATED.
+   - Then ask about nosocomial risk factors.
 
----
+3. DISCHARGEABLE / outpatient → go to OUTPATIENT_DISCHARGEABLE_CAP.
+   - Then ask about viral test result and atypical suspicion.
 
-## INFLUENZA
+If both intubated AND nosocomial risk factors are mentioned:
+- intubated wins. Follow INTUBATED_CAP only.
 
-Treatment:
-- Oseltamivir
+## DECISION_TREE
 
-Notes:
-- Antibiotics only if bacterial superinfection suspected.
+(none)
 
----
+## TREATMENT_PATHWAYS
 
-## ASPIRATION_PNEUMONIA
+### INTUBATED_CAP
 
-Treatment:
-- Ceftriaxone
+When patient is intubated or mechanically ventilated:
 
-Notes:
-- Antibiotics only if secondary infection suspected.
-- Not immediately after aspiration event itself.
+Step 1 — Order BioFire Pneumonia Panel:
+- Send tracheal aspirate or BAL for BioFire Pneumonia Panel
+- Use targeted therapy based on results
+- Tell the user: "Ha megírod az eredményeket, segítek választani."
+  (English: "Text me the results and I can help choose.")
 
----
+Step 2 — Until BioFire results available:
+- Ceftriaxone 2 g
 
-## COPD_ACUTE_EXACERBATION
+Do NOT ask about nosocomial risk factors.
+Do NOT suggest levofloxacin or other nosocomial-pathway antibiotics.
+Do NOT list other pathways.
 
-Treatment:
+Optional: if shock present:
+- Consider corticosteroids: methylprednisolone 0.5 mg/kg
+
+Example answer format for intubated patient:
+"Intubált → BioFire Pneumonia panel (trachea/BAL aspirátum).
+Eredmények alapján célzott terápia — ha megírod, segítek választani.
+Addig: ceftriaxon 2 g."
+
+### HOSPITALIZED_CAP_NON_INTUBATED
+
+After confirming patient is hospitalized but NOT intubated:
+
+Without nosocomial risk factors:
 - Ceftriaxone + clarithromycin
 
-Notes:
-- Antibiotics only if bacterial superinfection suspected.
+With nosocomial risk factors:
+- Levofloxacin
 
----
-
-## COMMUNITY_ACQUIRED_PNEUMONIA
+Ask after giving the antibiotic:
+- viral test result?
+- atypical pathogen suspicion?
 
 ### OUTPATIENT_DISCHARGEABLE_CAP
 
@@ -129,111 +138,66 @@ If viral test negative:
 If atypical pathogen suspected:
 - azithromycin
 
----
-
-### HOSPITALIZED_CAP_NON_INTUBATED
-
-Without nosocomial risk factors:
-- ceftriaxone + clarithromycin
-
-With nosocomial risk factors:
-- levofloxacin
-
----
-
-### INTUBATED_CAP
+### INFLUENZA
 
 Treatment:
-- follow BioFire-based guidance if available
-- until results available:
-  - ceftriaxone 2 g
+- Oseltamivir
 
 Notes:
-- consider corticosteroids if shock present
-- example:
-  - methylprednisolone 0.5 mg/kg
+- Antibiotics only if bacterial superinfection suspected.
 
----
+### ASPIRATION_PNEUMONIA
 
-## POINT_OF_CARE_TESTING
+Treatment:
+- Ceftriaxone
 
-### OUTPATIENT_DURING_EPIDEMIC_PERIOD
+Notes:
+- Antibiotics only if secondary infection suspected.
+- Not immediately after aspiration event itself.
 
-Combined antigen test:
-- indicated during epidemic period
+### COPD_ACUTE_EXACERBATION
 
-GeneXpert four-panel:
-- not indicated
+Treatment:
+- Ceftriaxone + clarithromycin
 
-Biofire RP2.1:
-- not indicated
+Notes:
+- Antibiotics only if bacterial superinfection suspected.
 
-Urinary antigen test:
-- if clinically suspected
+### POINT_OF_CARE_TESTING
 
-Biofire PN:
-- not indicated
+#### OUTPATIENT_DURING_EPIDEMIC_PERIOD
 
----
+Combined antigen test: indicated during epidemic period
+GeneXpert four-panel: not indicated
+Biofire RP2.1: not indicated
+Urinary antigen test: if clinically suspected
+Biofire PN: not indicated
 
-### HOSPITALIZED_DURING_EPIDEMIC_PERIOD
+#### HOSPITALIZED_DURING_EPIDEMIC_PERIOD
 
-Combined antigen test:
-- clinical suspicion + negative rapid test
+Combined antigen test: clinical suspicion + negative rapid test
+GeneXpert four-panel: pertussis suspicion
+Biofire RP2.1: atypical pathogen suspicion
+Urinary antigen test: indicated
+Biofire PN: not indicated
 
-GeneXpert four-panel:
-- pertussis suspicion
+#### INTUBATED_DURING_EPIDEMIC_PERIOD
 
-Biofire RP2.1:
-- atypical pathogen suspicion
+Combined antigen test: not indicated
+GeneXpert four-panel: pertussis suspicion
+Biofire RP2.1: indicated
+Urinary antigen test: indicated
+Biofire PN: INDICATED — order immediately
 
-Urinary antigen test:
-- indicated
-
-Biofire PN:
-- not indicated
-
----
-
-### INTUBATED_DURING_EPIDEMIC_PERIOD
-
-Combined antigen test:
-- not indicated
-
-GeneXpert four-panel:
-- pertussis suspicion
-
-Biofire RP2.1:
-- indicated
-
-Urinary antigen test:
-- indicated
-
-Biofire PN:
-- indicated
-
----
-
-## FOLLOW_UP_QUESTIONS
-
-After providing pathway guidance, ask remaining relevant clarification questions:
-- viral test positive or negative?
-- atypical pathogen suspicion?
-- hospitalized?
-- COPD exacerbation?
-- nosocomial risk factors?
-- BioFire available?
-- shock/hemodynamic instability?
-
-Do NOT stop after giving partial pathway guidance if further clarification is still clinically relevant.
-
----
-
-## SAFETY_RULES
+## SAFETY_NOTES
 
 - Ask about allergy history.
 - Ask about renal function when antibiotic dosing relevant.
-- Ask about shock/hemodynamic instability.
+- Ask about shock / hemodynamic instability.
 - Do not provide definitive medical decisions.
-- Escalate severe or unclear cases to senior clinician/ID specialist.
+- Escalate severe or unclear cases to senior clinician / ID specialist.
 - No patient identifiers.
+
+## DEFAULT_FOOTER
+
+BioFire eredmény esetén írj — segítek választani.
