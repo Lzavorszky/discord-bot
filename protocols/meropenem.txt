@@ -5,7 +5,10 @@
 protocol_name: Meropenem continuous infusion ICU dosing protocol
 drug_class: beta-lactam, carbapenem
 source_label: meropenem
+canonical_name: meropenem
 protocol_file: protocols/meropenem.txt
+answer_mode: open_default
+broad_query_action: give_default_answer_and_quick_structure
 
 ## ALIASES
 
@@ -13,116 +16,143 @@ protocol_file: protocols/meropenem.txt
 - mero
 - MEM
 - meronem
+- meropenemum
+- meropenem iv
+- meropenem dose
+- meropenem dosing
+- magas meropenem
+- carbapenem
 
 ## ANSWER_POLICY
 
 Can default dosing be given if some information is missing?
 - yes
 
-Default empiric dosing if indication and/or renal function missing:
-- PLUSZ: 6 g/nap — CNS infekció vagy tartósan alacsony TDM
-- MAGAS: 4 g/nap — septicus shock első 24h, ARC, GFR >90 amíg MIC/TDM nincs
-- ÁTLAGOS: 3 g/nap — GFR 20–90, stabil ICU infekció
-- CSÖKKENTETT: 1 g/nap vagy 0.5 g q12h — GFR <20, CRRT nélkül
-- CRRT: 3 g/nap
-- IHD: 0.5 g q12h
+This is an open default dosing protocol.
+
+If the user asks a broad or under-specified meropenem question, for example:
+- mero?
+- meropenem?
+- meropenem dose?
+- meropenem dózis?
+- mennyi meropenem?
+- meronem?
+
+Then:
+- provide the DEFAULT_ANSWER in the user's language if available
+- include the quick dosing tier structure
+- do NOT refuse dosing solely because indication or renal function is missing
+- label the default as empiric / not individualized
+- after the answer, ask briefly for preferred information needed to individualize dosing
+
+If the user provides modifiers, select the dosing tier using PATHWAY_PRIORITY and DOSING_TIERS.
+
+Do NOT:
+- invent non-protocol dosing
+- omit continuous infusion
+- omit renal replacement therapy if mentioned
+- recommend renal dose reduction in the first 24h of septic shock solely because of renal dysfunction unless IHD/anuria/toxicity dominates
 
 ## REQUIRED_INFORMATION
 
 (none)
 
 ## PREFERRED_INFORMATION
-
-After providing default or partial dosing, ask for:
-
-- indication/infection type
-  Examples:
-  - septic shock
-  - HAP/VAP
-  - CNS infection
-  - intraabdominal infection
-  - ESBL infection
-  - empiric ICU sepsis treatment
-
-- renal function/GFR
-
-- CRRT/IHD
-
-- pathogen or microbiology result if available
-
-- septic shock present?
-  - specifically:
-    - first 24h of septic shock?
-
-- ARC suspicion
-
-- CNS infection
-
-- TDM availability
+(none)
 
 ## MODIFIER_INFORMATION
-
-These modify dosing tier selection:
-
-- first 24h of septic shock
-  -> MAGAS
-
-- ARC
-  -> MAGAS
-
-- CNS infection
-  -> PLUSZ
-
-- persistent subtherapeutic TDM
-  -> PLUSZ
-
-- GFR <20 without CRRT
-  -> CSÖKKENTETT
-
-- CRRT
-  -> CRRT pathway
-
-- intermittent hemodialysis
-  -> IHD pathway
-
-- pathogen MIC/TDM result
-  -> individualized adjustment
+(none)
 
 ## DEFAULT_QUESTION
-
 (none)
+
+## DEFAULT_ANSWER
+
+### HU
+
+Meropenem — dozírozási összefoglaló
+- PLUSZ: 6 g/nap — CNS infekció vagy alacsony szint
+- MAGAS: 4 g/nap — septicus shock első 24h, ARC, GFR >90 amíg MIC/TDM nincs
+- ÁTLAGOS: 3 g/nap — GFR 20–90
+- CSÖKKENTETT: 1 g/nap vagy 0.5 g q12h — GFR <20, CRRT nélkül
+- CRRT: 3 g/nap
+- IHD: 0.5 g q12h
+
+### EN
+
+Meropenem — quick map
+- PLUSZ: 6 g/day — CNS infection or persistent low levels
+- MAGAS: 4 g/day — septic shock first 24h, ARC, GFR >90 until MIC/TDM available
+- ÁTLAGOS: 3 g/day — GFR 20–90, stable ICU infection
+- CSÖKKENTETT: 1 g/day or 0.5 g q12h — GFR <20, no CRRT
+- CRRT: 3 g/day
+- IHD: 0.5 g q12h
+
 
 ## PATHWAY_PRIORITY
 
 Priority order (first match wins):
 
 1. CNS infection                       -> PLUSZ
-2. First 24h of septic shock           -> MAGAS
-3. ARC suspected                       -> MAGAS
-4. CRRT                                -> CRRT
-5. Intermittent hemodialysis (IHD)     -> IHD
-6. GFR <20 (no CRRT)                  -> CSÖKKENTETT
-7. Default / all other ICU patients    -> ÁTLAGOS
+2. Persistent subtherapeutic TDM        -> PLUSZ
+3. First 24h of septic shock           -> MAGAS
+4. ARC suspected                       -> MAGAS
+5. GFR >90 until MIC/TDM available     -> MAGAS
+6. CRRT                                -> CRRT
+7. Intermittent hemodialysis (IHD)     -> IHD
+8. GFR <20 without CRRT                -> CSÖKKENTETT
+9. GFR 20-90, stable ICU infection     -> ÁTLAGOS
+10. Broad / under-specified request    -> MAGAS as empiric default
+
+## DOSING_TIERS
+
+TIER: PLUSZ
+DOSE: 6 g/day
+WHEN: CNS infection; persistent low TDM; step-up dosing after subtherapeutic TDM
+ADMIN: continuous infusion over 24h
+PREP: 1 g meropenem in 50 mL NaCl 0.9%
+PUMP: 12.5 mL/h
+
+TIER: MAGAS
+DOSE: 4 g/day
+WHEN: septic shock empiric therapy; first 24h of septic shock; suspected ARC; GFR >90 until TDM and pathogen MIC available; under-specified broad meropenem dosing question
+ADMIN: continuous infusion over 24h
+PREP: 1 g meropenem in 50 mL NaCl 0.9%
+PUMP: 8.4 mL/h
+
+TIER: ÁTLAGOS
+DOSE: 3 g/day
+WHEN: standard ICU infection; GFR 20-90; clinically stable patient without ARC/shock/CNS infection
+ADMIN: continuous infusion over 24h
+PREP: 1 g meropenem in 50 mL NaCl 0.9%
+PUMP: 6.3 mL/h
+
+TIER: CSÖKKENTETT
+DOSE: 1 g/day OR 0.5 g q12h
+WHEN: GFR <20; severe renal dysfunction without CRRT
+ADMIN: continuous infusion possible; reduced-dose regimens may require modified preparation; intermittent dosing possible
+PREP: individualized / modified preparation may be required
+PUMP: 4.2 mL/h
+
+TIER: CRRT
+DOSE: 3 g/day
+WHEN: CRRT; standard effluent rate <40 mL/kg/h
+ADMIN: continuous infusion over 24h
+PREP: 1 g meropenem in 50 mL NaCl 0.9%
+PUMP: 6.3 mL/h
+
+TIER: IHD
+DOSE: 0.5 g q12h
+WHEN: intermittent hemodialysis
+ADMIN: individualized consideration; intermittent dosing may be preferred
+PREP: individualized
+PUMP: not applicable / individualized
 
 ## DECISION_TREE
-
 (none)
 
 ## TREATMENT_PATHWAYS
 
-### INDICATIONS
-
-Common ICU indications:
-- severe sepsis
-- septic shock
-- nosocomial pneumonia
-- HAP/VAP
-- ESBL-producing Enterobacterales
-- severe intraabdominal infection
-- CNS infection
-- empiric ICU therapy
-- AmpC-risk Enterobacter infections
-- resistant gram-negative infections
 
 ### SPECTRUM
 
@@ -139,129 +169,9 @@ Limited or unreliable against:
 - some carbapenem-resistant organisms
 - MACI
 
-### DOSING_PHILOSOPHY
-
-- Continuous infusion preferred
-- PK/PD-driven dosing
-- Full-dose therapy recommended in early septic shock
-- Higher doses may be required in:
-  - ARC
-  - CNS infection
-  - severe infections
-
-### PLUSZ
-
-Used for:
-- CNS infections
-- persistent subtherapeutic levels after TDM
-- step-up dosing
-
-Dose:
-- 6 g/day
-
-Administration:
-- continuous infusion over 24h
-- 1 g meropenem in 50 mL NaCl 0.9%
-- pump: 12.5 mL/h
-
-### MAGAS
-
-Used for:
-- septic shock empiric therapy
-- first 24 hours
-- suspected ARC
-- GFR >90 until TDM and pathogen MIC available
-
-Dose:
-- 4 g/day
-
-Administration:
-- continuous infusion over 24h
-- 1 g meropenem in 50 mL NaCl 0.9%
-- pump: 8.4 mL/h
-
-### ÁTLAGOS
-
-Used for:
-- standard ICU infections
-- GFR 20–90
-- clinically stable patients without ARC/shock
-
-Dose:
-- 3 g/day
-
-Administration:
-- continuous infusion over 24h
-- 1 g meropenem in 50 mL NaCl 0.9%
-- pump: 6.3 mL/h
-
-### CSÖKKENTETT
-
-Used for:
-- GFR <20
-- severe renal dysfunction without CRRT
-
-Dose:
-- 1 g/day
-OR
-- 0.5 g q12h
-
-Administration:
-- continuous infusion possible
-- reduced-dose regimens may require modified preparation
-
-Typical pump:
-- 4.2 mL/h
-
-### CRRT
-
-Used for:
-- CRRT
-- standard effluent rate <40 mL/kg/h
-
-Dose:
-- 3 g/day
-
-Administration:
-- continuous infusion over 24h
-- 1 g meropenem in 50 mL NaCl 0.9%
-- pump: 6.3 mL/h
-
-### IHD
-
-Used for:
-- intermittent hemodialysis
-
-Dose:
-- 0.5 g q12h
-
-Administration:
-- individualized consideration
-- intermittent dosing may be preferred
-
-TDM strongly encouraged.
 
 ### UNDER_SPECIFIED_DOSING_REQUESTS
-
-If the user asks:
-- generic meropenem dosing
-- dosing for obesity
-- dosing without indication
-- dosing without renal function
-
-Do NOT list all dosing tiers.
-
-Instead:
-- provide MAGAS dosing as high-dose empiric ICU dosing
-- then ask for:
-  - indication/infection type
-  - renal function/GFR
-  - CRRT/IHD
-  - septic shock
-  - ARC suspicion
-
-If the user insists on generic/default dosing:
-- provide ÁTLAGOS dosing.
+provide default answer
 
 ### TDM
 
@@ -334,22 +244,9 @@ Does not reliably cover:
 - MRSA
 - VRE
 - many carbapenemase-producing organisms
+- MACI
 
 ### ESCALATION_AND_WARNINGS
 
-Escalate to infectious diseases / microbiology consultation if:
-- persistent bacteremia
-- worsening shock
-- persistent subtherapeutic level
-- treatment failure
-- unclear resistance pattern
-- suspected carbapenemase-producing organism
-- severe renal dysfunction with uncertain dosing
-- CNS infection with poor response
-
-Continuous infusion meropenem is used to maximize PK/PD target attainment in critically ill patients.
-Dose individualization, microbiology-guided de-escalation, and ARC recognition are central stewardship principles.
-
 ## DEFAULT_FOOTER
-
-Minden meropenem 24-órás folyamatos infúzióban.
+Think TDM if poor response to therapy, extremes of renal function, high MIC

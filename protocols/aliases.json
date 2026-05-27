@@ -54,11 +54,8 @@
         "tüdőgyulladásra", "tüdőgyulladásban", "tüdőgyulladással",
         "tudogyulladasra", "tudogyulladasban",
         "légúti fertőzés", "leguti fertozes", "leguti", "lrti",
-        "copd exacerbation", "copd exacerbáció", "aspiration pneumonia",
-        "aspirációs pneumonia", "aspirachos pneumonia",
-        "hap", "vap", "hospital acquired pneumonia",
-        "ventilator associated pneumonia", "nozokomiális pneumonia",
-        "nosocomial pneumonia", "atipusos pneumonia", "atípusos pneumonia"
+        "copd exacerbation", "copd exacerbáció",    
+        , "atipusos pneumonia", "atípusos pneumonia"
       ]
     },
     "biofire": {
