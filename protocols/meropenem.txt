@@ -31,36 +31,12 @@ Can default dosing be given if some information is missing?
 This is an open default dosing protocol.
 
 If the user asks a broad or under-specified meropenem question, for example:
-- mero?
-- meropenem?
-- meropenem dose?
-- meropenem dózis?
-- mennyi meropenem?
-- meronem?
-
 Then:
 - provide the DEFAULT_ANSWER in the user's language if available
-- include the quick dosing tier structure
-- do NOT refuse dosing solely because indication or renal function is missing
-- label the default as empiric / not individualized
-- after the answer, ask briefly for preferred information needed to individualize dosing
 
-If the user provides modifiers, select the dosing tier using PATHWAY_PRIORITY and DOSING_TIERS.
-
-Do NOT:
-- invent non-protocol dosing
-- omit continuous infusion
-- omit renal replacement therapy if mentioned
-- recommend renal dose reduction in the first 24h of septic shock solely because of renal dysfunction unless IHD/anuria/toxicity dominates
+If the user provides renal function, select the dosing tier using PATHWAY_PRIORITY and DOSING_TIERS then also provide DEFAULT_ANSWER a quick dosing table for reference
 
 ## REQUIRED_INFORMATION
-
-(none)
-
-## PREFERRED_INFORMATION
-(none)
-
-## MODIFIER_INFORMATION
 (none)
 
 ## DEFAULT_QUESTION
@@ -156,99 +132,14 @@ PUMP: not applicable / individualized
 ## TREATMENT_PATHWAYS
 
 
-### SPECTRUM
-
-Broad-spectrum carbapenem with activity against:
-- Enterobacterales
-- ESBL-producing organisms
-- Pseudomonas aeruginosa
-- anaerobes
-- many gram-positive organisms
-
-Limited or unreliable against:
-- MRSA
-- VRE
-- some carbapenem-resistant organisms
-- MACI
 
 
-### UNDER_SPECIFIED_DOSING_REQUESTS
-provide default answer
-
-### TDM
-
-#### AVAILABILITY
-
-- external laboratory
-- Semmelweis University
-
-#### SAMPLING
-
-- send morning sample
-- sample during continuous infusion
-
-#### TDM_INDICATIONS
-
-Routine TDM:
-- NOT generally required
-
-Recommended when:
-- ARC suspected
-- GFR >90 with urine output >2000 mL/day
-- severe AKI
-- IHD
-- CRRT
-- difficult-to-control infection
-- poor clinical response
-- infective endocarditis
-- abscess systems
-- persistent infection
-
-### PK_PD_TARGETS
-
-Target:
-- concentration above pathogen MIC
-
-If MIC unknown:
-- >8 mg/L generally acceptable
-
-## SAFETY_NOTES
-
-### TOXICITY
-
-Known toxic threshold:
-- not fully established
-
-Generally considered safe:
-- <45 mg/L
-
-If >45 mg/L:
-- dose reduction recommended
-
-### IMPORTANT_WARNINGS
-
-- ARC frequently causes underdosing
-- Continuous infusion strongly preferred in ICU
-- CNS infections may require higher exposure
-- Do not reduce dose early in septic shock solely due to renal dysfunction
-- Carbapenem stewardship important
-- De-escalate when microbiology allows
-
-### MICROBIOLOGY_NOTES
-
-Common targeted pathogens:
-- ESBL Enterobacterales
-- AmpC-risk Enterobacter spp.
-- Pseudomonas aeruginosa
-- polymicrobial abdominal infection
-
-Does not reliably cover:
-- MRSA
-- VRE
-- many carbapenemase-producing organisms
-- MACI
 
 ### ESCALATION_AND_WARNINGS
+(none)
 
 ## DEFAULT_FOOTER
-Think TDM if poor response to therapy, extremes of renal function, high MIC
+! In CNS infections use double dose, e.g. 6g/24h
+! Do not reduce dose in the first 48hrs of starting therapy
+Give a loading dose of 1g at the first administration and start 24hr infusion after loading finishes
+Think TDM if poor response to therapy, extremes of renal function (GFR 20- or 90+), deep seated infection. Aim above pathogen MIC (or 8-45mg/L)
