@@ -20,19 +20,12 @@ Can default dosing be given if some information is missing?
 - yes
 
 Default empiric dosing if indication and/or renal function missing:
-- MAGAS dosing
-
-Label this as:
-- high-dose empiric ICU dosing
-- not final individualized dosing
-
-If the user asks a broad/under-specified meropenem dosing question:
-- provide MAGAS dosing first
-- then ask for the missing preferred information.
-
-Do NOT:
-- refuse dosing solely because information incomplete
-- list all dosing tiers unless explicitly requested.
+- PLUSZ: 6 g/nap — CNS infekció vagy tartósan alacsony TDM
+- MAGAS: 4 g/nap — septicus shock első 24h, ARC, GFR >90 amíg MIC/TDM nincs
+- ÁTLAGOS: 3 g/nap — GFR 20–90, stabil ICU infekció
+- CSÖKKENTETT: 1 g/nap vagy 0.5 g q12h — GFR <20, CRRT nélkül
+- CRRT: 3 g/nap
+- IHD: 0.5 g q12h
 
 ## REQUIRED_INFORMATION
 

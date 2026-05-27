@@ -450,7 +450,7 @@ def normalize_question(question):
         if len(alias) <= 4:
             matched = re.search(r"\b" + re.escape(alias) + r"\b", text) is not None
         else:
-            matched = alias in text
+            matched = re.search(r"\b" + re.escape(alias) + r"\b", text) is not None
         if matched:
             normalized_question = (
                 question
