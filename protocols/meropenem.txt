@@ -77,6 +77,7 @@ Meropenem — dozírozási összefoglaló
 - CSÖKKENTETT: 1 g/nap vagy 0.5 g q12h — GFR <20, CRRT nélkül
 - CRRT: 3 g/nap
 - IHD: 0.5 g q12h
+- Ha kiválasztod melyik, megmondom a pontos pumpa beállíásokat
 
 ### EN
 
@@ -87,6 +88,7 @@ Meropenem — quick map
 - CSÖKKENTETT: 1 g/day or 0.5 g q12h — GFR <20, no CRRT
 - CRRT: 3 g/day
 - IHD: 0.5 g q12h
+- If you specify dosing I can tell you pump settings
 
 
 ## PATHWAY_PRIORITY

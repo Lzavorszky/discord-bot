@@ -2063,6 +2063,60 @@ def _handle_pending_links(state, pending_links, user_message):
     return prefix + offer
 
 
+def _auto_advance_tree(state, initial_message):
+    """After initialising the tree, try to auto-classify the initial trigger
+    message through one or more question nodes before prompting the user.
+    If the trigger already contains enough information to answer a question
+    node, advance silently and continue until we either reach an answer node
+    (return it immediately) or a question the message cannot answer (emit
+    that question and wait for the next user message).
+    Falls back to _emit_node_ask if classification fails on the very first
+    node so the flow is identical to the previous behaviour."""
+    lang = _user_language(initial_message)
+    MAX_AUTO_STEPS = 8  # safety cap
+
+    for _ in range(MAX_AUTO_STEPS):
+        tree = state.get("tree")
+        if not tree:
+            return None
+        parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(tree["protocol_file"]))
+        node = _get_node(parsed, tree["current_node"])
+        if not node:
+            reset_tree_state(state)
+            return None
+
+        # Answer node — resolve and return directly.
+        if node["type"] == "answer":
+            body = _resolve_answer(node, parsed, tree["collected"], lang)
+            body = _maybe_attach_links(state, node, parsed, body, lang)
+            if node.get("then") == "end":
+                reset_tree_state(state)
+            return body
+
+        # Question node — try to classify with the trigger message.
+        if node["type"] == "question":
+            label = _classify_branch(node, initial_message, lang)
+            if label is None or label not in node["branches"]:
+                # Can't classify → emit the question and wait for the user.
+                return _pick_lang(node.get("ask_hu"), node.get("ask_en"), lang)
+            target = node["branches"][label]
+            if target == "end":
+                reset_tree_state(state)
+                return None
+            if not _get_node(parsed, target):
+                print(f"[auto-advance] unknown branch target {target!r}")
+                reset_tree_state(state)
+                return None
+            advance_tree_state(state, target)
+            continue  # re-evaluate the newly reached node
+
+        # Collect or unknown node type — emit question and wait.
+        return _pick_lang(node.get("ask_hu"), node.get("ask_en"), lang)
+
+    # Safety fallback (should not be reached in practice).
+    return _emit_node_ask(state, initial_message)
+
+
 def dispatch_tree(state, recognized, raw_question, normalized_question):
     """Main entry. Returns a finished response body to skip the standard
     LLM flow, or None to fall through. May mutate state (tree pointer,
@@ -2091,7 +2145,11 @@ def dispatch_tree(state, recognized, raw_question, normalized_question):
         # Update active_recognized so the source label resolves correctly.
         state["active_recognized"] = recognized
         init_tree_state(state, parsed, recognized)
-        return _emit_node_ask(state, raw_question)
+        # Try to auto-advance through question nodes using the trigger message
+        # (e.g. "biofire strep pneumoniae" → skips ask_result + ask_organism
+        # and returns the answer in one shot). Falls back to emitting the root
+        # question if the trigger message doesn't contain enough information.
+        return _auto_advance_tree(state, raw_question)
 
     # 3. Tree active. Did the user mention a *different* protocol?
     if (recognized
