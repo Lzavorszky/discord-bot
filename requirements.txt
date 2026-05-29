@@ -1,4 +1,4 @@
-discord.py
-openai
+python-telegram-bot>=20.0
+openai>=1.0
 numpy
-python-telegram-bot
+rapidfuzz

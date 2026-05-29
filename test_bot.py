@@ -1,1164 +1,1396 @@
 """
-Regression test suite for the hospital protocol bot.
-
-HOW TO RUN:
-    python test_bot.py           # fast tests only (no API calls)
-    python test_bot.py --all     # include integration tests (uses OpenAI API)
-
-Fast tests (no API needed):
-  - Alias/synonym recognition
-  - clean_response post-processing
-  - Source label derivation
-  - Protocol file path matching
-
-Integration tests (requires OPENAI_API_KEY and protocol files in place):
-  - Full ask_ai() calls with expected output fragments
-
-Add new cases to ALIAS_CASES and INTEGRATION_CASES as you add protocols.
+Session 1 tests — deployment and output hygiene.
+Run: python test_bot.py
 """
 
 import sys
 import os
-import re
-import json
+import io
+import unittest
+import importlib.util
+import types
+from unittest.mock import patch, MagicMock
 
-# ---------------------------------------------------------------------------
-# Stub heavy production dependencies that are not needed for pure-Python
-# tests (schema parser, tree parser, footer helpers, dispatcher smoke).
-# This lets sections 6–10 import telegram_bot and call its pure functions
-# without numpy / openai / rapidfuzz being installed.
-#
-# The stubs are injected into sys.modules BEFORE any `from telegram_bot`
-# import so the module-level code in telegram_bot.py never trips on them.
-# Functions that actually call openai or numpy at runtime will still fail
-# if invoked — but none of the fast tests do that.
-# ---------------------------------------------------------------------------
+# Allow importing from protocols/
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "protocols"))
 
-def _stub_missing_deps():
-    from unittest.mock import MagicMock
-    _HEAVY = [
-        "numpy",
-        "openai",
-        "rapidfuzz",
-        "rapidfuzz.fuzz",
-        "rapidfuzz.process",
-        "telegram",
-        "telegram.ext",
-        "telebot",
-    ]
-    for mod in _HEAVY:
-        if mod not in sys.modules:
-            try:
-                __import__(mod)
-            except ImportError:
-                stub = MagicMock()
-                # numpy.array and numpy.dot are called at module level in some
-                # versions; make them return something falsy but not error.
-                stub.array = MagicMock(return_value=[])
-                stub.dot   = MagicMock(return_value=0.0)
-                sys.modules[mod] = stub
+# Provide dummy env vars so the module loads without crashing
+os.environ.setdefault("TELEGRAM_TOKEN", "dummy")
+os.environ.setdefault("OPENAI_API_KEY",  "dummy")
 
-_stub_missing_deps()
+# Let local unit tests import telegram_bot even when external SDKs are not
+# installed in the active Python environment. Production still uses
+# requirements.txt.
+if importlib.util.find_spec("openai") is None:
+    fake_openai = types.ModuleType("openai")
+    fake_openai.OpenAI = MagicMock
+    sys.modules["openai"] = fake_openai
 
-# ---------------------------------------------------------------------------
-# Minimal inline copies of the pure-Python functions (no imports needed)
-# This lets you run fast tests without installing any bot dependencies.
-# ---------------------------------------------------------------------------
+if importlib.util.find_spec("telegram") is None:
+    fake_telegram = types.ModuleType("telegram")
+    fake_telegram.Update = type("Update", (), {})
+    fake_ext = types.ModuleType("telegram.ext")
+    fake_ext.ApplicationBuilder = MagicMock
+    fake_ext.MessageHandler = MagicMock
+    fake_ext.CommandHandler = MagicMock
+    fake_ext.ContextTypes = type("ContextTypes", (), {"DEFAULT_TYPE": object})
+    fake_ext.filters = type("filters", (), {"TEXT": MagicMock(), "COMMAND": MagicMock()})
+    sys.modules["telegram"] = fake_telegram
+    sys.modules["telegram.ext"] = fake_ext
 
-_BOLD_RE        = re.compile(r'\*\*(.+?)\*\*', re.DOTALL)
-_SOURCE_LINE_RE = re.compile(
-    r'[\n\r]?[ \t]*[-•]?[ \t]*'
-    r'(?:Source|Forrás|Source file[s]?|Forrás fájl[ok]?)'
-    r'[ \t]*[:\*]*[ \t]*[`"]?[^\n\r]*',
-    re.IGNORECASE
-)
-_FILE_PATH_RE   = re.compile(r'`?protocols/[^\s`\n\r,;]+`?', re.IGNORECASE)
-_NOT_SPEC_RE    = re.compile(
-    r'[-•]?[ \t]*This is not specified in the uploaded protocol\.?[ \t]*[\n\r]?',
-    re.IGNORECASE
-)
-_BLANK_RE       = re.compile(r'\n{3,}')
-_HAS_DOSING_RE  = re.compile(r'\d+\s*(mg|g|amp|ml|mmol|mcg)', re.IGNORECASE)
+# Patch OpenAI constructor so it doesn't fail on a dummy key at import time
+_openai_patch = patch("openai.OpenAI", return_value=MagicMock())
+_openai_patch.start()
 
+import telegram_bot as bot
 
-def clean_response(text, source_label):
-    text = _BOLD_RE.sub(r'\1', text)
-    text = _SOURCE_LINE_RE.sub('', text)
-    text = _FILE_PATH_RE.sub('', text)
-    if _HAS_DOSING_RE.search(text):
-        text = _NOT_SPEC_RE.sub('', text)
-    text = _BLANK_RE.sub('\n\n', text).strip()
-    if source_label:
-        text = text + f'\n\nSource: {source_label}'
-    return text
+_openai_patch.stop()
 
-
-def derive_source_label(file_path):
-    from pathlib import Path
-    stem = Path(file_path).stem.lower()
-    fallback_labels = {
-        "tmpsmx":                          "TMP/SMX",
-        "tmp_smx":                         "TMP/SMX",
-        "ampsul":                          "ampicillin/sulbactam",
-        "ampicillin_sulbactam":            "ampicillin/sulbactam",
-        "meropenem":                       "meropenem",
-        "cap":                             "CAP",
-        "biofire":                         "BioFire",
-        "pneumonia_pcr":                   "BioFire",
-        "general_rules_antibiotic_dosing": "General antibiotic dosing rules",
-    }
-    return fallback_labels.get(stem, stem.replace("_", " ").title())
+# Direct import of postprocess (should work independently of telegram_bot)
+import postprocess
 
 
 # ---------------------------------------------------------------------------
-# Test helpers
+# Tests
 # ---------------------------------------------------------------------------
 
-PASS = "\033[92mPASS\033[0m"
-FAIL = "\033[91mFAIL\033[0m"
-results = {"pass": 0, "fail": 0}
-
-
-def ok(name):
-    results["pass"] += 1
-    print(f"  {PASS}  {name}")
-
-
-def fail(name, detail=""):
-    results["fail"] += 1
-    msg = f"  {FAIL}  {name}"
-    if detail:
-        msg += f"\n         → {detail}"
-    print(msg)
-
-
-def assert_equal(name, got, expected):
-    if got == expected:
-        ok(name)
-    else:
-        fail(name, f"expected {expected!r}, got {got!r}")
-
-
-def assert_contains(name, text, fragment):
-    if fragment.lower() in text.lower():
-        ok(name)
-    else:
-        fail(name, f"expected to find {fragment!r} in:\n         {text!r}")
-
-
-def assert_not_contains(name, text, fragment):
-    if fragment.lower() not in text.lower():
-        ok(name)
-    else:
-        fail(name, f"did NOT expect to find {fragment!r} in:\n         {text!r}")
-
-
-# ---------------------------------------------------------------------------
-# 1. Alias recognition tests (no API)
-# ---------------------------------------------------------------------------
-
-def load_alias_index(aliases_path="protocols/aliases.json"):
-    """Load and build the alias index exactly as the bot does."""
-    if not os.path.exists(aliases_path):
-        print(f"  WARNING: {aliases_path} not found — skipping alias tests")
-        return {}, {}
-    with open(aliases_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    alias_index = {}
-    protocol_file_to_label = {}
-    for category in ["drugs", "conditions"]:
-        for key, item in data.get(category, {}).items():
-            display       = item.get("display", key)
-            canonical     = item.get("canonical", display)
-            source_label  = item.get("source_label", display)
-            protocol_file = item.get("protocol_file", "")
-            entry = {
-                "key": key, "category": category,
-                "display": display, "canonical": canonical,
-                "source_label": source_label, "protocol_file": protocol_file,
-            }
-            if protocol_file:
-                from pathlib import Path
-                norm = str(Path(protocol_file)).replace("\\", "/").lower()
-                protocol_file_to_label[norm] = source_label
-            for term in [display, canonical] + item.get("aliases", []):
-                if term:
-                    alias_index[term.lower()] = entry
-    return alias_index, protocol_file_to_label
-
-
-def match_alias(text, alias_index):
-    """Exact alias matching — mirrors normalize_question() in the bot."""
-    text = text.lower().strip()
-    for alias in sorted(alias_index.keys(), key=len, reverse=True):
-        data = alias_index[alias]
-        if len(alias) <= 4:
-            matched = re.search(r"\b" + re.escape(alias) + r"\b", text) is not None
-        else:
-            matched = alias in text
-        if matched:
-            return data
-    return None
-
-
-# Test cases: (input_text, expected_display_or_None)
-ALIAS_CASES = [
-    # TMP/SMX variants
-    ("What's the dose of sumetrolim?",          "TMP/SMX"),
-    ("Sumetrolim forte for UTI",                "TMP/SMX"),
-    ("TMP/SMX dose",                            "TMP/SMX"),
-    ("co-trimoxazole dosing",                   "TMP/SMX"),
-    ("Bactrim iv",                              "TMP/SMX"),
-    ("cotrimoxazole",                           "TMP/SMX"),
-    ("trimethoprim/sulfamethoxazole",           "TMP/SMX"),
-
-    # Meropenem variants
-    ("meropenem septic shock",                  "meropenem"),
-    ("mero dose",                               "meropenem"),
-    ("meronem iv",                              "meropenem"),
-
-    # Amp/Sul variants
-    ("unasyn high dose",                        "ampicillin/sulbactam"),
-    ("amp/sul MACI",                            "ampicillin/sulbactam"),
-    ("ampsul CRAB",                             "ampicillin/sulbactam"),
-    ("high-dose sulbactam",                     "ampicillin/sulbactam"),
-
-    # CAP variants
-    ("CAP treatment",                           "CAP"),
-    ("community acquired pneumonia",            "CAP"),
-    ("tüdőgyulladás kezelés",                   "CAP"),
-    ("COPD exacerbation",                       "CAP"),
-
-    # BioFire variants
-    ("biofire pneumonia panel",                 "BioFire"),
-    ("filmarray results",                       "BioFire"),
-
-    # Should NOT match anything
-    ("what time is it",                         None),
-    ("vancomycin dose",                         None),
-]
-
-
-# Fuzzy / misspell cases — these exercise the per-word fuzzy + partial_ratio
-# cascade in the real normalize_question(). Match via inline substring matcher
-# would always say None for these, so we test against the real function.
-FUZZY_CASES = [
-    # one-letter swap (ne ↔ en) in the keyword + sentence noise
-    ("Penumoniara mit adjak?",     "CAP"),
-    ("penumonia mit adjak?",       "CAP"),
-    # misspelled drug + sentence noise
-    ("meronemet adjak?",           "meropenem"),
-    # compound alias with typo — exercises partial_ratio fallback
-    ("ampicilin sulbaktam dose",   "ampicillin/sulbactam"),
-    # genuine no-match — must NOT spuriously match to anything
-    ("uti-re mit adjak?",          None),
-    ("vancomycin dose",            None),
-]
-
-
-def test_alias_recognition():
-    print("\n=== 1. Alias recognition ===")
-    alias_index, _ = load_alias_index()
-    if not alias_index:
-        return
-
-    for text, expected_display in ALIAS_CASES:
-        result = match_alias(text, alias_index)
-        got_display = result["display"] if result else None
-        assert_equal(f'recognize: "{text[:50]}"', got_display, expected_display)
-
-
-def test_fuzzy_recognition():
-    """Test the real normalize_question() — covers per-word fuzzy + partial_ratio.
-
-    Requires rapidfuzz and a loaded ALIAS_INDEX. We import the bot module
-    only here so the simple alias tests above stay zero-dependency.
+class TestFooterPlacement(unittest.TestCase):
     """
-    print("\n=== 1b. Fuzzy / misspell recognition ===")
-    try:
-        from telegram_bot import normalize_question, load_aliases, ALIAS_INDEX
-    except ImportError as e:
-        print(f"  WARNING: Could not import telegram_bot: {e}")
-        return
+    finalize_answer and clean_response must:
+      - place SAFETY_FOOTER before the Source line
+      - make Source the final non-empty line
+      - not append SAFETY_FOOTER onto the Source line itself
+    """
 
-    if not ALIAS_INDEX:
-        load_aliases("protocols/aliases.json")
-        from telegram_bot import ALIAS_INDEX as AI2
-        if not AI2:
-            print("  WARNING: ALIAS_INDEX empty after load — skipping")
-            return
+    SAFETY = bot.SAFETY_FOOTER  # whatever was loaded (file or fallback)
 
-    for text, expected_display in FUZZY_CASES:
-        _, recognized = normalize_question(text)
-        got_display = recognized["display"] if recognized else None
-        assert_equal(f'fuzzy: "{text[:50]}"', got_display, expected_display)
+    def _finalize(self, body, footer=None, source_label="TEST_SRC"):
+        return bot.finalize_answer(body, footer, source_label)
 
+    def _clean(self, body, source_label="TEST_SRC"):
+        return bot.clean_response(body, source_label)
 
-# ---------------------------------------------------------------------------
-# 2. Protocol file path tests (no API)
-# ---------------------------------------------------------------------------
+    # --- finalize_answer ---
 
-# Ensure every protocol_file in aliases.json actually exists on disk
-def test_protocol_file_paths():
-    print("\n=== 2. Protocol file paths exist ===")
-    if not os.path.exists("protocols/aliases.json"):
-        print("  WARNING: protocols/aliases.json not found — skipping")
-        return
-    with open("protocols/aliases.json", "r", encoding="utf-8") as f:
-        data = json.load(f)
-    for category in ["drugs", "conditions"]:
-        for key, item in data.get(category, {}).items():
-            pf = item.get("protocol_file", "")
-            if pf:
-                exists = os.path.exists(pf)
-                name = f"{key} → {pf}"
-                if exists:
-                    ok(name)
-                else:
-                    fail(name, f"File not found: {pf}")
+    def test_finalize_source_is_final_line(self):
+        result = self._finalize("Some answer text.")
+        non_empty = [l for l in result.splitlines() if l.strip()]
+        self.assertTrue(
+            non_empty[-1].startswith("Source:"),
+            f"Last non-empty line must start with 'Source:', got: {non_empty[-1]!r}"
+        )
 
+    def test_finalize_source_has_no_safety_footer_appended(self):
+        result = self._finalize("Some answer text.")
+        source_line = next(
+            (l for l in result.splitlines() if l.startswith("Source:")), None
+        )
+        self.assertIsNotNone(source_line, "No Source line in output")
+        if self.SAFETY:
+            self.assertNotIn(
+                self.SAFETY, source_line,
+                f"SAFETY_FOOTER must not appear on Source line, got: {source_line!r}"
+            )
 
-# ---------------------------------------------------------------------------
-# 3. Source label derivation tests (no API)
-# ---------------------------------------------------------------------------
+    def test_finalize_safety_footer_before_source(self):
+        if not self.SAFETY:
+            self.skipTest("SAFETY_FOOTER is empty — nothing to check")
+        result = self._finalize("Some answer text.")
+        lines = result.splitlines()
+        src_idx = next((i for i, l in enumerate(lines) if l.startswith("Source:")), None)
+        self.assertIsNotNone(src_idx, "No Source line in output")
+        before_source = "\n".join(lines[:src_idx])
+        self.assertIn(self.SAFETY, before_source,
+                      "SAFETY_FOOTER must appear before the Source line")
 
-SOURCE_LABEL_CASES = [
-    ("protocols/tmpsmx.txt",                  "TMP/SMX"),
-    ("protocols/ampsul.txt",                  "ampicillin/sulbactam"),
-    ("protocols/meropenem.txt",               "meropenem"),
-    ("protocols/cap.txt",                     "CAP"),
-    ("protocols/pneumonia_pcr.txt",           "BioFire"),
-    ("protocols/general_rules_antibiotic_dosing.txt", "General antibiotic dosing rules"),
-]
+    def test_finalize_source_label_preserved(self):
+        result = self._finalize("Body text.", source_label="MY_PROTO")
+        self.assertIn("Source: MY_PROTO", result)
 
+    # --- clean_response ---
 
-def test_source_label_derivation():
-    print("\n=== 3. Source label derivation ===")
-    for path, expected in SOURCE_LABEL_CASES:
-        got = derive_source_label(path)
-        assert_equal(f"label for {path}", got, expected)
+    def test_clean_source_is_final_line(self):
+        result = self._clean("Some answer text.")
+        non_empty = [l for l in result.splitlines() if l.strip()]
+        self.assertTrue(
+            non_empty[-1].startswith("Source:"),
+            f"Last non-empty line must start with 'Source:', got: {non_empty[-1]!r}"
+        )
 
+    def test_clean_source_has_no_safety_footer_appended(self):
+        result = self._clean("Some answer text.")
+        source_line = next(
+            (l for l in result.splitlines() if l.startswith("Source:")), None
+        )
+        self.assertIsNotNone(source_line, "No Source line in output")
+        if self.SAFETY:
+            self.assertNotIn(
+                self.SAFETY, source_line,
+                f"SAFETY_FOOTER must not appear on Source line, got: {source_line!r}"
+            )
 
-# ---------------------------------------------------------------------------
-# 4. clean_response post-processing tests (no API)
-# ---------------------------------------------------------------------------
-
-CLEAN_CASES = [
-    {
-        "name": "strips markdown bold",
-        "input": "Give **3 x 4 amp** IV",
-        "source": "TMP/SMX",
-        "must_contain": "3 x 4 amp",
-        "must_not_contain": "**",
-    },
-    {
-        "name": "removes model-generated Source line",
-        "input": "Give 3 x 4 amp\n\nSource: protocols/medical/antibiotics/tmpsmx.txt",
-        "source": "TMP/SMX",
-        "must_contain": "Source: TMP/SMX",
-        "must_not_contain": "protocols/",
-    },
-    {
-        "name": "removes stray file path",
-        "input": "See protocols/medical/tmpsmx.txt for details",
-        "source": "TMP/SMX",
-        "must_not_contain": "protocols/",
-    },
-    {
-        "name": "removes 'not specified' when dosing is present",
-        "input": "Give 500 mg IV\nThis is not specified in the uploaded protocol.",
-        "source": "meropenem",
-        "must_contain": "500 mg",
-        "must_not_contain": "not specified",
-    },
-    {
-        "name": "keeps 'not specified' when no dosing in text",
-        "input": "This is not specified in the uploaded protocol.",
-        "source": None,
-        "must_contain": "not specified",
-    },
-    {
-        "name": "appends source at end",
-        "input": "Give 4 g/day meropenem.",
-        "source": "meropenem",
-        "must_contain": "Source: meropenem",
-    },
-    {
-        "name": "removes Hungarian Forrás line",
-        "input": "3 x 4 amp IV\nForrás: protocols/tmpsmx.txt",
-        "source": "TMP/SMX",
-        "must_not_contain": "protocols/",
-        "must_contain": "Source: TMP/SMX",
-    },
-    {
-        "name": "collapses excessive blank lines",
-        "input": "Line 1\n\n\n\n\nLine 2",
-        "source": None,
-        "must_contain": "Line 1\n\nLine 2",
-    },
-]
+    def test_clean_safety_footer_before_source(self):
+        if not self.SAFETY:
+            self.skipTest("SAFETY_FOOTER is empty — nothing to check")
+        result = self._clean("Some answer text.")
+        lines = result.splitlines()
+        src_idx = next((i for i, l in enumerate(lines) if l.startswith("Source:")), None)
+        self.assertIsNotNone(src_idx, "No Source line in output")
+        before_source = "\n".join(lines[:src_idx])
+        self.assertIn(self.SAFETY, before_source,
+                      "SAFETY_FOOTER must appear before the Source line")
 
 
-def test_clean_response():
-    print("\n=== 4. clean_response post-processing ===")
-    for case in CLEAN_CASES:
-        result = clean_response(case["input"], case.get("source"))
-        if "must_contain" in case:
-            assert_contains(f'{case["name"]} — contains', result, case["must_contain"])
-        if "must_not_contain" in case:
-            assert_not_contains(f'{case["name"]} — not contains', result, case["must_not_contain"])
+class TestAllowlistWarning(unittest.TestCase):
+    """!! ALLOWED USERS NOT DEFINED !! must be printed when allowlist env var is absent."""
 
+    def test_warning_text_present_in_source(self):
+        """Verify the exact warning string is in run_startup_checks source code."""
+        import inspect
+        src = inspect.getsource(bot.run_startup_checks)
+        self.assertIn(
+            "!! ALLOWED USERS NOT DEFINED !!",
+            src,
+            "Expected warning string not found in run_startup_checks"
+        )
 
-# ---------------------------------------------------------------------------
-# 4b. Policy-header extraction (no API)
-# Verifies extract_policy_header() parses ## ANSWER_POLICY / DEFAULT_QUESTION
-# / REQUIRED_INFORMATION / PATHWAY_PRIORITY out of a protocol file and
-# discards other sections. This is what gets injected into the LLM context
-# when an alias-matched protocol is recognized.
-# ---------------------------------------------------------------------------
+    def test_warning_emitted_when_allowlist_missing(self):
+        """run_startup_checks prints the warning when ALLOWED_USER_IDS is unset.
 
-def test_policy_header_extraction():
-    print("\n=== 4b. Policy-header extraction ===")
-    try:
-        from telegram_bot import extract_policy_header
-    except ImportError as e:
-        print(f"  WARNING: Could not import telegram_bot: {e}")
-        return
-
-    cap_path = "protocols/cap.txt"
-    if not os.path.exists(cap_path):
-        print(f"  WARNING: {cap_path} not found — skipping")
-        return
-
-    with open(cap_path, "r", encoding="utf-8") as f:
-        text = f.read()
-
-    header = extract_policy_header(text)
-
-    assert_contains("cap.txt header has ANSWER_POLICY",       header, "## ANSWER_POLICY")
-    assert_contains("cap.txt header has DEFAULT_QUESTION",    header, "## DEFAULT_QUESTION")
-    assert_contains("cap.txt header has REQUIRED_INFORMATION", header, "## REQUIRED_INFORMATION")
-    assert_contains("cap.txt header has PATHWAY_PRIORITY",    header, "## PATHWAY_PRIORITY")
-    # And explicitly does NOT include the treatment-pathway sections —
-    # those should come in via semantic search only, after the gate clears.
-    assert_not_contains("cap.txt header excludes OUTPATIENT_DISCHARGEABLE_CAP",
-                        header, "## OUTPATIENT_DISCHARGEABLE_CAP")
-    assert_not_contains("cap.txt header excludes HOSPITALIZED_CAP_NON_INTUBATED",
-                        header, "## HOSPITALIZED_CAP_NON_INTUBATED")
-    assert_not_contains("cap.txt header excludes INTUBATED_CAP",
-                        header, "## INTUBATED_CAP")
-
-
-# ---------------------------------------------------------------------------
-# 5. Integration tests (require OPENAI_API_KEY + protocol files)
-# ---------------------------------------------------------------------------
-
-# Each case: (description, user_message, list_of_expected_fragments_in_output)
-# Fragments are case-insensitive substrings that MUST appear in the answer.
-INTEGRATION_CASES = [
-    # Missing info → bot should ask for it
-    (
-        "TMP/SMX: missing all params → ask for them",
-        "What's the dose of sumetrolim?",
-        ["indication", "weight", "renal"],  # must ask for these
-    ),
-    (
-        "TMP/SMX: Steno BSI 60kg GFR>30 → give high dose",
-        "Stenotrophomonas BSI, 60 kg, GFR 60",
-        ["3", "4", "amp"],  # 3 x 4 amp per high-dose table
-    ),
-    (
-        "TMP/SMX: Hungarian synonym Steno HK pozitív",
-        "Steno HK pozitív, 60 kg, GFR 60",
-        ["3", "4", "amp"],
-    ),
-    (
-        "TMP/SMX: source is TMP/SMX not a file path",
-        "sumetrolim forte, PCP treatment, 70 kg, GFR 50",
-        ["Source: TMP/SMX"],
-    ),
-    (
-        "Meropenem: no info → provide MAGAS default",
-        "meropenem dose",
-        ["4 g", "magas"],
-    ),
-    (
-        "Meropenem: septic shock → MAGAS",
-        "meropenem, septic shock, GFR 70",
-        ["4 g"],
-    ),
-    (
-        "CAP: intubated not specified → ask for it",
-        "CAP treatment",
-        ["intubated"],
-    ),
-    # Patient status MUST be asked before pathway info. Verifies the
-    # policy-header injection works: even though semantic search returns
-    # treatment-pathway chunks, the ANSWER_POLICY block is always in context.
-    (
-        "CAP: 'mit adjak' without patient status → asks DEFAULT_QUESTION",
-        "Pneumoniara mit adjak?",
-        ["hazaengedhető"],   # part of the DEFAULT_QUESTION wording
-    ),
-    # Same, with misspell — exercises the fuzzy fix AND policy injection together
-    (
-        "CAP: misspelled 'penumoniara' → recognized + asks status",
-        "Penumoniara mit adjak?",
-        ["hazaengedhető"],
-    ),
-    (
-        "Source never contains file path",
-        "sumetrolim dose, PCP, 70kg, GFR 50",
-        [],  # checked separately below
-    ),
-]
-
-
-def test_integration():
-    print("\n=== 5. Integration tests (OpenAI API) ===")
-    try:
-        from telegram_bot import ask_ai, load_rule_files, load_aliases, load_protocols, PROTOCOL_CHUNKS
-    except ImportError as e:
-        print(f"  WARNING: Could not import telegram_bot: {e}")
-        print("  Make sure you run this from the bot's root folder with all dependencies installed.")
-        return
-
-    # Load everything once
-    if not PROTOCOL_CHUNKS:
-        print("  Loading rule files, aliases, and protocols...")
-        load_rule_files()
-        load_aliases("protocols/aliases.json")
-        load_protocols()
-
-    FAKE_CHAT_ID = 99999  # dummy chat id for tests
-
-    for description, user_message, expected_fragments in INTEGRATION_CASES:
+        sys.exit is patched to a no-op so the function runs past the error-check
+        block (which exits early in the test env due to missing aliases.json) and
+        reaches the ALLOWED_USER_IDS check.
+        """
+        saved = os.environ.pop("ALLOWED_USER_IDS", None)
         try:
-            answer = ask_ai(user_message, FAKE_CHAT_ID)
-
-            # Check expected fragments
-            all_ok = True
-            for fragment in expected_fragments:
-                if fragment.lower() not in answer.lower():
-                    fail(f"{description} — missing '{fragment}'", f"Answer was: {answer[:200]}")
-                    all_ok = False
-
-            # Always check: no file paths in output
-            if "protocols/" in answer.lower():
-                fail(f"{description} — file path leaked into output", answer[:200])
-                all_ok = False
-
-            # Always check: source not at the top
-            lines = answer.strip().splitlines()
-            if lines and lines[0].lower().startswith("source:"):
-                fail(f"{description} — source appeared at top", lines[0])
-                all_ok = False
-
-            if all_ok and expected_fragments:
-                ok(description)
-            elif all_ok and not expected_fragments:
-                ok(f"{description} (no file paths, source at bottom)")
-
-        except Exception as e:
-            fail(description, str(e))
-
-        # Reset state between test cases to avoid cross-contamination
-        from telegram_bot import CONVERSATION_STATE
-        CONVERSATION_STATE.pop(FAKE_CHAT_ID, None)
-
-
-# ---------------------------------------------------------------------------
-# 6. Schema parser tests (no API)
-# ---------------------------------------------------------------------------
-
-_SAMPLE_FULL = """\
-# SAMPLE
-
-## METADATA
-
-protocol_name: Sample Protocol
-source_label: SampleDrug
-protocol_file: protocols/sample.txt
-
-## ALIASES
-
-sampledrug
-
-## ANSWER_POLICY
-
-Ask for indication.
-
-## REQUIRED_INFORMATION
-
-indication
-
-## PREFERRED_INFORMATION
-
-body weight
-
-## MODIFIER_INFORMATION
-
-CRRT modifies dose
-
-## DEFAULT_QUESTION
-
-What is the indication?
-
-## PATHWAY_PRIORITY
-
-1. Severe -> HIGH
-
-## DECISION_TREE
-
-(none)
-
-## TREATMENT_PATHWAYS
-
-### HIGH
-
-Give 4 g/day.
-
-## SAFETY_NOTES
-
-Monitor.
-
-## DEFAULT_FOOTER
-
-Check levels.
-
-## PROTOCOL_LINKS
-
-ceftriaxone -> protocols/ceftriaxone.txt via: patient_status, renal_gfr
-clarithromycin -> protocols/clarithromycin.txt
-"""
-
-
-def test_schema_parser():
-    print("\n=== 6. Schema parser ===")
-    try:
-        from telegram_bot import _parse_protocol_text
-    except ImportError as e:
-        print(f"  WARNING: Could not import: {e}")
-        return
-
-    # 6a: fully-populated 13-panel file — every field correct
-    p = _parse_protocol_text(_SAMPLE_FULL)
-    assert_equal("6a: no warnings",                     p["warnings"],                              [])
-    assert_equal("6a: metadata.protocol_name",          p["metadata"].get("protocol_name"),         "Sample Protocol")
-    assert_equal("6a: metadata.source_label",           p["metadata"].get("source_label"),          "SampleDrug")
-    assert_contains("6a: aliases body",                 p["aliases"],                               "sampledrug")
-    assert_contains("6a: answer_policy",                p["answer_policy"],                         "indication")
-    assert_contains("6a: required_information",         p["required_information"],                  "indication")
-    assert_contains("6a: preferred_information",        p["preferred_information"],                 "weight")
-    assert_contains("6a: modifier_information",         p["modifier_information"],                  "CRRT")
-    assert_contains("6a: default_question",             p["default_question"],                      "indication")
-    assert_contains("6a: pathway_priority",             p["pathway_priority"],                      "HIGH")
-    assert_equal("6a: decision_tree is None",           p["decision_tree"],                         None)
-    assert_contains("6a: treatment_pathways",           p["treatment_pathways"],                    "HIGH")
-    assert_contains("6a: safety_notes",                 p["safety_notes"],                          "Monitor")
-    assert_equal("6a: default_footer",                  p["default_footer"],                        "Check levels.")
-    assert_equal("6a: no free_form panels",             p["free_form"],                             {})
-    pl = p.get("protocol_links", {})
-    assert_equal("6a: links ceftriaxone file",          pl.get("ceftriaxone",    {}).get("file"),     "protocols/ceftriaxone.txt")
-    assert_equal("6a: links ceftriaxone ctx_keys",      pl.get("ceftriaxone",    {}).get("ctx_keys"), ["patient_status", "renal_gfr"])
-    assert_equal("6a: links clarithromycin ctx_keys",   pl.get("clarithromycin", {}).get("ctx_keys"), [])
-
-    # 6b: missing panels → defaults
-    p2 = _parse_protocol_text("## METADATA\n\nprotocol_name: Bare\n")
-    assert_equal("6b: missing aliases → ''",            p2["aliases"],          "")
-    assert_equal("6b: missing default_question → None", p2["default_question"], None)
-    assert_equal("6b: missing default_footer → None",   p2["default_footer"],   None)
-    assert_equal("6b: missing decision_tree → None",    p2["decision_tree"],    None)
-    assert_equal("6b: missing protocol_links → {}",     p2["protocol_links"],   {})
-
-    # 6c: (none) body → empty string / None
-    p3 = _parse_protocol_text(
-        "## REQUIRED_INFORMATION\n\n(none)\n\n"
-        "## DEFAULT_QUESTION\n\n(none)\n\n"
-        "## DEFAULT_FOOTER\n\n(none)\n\n"
-        "## PROTOCOL_LINKS\n\n(none)\n"
-    )
-    assert_equal("6c: (none) required_info → ''",      p3["required_information"], "")
-    assert_equal("6c: (none) default_question → None", p3["default_question"],     None)
-    assert_equal("6c: (none) default_footer → None",   p3["default_footer"],       None)
-    assert_equal("6c: (none) protocol_links → {}",     p3["protocol_links"],       {})
-
-    # 6d: unknown ## header → free_form, not in canonical slots
-    p4 = _parse_protocol_text("## UNKNOWN_CUSTOM_PANEL\n\nSome content.\n")
-    assert_equal("6d: unknown → in free_form",           "UNKNOWN_CUSTOM_PANEL" in p4["free_form"], True)
-    assert_contains("6d: free_form body intact",         p4["free_form"]["UNKNOWN_CUSTOM_PANEL"],   "Some content")
-
-    # 6e: cap.txt on disk — regression: no free_form, footer + metadata present
-    cap_path = "protocols/cap.txt"
-    if os.path.exists(cap_path):
-        with open(cap_path, "r", encoding="utf-8") as f:
-            cap_text = f.read()
-        cap = _parse_protocol_text(cap_text, path=cap_path)
-        assert_equal("6e: cap.txt free_form is empty",        cap["free_form"],                         {})
-        assert_equal("6e: cap.txt has default_footer",        bool(cap["default_footer"]),              True)
-        assert_equal("6e: cap.txt metadata.protocol_name",    bool(cap["metadata"].get("protocol_name")), True)
-    else:
-        print("  SKIP 6e: protocols/cap.txt not found on disk")
-
-
-# ---------------------------------------------------------------------------
-# 7. Decision-tree parser tests (no API)
-# ---------------------------------------------------------------------------
-
-_SIMPLE_TREE = """\
-ROOT: ask_status
-
-NODE: ask_status
-  TYPE: question
-  ASK_HU: Intubált?
-  ASK_EN: Intubated?
-  BRANCHES:
-    yes -> give_high
-    no  -> give_std
-
-NODE: give_high
-  TYPE: answer
-  ANSWER_HU: Adjál 4 g/nap.
-  LINK: meropenem, ceftriaxone
-  THEN: end
-
-NODE: give_std
-  TYPE: answer
-  ANSWER_HU: Adjál 2 g/nap.
-  THEN: end
-"""
-
-_COLLECT_TREE = """\
-ROOT: ask_weight
-
-NODE: ask_weight
-  TYPE: collect
-  ASK_HU: Testsúly?
-  COLLECT:
-    - name: weight_kg
-      type: number
-      unit: kg
-  NEXT: ask_gfr
-
-NODE: ask_gfr
-  TYPE: question
-  ASK_HU: GFR?
-  BRANCHES:
-    normal  -> dose_normal
-    reduced -> dose_reduced
-
-NODE: dose_normal
-  TYPE: answer
-  ANSWER_HU: Normál dózis.
-  THEN: end
-
-NODE: dose_reduced
-  TYPE: answer
-  ANSWER_HU: Csökkentett dózis.
-  THEN: end
-"""
-
-_BLOCK_SCALAR_TREE = """\
-ROOT: only_node
-
-NODE: only_node
-  TYPE: answer
-  ANSWER_HU: |
-    Első sor.
-    Második sor.
-  THEN: end
-"""
-
-
-def test_decision_tree_parser():
-    print("\n=== 7. Decision-tree parser ===")
-    try:
-        from telegram_bot import parse_decision_tree
-    except ImportError as e:
-        print(f"  WARNING: Could not import: {e}")
-        return
-
-    # 7a: minimal yes/no tree — structure
-    t = parse_decision_tree(_SIMPLE_TREE)
-    assert_equal("7a: root is ask_status",       t["root"],                                     "ask_status")
-    assert_equal("7a: 3 nodes",                  len(t["nodes"]),                               3)
-    assert_equal("7a: ask_status type=question", t["nodes"]["ask_status"]["type"],              "question")
-    assert_equal("7a: branch yes → give_high",   t["nodes"]["ask_status"]["branches"].get("yes"), "give_high")
-    assert_equal("7a: branch no  → give_std",    t["nodes"]["ask_status"]["branches"].get("no"),  "give_std")
-
-    # 7b: LINK: key on answer node — parsed as list
-    assert_equal("7b: give_high LINK list",      t["nodes"]["give_high"]["link"], ["meropenem", "ceftriaxone"])
-    assert_equal("7b: give_std empty LINK",      t["nodes"]["give_std"]["link"],  [])
-
-    # 7c: terminal THEN: end
-    assert_equal("7c: give_high THEN=end",       t["nodes"]["give_high"]["then"], "end")
-    assert_equal("7c: give_std  THEN=end",       t["nodes"]["give_std"]["then"],  "end")
-
-    # 7d: COLLECT block — items parsed correctly
-    tc = parse_decision_tree(_COLLECT_TREE)
-    items = tc["nodes"]["ask_weight"]["collect"]
-    assert_equal("7d: 1 collect item",           len(items),                  1)
-    assert_equal("7d: collect name=weight_kg",   items[0].get("name"),        "weight_kg")
-    assert_equal("7d: collect type=number",      items[0].get("type"),        "number")
-    assert_equal("7d: collect unit=kg",          items[0].get("unit"),        "kg")
-    assert_equal("7d: NEXT=ask_gfr",             tc["nodes"]["ask_weight"]["next"], "ask_gfr")
-
-    # 7e: block scalar (| notation) — multiline body preserved
-    tb = parse_decision_tree(_BLOCK_SCALAR_TREE)
-    body = tb["nodes"]["only_node"].get("answer_hu") or ""
-    assert_contains("7e: block scalar line 1",   body, "Első sor")
-    assert_contains("7e: block scalar line 2",   body, "Második sor")
-
-    # 7f: empty / (none) body → None
-    assert_equal("7f: empty body → None",        parse_decision_tree(""),       None)
-    assert_equal("7f: (none) body → None",       parse_decision_tree("(none)"), None)
-
-
-# ---------------------------------------------------------------------------
-# 8. Footer helpers — apply_footer / finalize_answer (no API)
-# ---------------------------------------------------------------------------
-
-def test_footer_helpers():
-    print("\n=== 8. Footer helpers ===")
-    try:
-        from telegram_bot import apply_footer, finalize_answer
-    except ImportError as e:
-        print(f"  WARNING: Could not import: {e}")
-        return
-
-    # 8a: footer appended when not present in body
-    r = apply_footer("Give 4 g/day.", "Check K+ after 48h.")
-    assert_contains("8a: footer appended",      r, "Check K+ after 48h.")
-    assert_contains("8a: original body intact", r, "Give 4 g/day.")
-
-    # 8b: footer NOT duplicated when already in body
-    body_with = "Give 4 g/day.\n\nCheck K+ after 48h."
-    r2 = apply_footer(body_with, "Check K+ after 48h.")
-    assert_equal("8b: no duplication", r2.count("Check K+ after 48h."), 1)
-
-    # 8c: None footer → body returned unchanged
-    r3 = apply_footer("Give 4 g/day.", None)
-    assert_equal("8c: None footer → no change", r3, "Give 4 g/day.")
-
-    # 8d: finalize_answer — footer appears before Source line
-    full = finalize_answer("Give 4 g/day.", "Check K+ after 48h.", "meropenem")
-    lines = full.splitlines()
-    footer_idx = next((i for i, l in enumerate(lines) if "Check K+" in l), -1)
-    source_idx  = next((i for i, l in enumerate(lines) if "Source:"  in l), -1)
-    assert_equal("8d: footer before Source",         footer_idx < source_idx, True)
-
-    # 8e: finalize_answer — None footer still produces Source line
-    full2 = finalize_answer("Give 4 g/day.", None, "meropenem")
-    assert_contains("8e: Source line present", full2, "Source: meropenem")
-    assert_not_contains("8e: no literal None", full2, "None")
-
-
-# ---------------------------------------------------------------------------
-# 9. Cross-protocol links tests (no API)
-# ---------------------------------------------------------------------------
-
-def test_protocol_links():
-    print("\n=== 9. Cross-protocol links ===")
-    try:
-        from telegram_bot import (
-            _parse_protocol_links,
-            _render_link_offer,
-            _maybe_attach_links,
-            _is_link_batchable,
-            PROTOCOL_PARSED_BY_FILE,
-            normalize_path,
+            buf = io.StringIO()
+            from contextlib import redirect_stdout
+            from unittest.mock import patch as _patch
+            with redirect_stdout(buf), _patch("sys.exit"):
+                bot.run_startup_checks()
+            output = buf.getvalue()
+            self.assertIn(
+                "!! ALLOWED USERS NOT DEFINED !!",
+                output,
+                f"Expected warning not in stdout. Got:\n{output}"
+            )
+        finally:
+            if saved is not None:
+                os.environ["ALLOWED_USER_IDS"] = saved
+
+
+
+
+class TestPostprocessModule(unittest.TestCase):
+    """postprocess.py can be imported and used independently of telegram_bot."""
+
+    def test_module_importable(self):
+        import postprocess as pp
+        self.assertTrue(callable(pp.finalize_answer))
+        self.assertTrue(callable(pp.clean_response))
+        self.assertTrue(callable(pp.apply_footer))
+
+    def test_direct_finalize_source_is_final(self):
+        import postprocess as pp
+        result = pp.finalize_answer("Body text.", None, "DIRECT_SRC")
+        non_empty = [l for l in result.splitlines() if l.strip()]
+        self.assertTrue(non_empty[-1].startswith("Source:"))
+
+    def test_direct_finalize_matches_bot(self):
+        """postprocess.finalize_answer and bot.finalize_answer return identical results."""
+        import postprocess as pp
+        body, footer, label = "Some text.", "proto footer", "SRC"
+        self.assertEqual(
+            pp.finalize_answer(body, footer, label),
+            bot.finalize_answer(body, footer, label),
         )
-    except ImportError as e:
-        print(f"  WARNING: Could not import: {e}")
-        return
 
-    # 9a: _parse_protocol_links — via: parsing, comment/bad-line skipping
-    pl = _parse_protocol_links(
-        "ceftriaxone -> protocols/ceftriaxone.txt via: patient_status, renal_gfr\n"
-        "clarithromycin -> protocols/clarithromycin.txt\n"
-        "# comment\n"
-        "bad line without arrow\n"
-    )
-    assert_equal("9a: 2 entries parsed",              len(pl),                                   2)
-    assert_equal("9a: ceftriaxone file",              pl["ceftriaxone"]["file"],                 "protocols/ceftriaxone.txt")
-    assert_equal("9a: ceftriaxone ctx_keys",          pl["ceftriaxone"]["ctx_keys"],             ["patient_status", "renal_gfr"])
-    assert_equal("9a: clarithromycin ctx_keys empty", pl["clarithromycin"]["ctx_keys"],          [])
 
-    # 9b: empty / (none) body → empty dict
-    assert_equal("9b: empty body → {}",   _parse_protocol_links(""),       {})
-    assert_equal("9b: (none) body → {}",  _parse_protocol_links("(none)"), {})
 
-    # 9c: _render_link_offer
-    assert_equal("9c: single HU",
-                 _render_link_offer(["ceftriaxone"], "hu"),
-                 "Kell dózis? → ceftriaxone")
-    assert_equal("9c: two EN",
-                 _render_link_offer(["ceftriaxone", "clarithromycin"], "en"),
-                 "Need dosing? → ceftriaxone / clarithromycin / both")
-    assert_contains("9c: two HU has mindkettő",
-                    _render_link_offer(["a", "b"], "hu"), "mindkettő")
+class TestNewSchemaParser(unittest.TestCase):
+    """New-schema panels must be parsed explicitly — not land in free_form."""
 
-    # 9d: _maybe_attach_links — node with no LINK: → body and state unchanged
-    st_d = {"tree": {"collected": {}}, "pending_links": None}
-    node_d = {"type": "answer", "link": [], "then": "end"}
-    r_d = _maybe_attach_links(st_d, node_d, {}, "Original body.", "hu")
-    assert_equal("9d: no link → body unchanged",           r_d,                      "Original body.")
-    assert_equal("9d: no link → pending_links still None", st_d["pending_links"],    None)
+    PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
 
-    # 9e: _maybe_attach_links — with LINK: → offer appended, forwarded context captured
-    fake_parsed = {
-        "protocol_links": {
-            "ceftriaxone":    {"file": "protocols/ceftriaxone.txt",    "ctx_keys": ["renal_gfr"]},
-            "clarithromycin": {"file": "protocols/clarithromycin.txt", "ctx_keys": []},
+    def _parse(self, filename):
+        import protocol_parser as pp
+        return pp.parse_protocol_file(os.path.join(self.PROTO_DIR, filename))
+
+    # ── New panels are recognised (not in free_form) ─────────────────────────
+
+    def test_cap_new_panels_not_in_free_form(self):
+        p = self._parse("cap.txt")
+        new_panels = [
+            "intents", "input_slots", "default_answer",
+            "selection_rules", "selected_outputs",
+            "info_blocks", "restricted_outputs",
+            "safety_rules", "output_templates",
+        ]
+        for panel in new_panels:
+            self.assertNotIn(
+                panel.upper(), p["free_form"],
+                f"cap.txt: panel '{panel}' should not be in free_form"
+            )
+
+    def test_meropenem_new_panels_not_in_free_form(self):
+        p = self._parse("meropenem.txt")
+        for panel in ["INTENTS", "INPUT_SLOTS", "DEFAULT_ANSWER",
+                      "SELECTION_RULES", "SELECTED_OUTPUTS", "INFO_BLOCKS",
+                      "RESTRICTED_OUTPUTS", "SAFETY_RULES", "OUTPUT_TEMPLATES"]:
+            self.assertNotIn(panel, p["free_form"],
+                             f"meropenem.txt: '{panel}' must not be in free_form")
+
+    def test_new_panels_have_content(self):
+        """Spot-check that new panels actually got their text."""
+        p = self._parse("cap.txt")
+        self.assertIn("priority_rules", p["selection_rules"])
+        self.assertIn("INTUBATED_CAP", p["selected_outputs"])
+        self.assertIn("ceftriaxone", p["info_blocks"])
+
+    # ── Old-schema file still loads cleanly ──────────────────────────────────
+
+    def test_legacy_file_loads(self):
+        p = self._parse("general_rules_antibiotic_dosing.txt")
+        self.assertIsInstance(p, dict)
+        self.assertIsInstance(p["warnings"], list)
+
+    def test_general_rules_migrated_to_info_only_schema(self):
+        p = self._parse("general_rules_antibiotic_dosing.txt")
+        self.assertEqual(p["metadata"].get("answer_mode"), "info_only")
+        self.assertEqual(p["metadata"].get("selection_mode"), "none")
+        self.assertIn("general_rules", p["info_blocks"])
+        self.assertFalse(p["treatment_pathways"])
+
+    # ── METADATA parsing ─────────────────────────────────────────────────────
+
+    def test_metadata_keys_parsed(self):
+        p = self._parse("cap.txt")
+        meta = p["metadata"]
+        self.assertEqual(meta.get("protocol_id"), "cap")
+        self.assertEqual(meta.get("answer_mode"), "default_then_selected_output")
+        self.assertEqual(meta.get("selection_mode"), "priority_rules")
+
+    def test_metadata_meropenem(self):
+        p = self._parse("meropenem.txt")
+        self.assertEqual(p["metadata"].get("protocol_id"), "meropenem")
+        self.assertEqual(p["metadata"].get("allows_dosing"), "yes")
+
+
+class TestLinksParser(unittest.TestCase):
+    """New-format ## LINKS panel must be parsed into structured dicts."""
+
+    PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
+
+    def _parse(self, filename):
+        import protocol_parser as pp
+        return pp.parse_protocol_file(os.path.join(self.PROTO_DIR, filename))
+
+    def test_cap_links_parsed(self):
+        p = self._parse("cap.txt")
+        links = p["links"]
+        self.assertIsInstance(links, dict, "links should be a dict")
+        self.assertIn("ceftriaxone_dosing", links,
+                      "ceftriaxone_dosing link not found")
+
+    def test_ceftriaxone_link_fields(self):
+        import protocol_parser as pp
+        p = pp.parse_protocol_file(os.path.join(self.PROTO_DIR, "cap.txt"))
+        link = p["links"]["ceftriaxone_dosing"]
+        self.assertEqual(link.get("target_protocol_id"), "ceftriaxone")
+        self.assertEqual(link.get("target_file"), "protocols/ceftriaxone.txt")
+        self.assertIn(
+            "Ceftriaxone dosing",
+            link.get("target_missing_behavior", ""),
+        )
+
+    def test_link_transfer_slots_is_list(self):
+        import protocol_parser as pp
+        p = pp.parse_protocol_file(os.path.join(self.PROTO_DIR, "cap.txt"))
+        slots = p["links"]["ceftriaxone_dosing"].get("transfer_slots", [])
+        self.assertIsInstance(slots, list, "transfer_slots should be a list")
+        self.assertIn("gfr", slots)
+
+    def test_link_trigger_intents_is_list(self):
+        import protocol_parser as pp
+        p = pp.parse_protocol_file(os.path.join(self.PROTO_DIR, "cap.txt"))
+        intents = p["links"]["ceftriaxone_dosing"].get("trigger_intents", [])
+        self.assertIsInstance(intents, list)
+        self.assertIn("dosing_request", intents)
+
+    def test_cap_has_multiple_links(self):
+        p = self._parse("cap.txt")
+        self.assertGreater(len(p["links"]), 1,
+                           "CAP should have more than one LINK entry")
+
+    def test_meropenem_links_none(self):
+        """meropenem.txt has LINKS: (none) — should parse to empty dict."""
+        p = self._parse("meropenem.txt")
+        self.assertEqual(p["links"], {},
+                         "meropenem LINKS (none) should parse to empty dict")
+
+    def test_inline_links_parser(self):
+        """Unit test _parse_links_block directly with a minimal fixture."""
+        import protocol_parser as pp
+        sample = """LINK: my_drug
+  link_type: antimicrobial_dosing
+  target_protocol_id: my_drug
+  target_file: protocols/my_drug.txt
+  target_missing_behavior: My drug is not available.
+  trigger_intents:
+    - dosing_request
+  transfer_slots:
+    - gfr
+    - weight
+"""
+        result = pp._parse_links_block(sample)
+        self.assertIn("my_drug", result)
+        entry = result["my_drug"]
+        self.assertEqual(entry["link_type"], "antimicrobial_dosing")
+        self.assertEqual(entry["target_file"], "protocols/my_drug.txt")
+        self.assertEqual(entry["trigger_intents"], ["dosing_request"])
+        self.assertEqual(entry["transfer_slots"], ["gfr", "weight"])
+
+
+class TestAnswerModeValidation(unittest.TestCase):
+    """Invalid answer_mode values in METADATA must produce a warning."""
+
+    PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
+
+    def _parse(self, filename):
+        import protocol_parser as pp
+        return pp.parse_protocol_file(os.path.join(self.PROTO_DIR, filename))
+
+    def test_valid_answer_mode_no_warning(self):
+        p = self._parse("cap.txt")
+        mode_warnings = [w for w in p["warnings"] if "answer_mode" in w]
+        self.assertEqual(mode_warnings, [],
+                         f"cap.txt has a valid answer_mode but got warnings: {mode_warnings}")
+
+    def test_invalid_answer_mode_produces_warning(self):
+        """meropenem uses default_or_required_slots_then_selected_output (not in guide)."""
+        p = self._parse("meropenem.txt")
+        mode_warnings = [w for w in p["warnings"] if "answer_mode" in w]
+        self.assertTrue(
+            len(mode_warnings) > 0,
+            "meropenem.txt has an invalid answer_mode but no warning was emitted"
+        )
+
+    def test_inline_invalid_mode_warning(self):
+        import protocol_parser as pp
+        text = """## METADATA
+protocol_id: test
+answer_mode: made_up_mode
+selection_mode: priority_rules
+"""
+        p = pp._parse_protocol_text(text)
+        self.assertTrue(
+            any("answer_mode" in w for w in p["warnings"]),
+            "Expected answer_mode warning for 'made_up_mode'"
+        )
+
+    def test_inline_valid_mode_no_warning(self):
+        import protocol_parser as pp
+        text = """## METADATA
+protocol_id: test
+answer_mode: info_only
+selection_mode: none
+"""
+        p = pp._parse_protocol_text(text)
+        mode_warnings = [w for w in p["warnings"] if "answer_mode" in w]
+        self.assertEqual(mode_warnings, [])
+
+
+
+# ---------------------------------------------------------------------------
+# Session 5: Protocol Linter Tests
+# ---------------------------------------------------------------------------
+
+def _lint_text(text):
+    """Helper: lint a single inline protocol text. Returns LintResult."""
+    import protocol_linter as pl
+    import tempfile, os
+
+    result = pl.LintResult()
+    all_aliases = {}
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".txt", delete=False, dir=tempfile.gettempdir()
+    ) as tf:
+        tf.write(text)
+        tmp_path = tf.name
+    try:
+        pl._lint_file(tmp_path, result, all_aliases)
+    finally:
+        os.unlink(tmp_path)
+    return result
+
+
+def _codes(result):
+    return {i.code for i in result.issues}
+
+
+_MINIMAL_VALID = (
+    "## METADATA\n"
+    "protocol_id: test\n"
+    "protocol_name: Test protocol\n"
+    "source_label: TEST\n"
+    "protocol_type: drug_dosing_protocol\n"
+    "answer_mode: info_only\n"
+    "selection_mode: none\n"
+    "allows_dosing: no\n"
+    "default_dose_allowed: no\n"
+    "version: 1.0\n"
+    "last_reviewed: 2024-01-01\n"
+    "owner: test_team\n"
+    "status: draft\n"
+    "\n"
+    "## ALIASES\n"
+    "- test drug\n"
+    "\n"
+    "## INFO_BLOCKS\n"
+    "\n"
+    "Some general information.\n"
+    "\n"
+    "## DEFAULT_FOOTER\n"
+    "\n"
+    "(none)\n"
+)
+
+
+class TestLinterStructure(unittest.TestCase):
+
+    def test_clean_protocol_no_structure_warnings(self):
+        result = _lint_text(_MINIMAL_VALID)
+        struct_codes = {"missing_required_panels", "out_of_order_panels", "unknown_panel"}
+        found = _codes(result) & struct_codes
+        self.assertEqual(found, set(), f"Clean protocol got structural warnings: {found}")
+
+    def test_unknown_panel_flagged(self):
+        text = _MINIMAL_VALID + "\n## MADE_UP_SECTION\n\nsome content\n"
+        result = _lint_text(text)
+        self.assertIn("unknown_panel", _codes(result))
+
+    def test_missing_aliases_flagged(self):
+        text = (
+            "## METADATA\n"
+            "protocol_id: x\n"
+            "source_label: X\n"
+            "version: 1.0\n"
+            "last_reviewed: 2024-01-01\n"
+            "owner: me\n"
+            "status: draft\n"
+        )
+        result = _lint_text(text)
+        self.assertIn("missing_required_panels", _codes(result))
+
+
+class TestLinterMetadata(unittest.TestCase):
+
+    def test_missing_protocol_id(self):
+        text = _MINIMAL_VALID.replace("protocol_id: test\n", "")
+        result = _lint_text(text)
+        self.assertIn("missing_protocol_id", _codes(result))
+
+    def test_missing_source_label(self):
+        text = _MINIMAL_VALID.replace("source_label: TEST\n", "")
+        result = _lint_text(text)
+        self.assertIn("missing_source_label", _codes(result))
+
+    def test_invalid_protocol_type(self):
+        text = _MINIMAL_VALID.replace("protocol_type: drug_dosing_protocol",
+                                      "protocol_type: made_up_type")
+        result = _lint_text(text)
+        self.assertIn("invalid_protocol_type", _codes(result))
+
+    def test_valid_protocol_type_no_warning(self):
+        result = _lint_text(_MINIMAL_VALID)
+        self.assertNotIn("invalid_protocol_type", _codes(result))
+
+    def test_invalid_answer_mode(self):
+        text = _MINIMAL_VALID.replace("answer_mode: info_only",
+                                      "answer_mode: bad_mode")
+        result = _lint_text(text)
+        self.assertIn("invalid_answer_mode", _codes(result))
+
+    def test_valid_answer_mode_no_warning(self):
+        result = _lint_text(_MINIMAL_VALID)
+        self.assertNotIn("invalid_answer_mode", _codes(result))
+
+    def test_missing_governance_flagged(self):
+        text = _MINIMAL_VALID.replace("version: 1.0\n", "")
+        result = _lint_text(text)
+        self.assertIn("missing_governance", _codes(result))
+
+    def test_all_governance_present_no_warning(self):
+        result = _lint_text(_MINIMAL_VALID)
+        self.assertNotIn("missing_governance", _codes(result))
+
+    def test_invalid_status(self):
+        text = _MINIMAL_VALID.replace("status: draft", "status: secret")
+        result = _lint_text(text)
+        self.assertIn("invalid_status", _codes(result))
+
+    def test_valid_status_no_warning(self):
+        result = _lint_text(_MINIMAL_VALID)
+        self.assertNotIn("invalid_status", _codes(result))
+
+
+class TestLinterAliases(unittest.TestCase):
+
+    def test_broad_alias_flagged(self):
+        text = _MINIMAL_VALID.replace("- test drug", "- test drug\n- carbapenem")
+        result = _lint_text(text)
+        self.assertIn("broad_alias", _codes(result))
+
+    def test_specific_alias_no_warning(self):
+        result = _lint_text(_MINIMAL_VALID)
+        self.assertNotIn("broad_alias", _codes(result))
+
+    def test_duplicate_alias_flagged(self):
+        text = _MINIMAL_VALID.replace("- test drug", "- test drug\n- test drug")
+        result = _lint_text(text)
+        self.assertIn("duplicate_alias", _codes(result))
+
+    def test_no_duplicate_alias_no_warning(self):
+        result = _lint_text(_MINIMAL_VALID)
+        self.assertNotIn("duplicate_alias", _codes(result))
+
+    def test_cross_protocol_alias_collision(self):
+        import protocol_linter as pl
+        result = pl.LintResult()
+        all_aliases = {
+            "shared_alias": [("proto_a", "a.txt"), ("proto_b", "b.txt")]
         }
-    }
-    st_e = {"tree": {"collected": {"renal_gfr": "35"}}, "pending_links": None}
-    node_e = {"type": "answer", "link": ["ceftriaxone", "clarithromycin"], "then": "end"}
-    r_e = _maybe_attach_links(st_e, node_e, fake_parsed, "Give CRO + CLR.", "hu")
-    assert_contains("9e: body preserved",        r_e,                          "Give CRO + CLR.")
-    assert_contains("9e: offer appended",        r_e,                          "Kell dózis?")
-    assert_contains("9e: mindkettő present",     r_e,                          "mindkettő")
-    assert_equal("9e: pending_links has 2",      len(st_e["pending_links"]),   2)
-    cro = next(e for e in st_e["pending_links"] if e["label"] == "ceftriaxone")
-    clr = next(e for e in st_e["pending_links"] if e["label"] == "clarithromycin")
-    assert_equal("9e: renal_gfr forwarded",      cro["forwarded"].get("renal_gfr"), "35")
-    assert_equal("9e: clr forwarded empty",      clr["forwarded"],              {})
+        pl._lint_cross_protocol(all_aliases, result)
+        self.assertIn("alias_collision", _codes(result))
 
-    # 9f: label in LINK: but missing from protocol_links → silently skipped
-    st_f = {"tree": {"collected": {}}, "pending_links": None}
-    node_f = {"type": "answer", "link": ["nonexistent_drug"], "then": "end"}
-    r_f = _maybe_attach_links(st_f, node_f, {"protocol_links": {}}, "Body.", "hu")
-    assert_equal("9f: unknown label → body unchanged",        r_f,                   "Body.")
-    assert_equal("9f: unknown label → pending_links is None", st_f["pending_links"], None)
-
-    # 9g–9i: _is_link_batchable — inject fake parsed entries into PROTOCOL_PARSED_BY_FILE
-    _f1 = "protocols/__test_batch1__.txt"
-    _f2 = "protocols/__test_batch2__.txt"
-    _f3 = "protocols/__test_batch3__.txt"
-    PROTOCOL_PARSED_BY_FILE[normalize_path(_f1)] = {"required_information": "",            "decision_tree": None}
-    PROTOCOL_PARSED_BY_FILE[normalize_path(_f2)] = {"required_information": "GFR, weight", "decision_tree": None}
-    PROTOCOL_PARSED_BY_FILE[normalize_path(_f3)] = {"required_information": "",            "decision_tree": {"root": "x", "nodes": {}}}
-    assert_equal("9g: batchable (no req, no tree)",    _is_link_batchable({"file": _f1}), True)
-    assert_equal("9h: not batchable (has req info)",   _is_link_batchable({"file": _f2}), False)
-    assert_equal("9i: not batchable (has tree)",       _is_link_batchable({"file": _f3}), False)
-    for f in [_f1, _f2, _f3]:
-        PROTOCOL_PARSED_BY_FILE.pop(normalize_path(f), None)
+    def test_no_collision_when_same_protocol(self):
+        import protocol_linter as pl
+        result = pl.LintResult()
+        all_aliases = {
+            "shared_alias": [("proto_a", "a.txt"), ("proto_a", "a.txt")]
+        }
+        pl._lint_cross_protocol(all_aliases, result)
+        self.assertNotIn("alias_collision", _codes(result))
 
 
-# ---------------------------------------------------------------------------
-# 10. Dispatcher smoke tests — pure state-machine paths, no API
-#
-# Uses manually injected fake parsed protocols and advances the state
-# machine directly to answer nodes (bypassing _classify_branch which
-# needs the OpenAI API).
-# ---------------------------------------------------------------------------
+class TestLinterDosingSafety(unittest.TestCase):
 
-_SMOKE_TREE_TEXT = """\
-ROOT: ask_status
-
-NODE: ask_status
-  TYPE: question
-  ASK_HU: Intubált?
-  ASK_EN: Intubated?
-  BRANCHES:
-    yes -> give_ceftriaxone
-    no  -> give_std
-
-NODE: give_ceftriaxone
-  TYPE: answer
-  ANSWER_HU: Ceftriaxone 2 g.
-  ANSWER_EN: Ceftriaxone 2 g.
-  LINK: ceftriaxone
-  THEN: end
-
-NODE: give_std
-  TYPE: answer
-  ANSWER_HU: Standard terápia.
-  ANSWER_EN: Standard therapy.
-  THEN: end
-"""
-
-_SMOKE_CRO_TREE = """\
-ROOT: ask_gfr
-
-NODE: ask_gfr
-  TYPE: question
-  ASK_HU: CRO GFR?
-  BRANCHES:
-    normal -> done
-
-NODE: done
-  TYPE: answer
-  ANSWER_HU: 2 g q24h.
-  THEN: end
-"""
-
-
-def _smoke_setup(chat_id):
-    """Inject fake parsed protocols, return (state, parsed, proto_file)."""
-    try:
-        from telegram_bot import (
-            parse_decision_tree, get_chat_state,
-            PROTOCOL_PARSED_BY_FILE, CONVERSATION_STATE, normalize_path,
+    def test_dosing_without_flag_detected(self):
+        text = _MINIMAL_VALID.replace(
+            "## INFO_BLOCKS\n\nSome general information.",
+            "## SELECTED_OUTPUTS\n\nDose: 500 mg q8h\n\n## INFO_BLOCKS\n\nSome text."
         )
-    except ImportError:
-        return None, None, None
+        result = _lint_text(text)
+        self.assertIn("dosing_without_flag", _codes(result))
 
-    proto_file = "protocols/__smoke_cap__.txt"
-    cro_file   = "protocols/__smoke_cro__.txt"
-
-    parsed = {
-        "metadata":              {"protocol_name": "Smoke CAP", "source_label": "SmokeCAP",
-                                  "protocol_file": proto_file},
-        "decision_tree":         parse_decision_tree(_SMOKE_TREE_TEXT),
-        "default_footer":        "Smoke footer.",
-        "protocol_links":        {"ceftriaxone": {"file": cro_file, "ctx_keys": []}},
-        "required_information":  "",
-        "preferred_information": "",
-        "treatment_pathways":    "",
-        "safety_notes":          "",
-        "warnings":              [],
-        "free_form":             {},
-    }
-    cro_parsed = {
-        "metadata":              {"source_label": "ceftriaxone", "protocol_file": cro_file},
-        "decision_tree":         parse_decision_tree(_SMOKE_CRO_TREE),
-        "default_footer":        None,
-        "protocol_links":        {},
-        "required_information":  "",
-        "preferred_information": "",
-        "treatment_pathways":    "",
-        "safety_notes":          "",
-        "warnings":              [],
-        "free_form":             {},
-    }
-    PROTOCOL_PARSED_BY_FILE[normalize_path(proto_file)] = parsed
-    PROTOCOL_PARSED_BY_FILE[normalize_path(cro_file)]   = cro_parsed
-
-    CONVERSATION_STATE.pop(chat_id, None)
-    return get_chat_state(chat_id), parsed, proto_file
-
-
-def _smoke_recognized(proto_file):
-    return {"protocol_file": proto_file, "source_label": "SmokeCAP",
-            "display": "SmokeCAP", "canonical": "SmokeCAP"}
-
-
-def test_dispatcher_smoke():
-    print("\n=== 10. Dispatcher smoke tests ===")
-    try:
-        from telegram_bot import (
-            dispatch_tree, init_tree_state, reset_tree_state, advance_tree_state,
-            PROTOCOL_PARSED_BY_FILE, CONVERSATION_STATE, normalize_path,
+    def test_default_dose_without_flag_detected(self):
+        text = _MINIMAL_VALID.replace(
+            "## INFO_BLOCKS\n\nSome general information.",
+            "## DEFAULT_ANSWER\n\nGive 500 mg q8h if no renal issues.\n\n## INFO_BLOCKS\n\nSome text."
         )
-    except ImportError as e:
-        print(f"  WARNING: Could not import: {e}")
-        return
+        result = _lint_text(text)
+        self.assertIn("default_dose_without_flag", _codes(result))
 
-    # 10a: no recognized protocol → None (fall through to RAG)
-    state_a, _, _ = _smoke_setup(88880)
-    if state_a is None:
-        print("  SKIP 10a-10h: telegram_bot import failed")
-        return
-    assert_equal("10a: no recognized → None",
-                 dispatch_tree(state_a, None, "anything", "anything"), None)
+    def test_dosing_allowed_no_warning(self):
+        text = _MINIMAL_VALID.replace("allows_dosing: no", "allows_dosing: yes")
+        text = text.replace("default_dose_allowed: no", "default_dose_allowed: yes")
+        text = text.replace(
+            "## INFO_BLOCKS\n\nSome general information.",
+            "## SELECTED_OUTPUTS\n\nDose: 500 mg q8h\n\n## INFO_BLOCKS\n\nSome text."
+        )
+        result = _lint_text(text)
+        self.assertNotIn("dosing_without_flag", _codes(result))
 
-    # 10b: tree init → emits root ASK text
-    state_b, parsed_b, pf_b = _smoke_setup(88881)
-    rec_b = _smoke_recognized(pf_b)
-    result_b = dispatch_tree(state_b, rec_b, "pneumonia?", "pneumonia?")
-    assert_equal("10b: current_node=root",   state_b.get("tree", {}).get("current_node"), "ask_status")
-    assert_contains("10b: emits root ASK",   result_b or "", "Intubált")
 
-    # 10c: jump to terminal answer node → body returned, tree reset
-    state_c, parsed_c, pf_c = _smoke_setup(88882)
-    rec_c = _smoke_recognized(pf_c)
-    init_tree_state(state_c, parsed_c, rec_c)
-    advance_tree_state(state_c, "give_std")
-    result_c = dispatch_tree(state_c, rec_c, "nem", "nem")
-    assert_contains("10c: answer body returned",  result_c or "", "Standard")
-    assert_equal("10c: tree reset after end",     state_c.get("tree"),          None)
+class TestLinterOnRealFiles(unittest.TestCase):
 
-    # 10d: answer node with LINK: → offer appended, pending_links set
-    state_d, parsed_d, pf_d = _smoke_setup(88883)
-    rec_d = _smoke_recognized(pf_d)
-    init_tree_state(state_d, parsed_d, rec_d)
-    advance_tree_state(state_d, "give_ceftriaxone")
-    result_d = dispatch_tree(state_d, rec_d, "igen", "igen")
-    assert_contains("10d: answer body present",    result_d or "", "Ceftriaxone")
-    assert_contains("10d: link offer appended",    result_d or "", "Kell dózis?")
-    assert_equal("10d: pending_links set",         bool(state_d.get("pending_links")), True)
+    PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
 
-    # 10e: pending_links — user picks label → target tree init, emits its root ASK
-    # state_d.pending_links still set from 10d
-    result_e = dispatch_tree(state_d, None, "ceftriaxone", "ceftriaxone")
-    assert_equal("10e: pending_links cleared",     state_d.get("pending_links"), None)
-    assert_contains("10e: target root ASK",        result_e or "",               "CRO GFR")
+    def _run(self):
+        import protocol_linter as pl
+        return pl.run_linter(proto_dir=self.PROTO_DIR)
 
-    # 10f: pending_links — user declines → None returned, offer cleared
-    state_f, _, _ = _smoke_setup(88884)
-    state_f["pending_links"] = [{"label": "ceftriaxone", "file": "protocols/__smoke_cro__.txt",
-                                  "ctx_keys": [], "forwarded": {}}]
-    result_f = dispatch_tree(state_f, None, "nem", "nem")
-    assert_equal("10f: decline → None",            result_f,                      None)
-    assert_equal("10f: pending_links cleared",     state_f.get("pending_links"),  None)
+    def test_linter_runs_without_crash(self):
+        result = self._run()
+        self.assertIsNotNone(result)
 
-    # 10g: pending_links — unrecognised reply → re-ask with offer
-    state_g, _, _ = _smoke_setup(88885)
-    state_g["pending_links"] = [{"label": "ceftriaxone", "file": "protocols/__smoke_cro__.txt",
-                                  "ctx_keys": [], "forwarded": {}}]
-    result_g = dispatch_tree(state_g, None, "something random", "something random")
-    assert_contains("10g: re-ask contains offer",  result_g or "", "Kell dózis?")
-    assert_equal("10g: pending_links still set",   bool(state_g.get("pending_links")), True)
+    def test_no_parse_crashes(self):
+        result = self._run()
+        crashes = [i for i in result.issues if i.code == "parse_crash"]
+        self.assertEqual(crashes, [], f"Parser crashed: {crashes}")
 
-    # 10h: mid-tree topic switch → switch proposed
-    state_h, parsed_h, pf_h = _smoke_setup(88886)
-    rec_h = _smoke_recognized(pf_h)
-    init_tree_state(state_h, parsed_h, rec_h)
-    other_rec = {"protocol_file": "protocols/meropenem.txt", "source_label": "meropenem",
-                 "display": "meropenem", "canonical": "meropenem"}
-    result_h = dispatch_tree(state_h, other_rec, "meropenem dose", "meropenem dose")
-    assert_contains("10h: switch proposed",        result_h or "", "meropenem")
-    assert_equal("10h: pending_switch set",        bool(state_h.get("pending_topic_switch")), True)
+    def test_meropenem_invalid_answer_mode_flagged(self):
+        result = self._run()
+        issues = [i for i in result.issues
+                  if i.code == "invalid_answer_mode" and "meropenem" in i.protocol]
+        self.assertTrue(len(issues) > 0,
+                        "Expected invalid_answer_mode warning for meropenem.txt")
 
-    # Cleanup
-    for cid in range(88880, 88887):
-        CONVERSATION_STATE.pop(cid, None)
-    for f in ["protocols/__smoke_cap__.txt", "protocols/__smoke_cro__.txt"]:
-        PROTOCOL_PARSED_BY_FILE.pop(normalize_path(f), None)
+    def test_broad_alias_detected_in_library(self):
+        result = self._run()
+        broad = [i for i in result.issues if i.code == "broad_alias"]
+        self.assertTrue(len(broad) > 0, "Expected at least one broad_alias warning")
+
+    def test_governance_warnings_cleared(self):
+        """Session 6: all protocols now have governance metadata — no missing_governance warnings."""
+        result = self._run()
+        gov = [i for i in result.issues if i.code == "missing_governance"]
+        self.assertEqual(gov, [], f"Unexpected missing_governance warnings: {gov}")
+
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Session 8: Routing and Conversation State Tests
 # ---------------------------------------------------------------------------
+
+class TestIntentClassifier(unittest.TestCase):
+
+    def test_dosing_keywords_classified(self):
+        import telegram_bot as b
+        for q in ["dose?", "dosing", "adag?", "mennyi?", "GFR 45", "pump setting"]:
+            self.assertEqual(b.classify_intent(q), "dosing_request",
+                             f"Expected dosing_request for {q!r}")
+
+    def test_selection_keywords_classified(self):
+        import telegram_bot as b
+        for q in ["patient is intubated", "hospitalized", "dischargeable"]:
+            self.assertEqual(b.classify_intent(q), "selection_request",
+                             f"Expected selection_request for {q!r}")
+
+    def test_info_keywords_classified(self):
+        import telegram_bot as b
+        for q in ["toxicity?", "monitoring", "TDM"]:
+            self.assertEqual(b.classify_intent(q), "info_request",
+                             f"Expected info_request for {q!r}")
+
+    def test_reset_classified(self):
+        import telegram_bot as b
+        for q in ["new patient", "reset", "new case", "új beteg"]:
+            self.assertEqual(b.classify_intent(q), "reset",
+                             f"Expected reset for {q!r}")
+
+    def test_unknown_returns_unknown(self):
+        import telegram_bot as b
+        self.assertEqual(b.classify_intent("hello there"), "unknown")
+
+
+class TestDosingShortcut(unittest.TestCase):
+    """'What dose?' rule: bare dosing request after a recommendation."""
+
+    def _make_state(self, last_drugs=None, active_file=None):
+        import telegram_bot as b
+        state = b.get_chat_state(f"test_{id(self)}")
+        state["last_recommended_antibiotics"] = last_drugs or []
+        if active_file:
+            state["active_recognized"] = {"protocol_file": active_file, "source_label": "TEST"}
+        else:
+            state["active_recognized"] = None
+        return state
+
+    def test_no_last_drugs_returns_none(self):
+        import telegram_bot as b
+        state = self._make_state([])
+        result = b._handle_dosing_shortcut(state, "dose?", None)
+        self.assertIsNone(result, "Should return None when no last drugs")
+
+    def test_not_bare_dosing_returns_none(self):
+        import telegram_bot as b
+        state = self._make_state(["ceftriaxone"])
+        result = b._handle_dosing_shortcut(state, "what is the mechanism of ceftriaxone?", None)
+        self.assertIsNone(result)
+
+    def test_multiple_drugs_asks_which_one(self):
+        import telegram_bot as b
+        state = self._make_state(["ceftriaxone", "clarithromycin"])
+        result = b._handle_dosing_shortcut(state, "dose?", None)
+        self.assertIsNotNone(result)
+        self.assertTrue(
+            "ceftriaxone" in result.lower() or "clarithromycin" in result.lower(),
+            f"Should mention drug names, got: {result}"
+        )
+
+    def test_single_drug_no_link_returns_not_available(self):
+        """CAP -> dose? -> ceftriaxone protocol missing -> fallback message."""
+        import telegram_bot as b
+        # Use CAP protocol file path (has LINKS with ceftriaxone but target missing)
+        cap_file = os.path.join(os.path.dirname(__file__), "protocols", "cap.txt")
+        # Load the protocol so PROTOCOL_PARSED_BY_FILE is populated
+        parsed = b._parse_protocol_text(open(cap_file).read(), path=cap_file)
+        norm_path = b.normalize_path(cap_file)
+        b.PROTOCOL_PARSED_BY_FILE[norm_path] = parsed
+
+        state = self._make_state(["ceftriaxone"], active_file=cap_file)
+        result = b._handle_dosing_shortcut(state, "dose?", None)
+        self.assertIsNotNone(result, "Should return a message when dosing protocol missing")
+        self.assertNotIn("Source:", result, "Shortcut result should not contain Source line yet")
+        # Should mention ceftriaxone not available OR return target_missing_behavior
+        lower = result.lower()
+        self.assertTrue(
+            "ceftriaxone" in lower or "not specified" in lower or "not available" in lower,
+            f"Should reference ceftriaxone unavailability, got: {result}"
+        )
+
+    def test_single_drug_no_protocol_context(self):
+        """No active protocol file -> protocol does not cover this drug."""
+        import telegram_bot as b
+        state = self._make_state(["oseltamivir"], active_file=None)
+        result = b._handle_dosing_shortcut(state, "dose?", None)
+        self.assertIsNotNone(result)
+
+
+class TestOrganismDisambiguation(unittest.TestCase):
+    """Organism-only queries without BioFire context should trigger disambiguation."""
+
+    def _make_state(self, active_type=None):
+        import telegram_bot as b
+        state = b.get_chat_state(f"org_{id(self)}")
+        if active_type:
+            state["active_recognized"] = {"protocol_type": active_type}
+        else:
+            state["active_recognized"] = None
+        return state
+
+    def _biofire_recognized(self):
+        return {
+            "protocol_type": "microbiology_interpretation_protocol",
+            "display": "BioFire",
+            "source_label": "BioFire",
+            "protocol_file": "protocols/pneumonia_pcr.txt",
+        }
+
+    def test_organism_without_context_triggers_disambiguation(self):
+        import telegram_bot as b
+        state = self._make_state(active_type=None)
+        recognized = self._biofire_recognized()
+        result = b._handle_organism_disambiguation(state, "Strep pneumo", recognized)
+        self.assertIsNotNone(result, "Should return disambiguation prompt")
+        lower = result.lower()
+        self.assertTrue(
+            "biofire" in lower or "pcr" in lower or "interpret" in lower or "antibiotic" in lower,
+            f"Disambiguation should mention BioFire/PCR or antibiotic, got: {result}"
+        )
+
+    def test_organism_with_microbiology_context_no_disambiguation(self):
+        """Already in BioFire context -> no disambiguation needed."""
+        import telegram_bot as b
+        state = self._make_state(active_type="microbiology_interpretation_protocol")
+        recognized = self._biofire_recognized()
+        result = b._handle_organism_disambiguation(state, "Strep pneumo", recognized)
+        self.assertIsNone(result, "No disambiguation when already in microbiology context")
+
+    def test_non_microbiology_recognized_no_disambiguation(self):
+        import telegram_bot as b
+        state = self._make_state(active_type=None)
+        recognized = {"protocol_type": "drug_dosing_protocol", "display": "meropenem"}
+        result = b._handle_organism_disambiguation(state, "meropenem", recognized)
+        self.assertIsNone(result)
+
+    def test_no_recognized_no_disambiguation(self):
+        import telegram_bot as b
+        state = self._make_state()
+        result = b._handle_organism_disambiguation(state, "some text", None)
+        self.assertIsNone(result)
+
+    def test_organism_with_cap_context_triggers_disambiguation(self):
+        """Active CAP (pathway) context + organism mention -> disambiguate."""
+        import telegram_bot as b
+        state = self._make_state(active_type="pathway_selection_protocol")
+        recognized = self._biofire_recognized()
+        result = b._handle_organism_disambiguation(state, "Strep pneumo", recognized)
+        self.assertIsNotNone(result, "Should disambiguate when switching from pathway to micro context")
+
+
+class TestStateManagement(unittest.TestCase):
+    """State fields, resets, and context-source tracking."""
+
+    def test_new_state_has_all_session8_fields(self):
+        import telegram_bot as b
+        state = b.get_chat_state(f"new_{id(self)}")
+        required = [
+            "active_protocol_id", "protocol_type", "last_user_intent",
+            "collected_slots", "pending_question", "last_recommended_antibiotics",
+            "dosing_allowed", "linked_dosing_protocol_available", "context_source",
+        ]
+        for field in required:
+            self.assertIn(field, state, f"Missing state field: {field}")
+
+    def test_reset_tree_state_clears_session8_fields(self):
+        import telegram_bot as b
+        state = b.get_chat_state(f"reset_{id(self)}")
+        state["last_user_intent"] = "dosing_request"
+        state["last_recommended_antibiotics"] = ["ceftriaxone"]
+        state["context_source"] = "fresh_alias"
+        state["collected_slots"] = {"gfr": "45"}
+        b.reset_tree_state(state)
+        self.assertIsNone(state["last_user_intent"])
+        self.assertEqual(state["last_recommended_antibiotics"], [])
+        self.assertIsNone(state["context_source"])
+        self.assertEqual(state["collected_slots"], {})
+
+    def test_explicit_reset_ack(self):
+        """is_explicit_reset_phrase recognises reset phrases."""
+        import telegram_bot as b
+        for phrase in ["new patient", "new case", "reset", "new patient!"]:
+            self.assertTrue(b.is_explicit_reset_phrase(phrase),
+                            f"Should be reset phrase: {phrase!r}")
+
+    def test_normal_text_not_reset(self):
+        import telegram_bot as b
+        for phrase in ["meropenem dose GFR 45", "what is the CAP pathway"]:
+            self.assertFalse(b.is_explicit_reset_phrase(phrase))
+
+    def test_non_tree_switch_updates_active_recognized(self):
+        """When a fresh high-confidence alias arrives for a different protocol
+        with no active tree, active_recognized should switch and
+        last_recommended_antibiotics should clear."""
+        import telegram_bot as b
+        state = b.get_chat_state(f"switch_{id(self)}")
+        # Simulate being in CAP context
+        state["active_recognized"] = {
+            "protocol_file": "protocols/cap.txt",
+            "display": "CAP",
+            "source_label": "CAP",
+        }
+        state["last_recommended_antibiotics"] = ["ceftriaxone"]
+        state["tree"] = None  # no active tree
+
+        # Simulate fresh meropenem recognition
+        mero_recognized = {
+            "protocol_file": "protocols/meropenem.txt",
+            "display": "meropenem",
+            "source_label": "meropenem",
+            "confidence": "exact",
+            "score": 100,
+        }
+
+        # Manually trigger the switch logic (as ask_ai would)
+        if (mero_recognized
+                and state.get("active_recognized")
+                and not state.get("tree")
+                and mero_recognized["protocol_file"] != state["active_recognized"].get("protocol_file")
+                and mero_recognized.get("confidence") in ("exact", "high")):
+            state["active_recognized"] = mero_recognized
+            state["last_recommended_antibiotics"] = []
+
+        self.assertEqual(state["active_recognized"]["display"], "meropenem")
+        self.assertEqual(state["last_recommended_antibiotics"], [])
+
+
+
+# ---------------------------------------------------------------------------
+# Session 9: Deterministic Selection Engine Tests
+# ---------------------------------------------------------------------------
+
+# selection_engine lives in protocols/ which is already on sys.path
+import selection_engine as se
+
+_S9_PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
+
+
+def _s9_load(filename):
+    import protocol_parser as pp
+    return pp.parse_protocol_file(os.path.join(_S9_PROTO_DIR, filename))
+
+
+class TestPriorityRulesEngine(unittest.TestCase):
+
+    def test_meropenem_no_slots_returns_default(self):
+        parsed = _s9_load("meropenem.txt")
+        result = se.run_selection(parsed, {})
+        self.assertTrue(result.default_used)
+        self.assertFalse(result.no_match)
+
+    def test_meropenem_gfr_gt_90_selects_magas(self):
+        parsed = _s9_load("meropenem.txt")
+        result = se.run_selection(parsed, {"gfr": 95.0})
+        self.assertEqual(result.output_key, "MAGAS")
+
+    def test_meropenem_crrt_selects_crrt(self):
+        parsed = _s9_load("meropenem.txt")
+        result = se.run_selection(parsed, {"crrt": True})
+        self.assertEqual(result.output_key, "CRRT")
+
+    def test_meropenem_ihd_selects_ihd(self):
+        parsed = _s9_load("meropenem.txt")
+        result = se.run_selection(parsed, {"ihd": True})
+        self.assertEqual(result.output_key, "IHD")
+
+    def test_meropenem_gfr_45_selects_atlagos(self):
+        parsed = _s9_load("meropenem.txt")
+        result = se.run_selection(parsed, {"gfr": 45.0})
+        self.assertEqual(result.output_key, "ATLAGOS")
+
+    def test_meropenem_gfr_lt_20_selects_csokkentett(self):
+        parsed = _s9_load("meropenem.txt")
+        result = se.run_selection(parsed, {"gfr": 15.0})
+        self.assertEqual(result.output_key, "CSOKKENTETT")
+
+    def test_meropenem_default_renders_text(self):
+        parsed = _s9_load("meropenem.txt")
+        result = se.run_selection(parsed, {})
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        self.assertIn("Meropenem", rendered)
+
+    def test_meropenem_selected_renders_with_dose(self):
+        parsed = _s9_load("meropenem.txt")
+        result = se.run_selection(parsed, {"gfr": 95.0})
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        self.assertIn("4 g/day", rendered)
+
+    def test_ampsul_no_renal_returns_default(self):
+        parsed = _s9_load("ampsul.txt")
+        result = se.run_selection(parsed, {})
+        self.assertTrue(result.default_used)
+
+    def test_ampsul_gfr_45_selects_gfr_30_to_60(self):
+        parsed = _s9_load("ampsul.txt")
+        result = se.run_selection(parsed, {"gfr": 45.0})
+        self.assertEqual(result.output_key, "GFR_30_TO_60",
+                         f"Expected GFR_30_TO_60, got {result.output_key!r}")
+
+    def test_ampsul_gfr_45_renders_sulbactam_dose(self):
+        parsed = _s9_load("ampsul.txt")
+        result = se.run_selection(parsed, {"gfr": 45.0})
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        self.assertIn("6 g/day", rendered)
+
+    def test_ampsul_ihd_selects_ihd(self):
+        parsed = _s9_load("ampsul.txt")
+        result = se.run_selection(parsed, {"ihd": True})
+        self.assertEqual(result.output_key, "IHD")
+
+    def test_ampsul_crrt_selects_crrt_or_gfr_ge_60(self):
+        parsed = _s9_load("ampsul.txt")
+        result = se.run_selection(parsed, {"crrt": True})
+        self.assertEqual(result.output_key, "CRRT_OR_GFR_GE_60")
+
+
+class TestCAPPriorityRules(unittest.TestCase):
+
+    def test_cap_intubated_selects_intubated_cap(self):
+        parsed = _s9_load("cap.txt")
+        result = se.run_selection(parsed, {"intubated": True, "patient_status": "intubated"})
+        self.assertEqual(result.output_key, "INTUBATED_CAP")
+
+    def test_cap_hospitalized_standard(self):
+        parsed = _s9_load("cap.txt")
+        result = se.run_selection(parsed, {"patient_status": "hospitalized"})
+        self.assertEqual(result.output_key, "HOSPITALIZED_STANDARD")
+
+    def test_cap_hospitalized_nosocomial_risk(self):
+        parsed = _s9_load("cap.txt")
+        result = se.run_selection(parsed, {"patient_status": "hospitalized", "nosocomial_risk": True})
+        self.assertEqual(result.output_key, "HOSPITALIZED_NOSOCOMIAL_RISK")
+
+    def test_cap_dischargeable_viral_negative(self):
+        parsed = _s9_load("cap.txt")
+        result = se.run_selection(parsed, {"patient_status": "dischargeable", "viral_test_result": "negative"})
+        self.assertEqual(result.output_key, "OUTPATIENT_STANDARD")
+
+    def test_cap_dischargeable_viral_positive(self):
+        parsed = _s9_load("cap.txt")
+        result = se.run_selection(parsed, {"patient_status": "dischargeable", "viral_test_result": "positive"})
+        self.assertEqual(result.output_key, "OUTPATIENT_VIRAL_POSITIVE")
+
+    def test_cap_no_input_returns_default(self):
+        parsed = _s9_load("cap.txt")
+        result = se.run_selection(parsed, {})
+        self.assertTrue(result.default_used)
+
+    def test_cap_intubated_priority_over_nosocomial(self):
+        parsed = _s9_load("cap.txt")
+        result = se.run_selection(parsed, {"patient_status": "intubated", "intubated": True, "nosocomial_risk": True})
+        self.assertEqual(result.output_key, "INTUBATED_CAP")
+
+    def test_cap_influenza(self):
+        parsed = _s9_load("cap.txt")
+        result = se.run_selection(parsed, {"influenza": True})
+        self.assertEqual(result.output_key, "INFLUENZA")
+
+    def test_cap_intubated_renders_ceftriaxone_or_biofire(self):
+        parsed = _s9_load("cap.txt")
+        result = se.run_selection(parsed, {"intubated": True, "patient_status": "intubated"})
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        lower = rendered.lower()
+        self.assertTrue("ceftriaxone" in lower or "biofire" in lower,
+                        f"INTUBATED_CAP should mention ceftriaxone or BioFire: {rendered[:200]}")
+
+
+class TestTMPSMXTableLookup(unittest.TestCase):
+
+    def test_steno_bsi_60kg_gfr60_returns_high_dose(self):
+        """Core test: Stenotrophomonas BSI 60 kg GFR 60 -> HIGH_DOSE_GFR_GT_30_OR_CRRT."""
+        parsed = _s9_load("tmpsmx.txt")
+        slots = se.extract_slots_from_query("Sumetrolim, Steno BSI, 60 kg, GFR 60",
+                                            parsed_protocol=parsed)
+        result = se.run_selection(parsed, slots)
+        self.assertFalse(result.no_match)
+        self.assertEqual(result.output_key, "HIGH_DOSE_GFR_GT_30_OR_CRRT",
+                         f"Expected HIGH_DOSE_GFR_GT_30_OR_CRRT, got {result.output_key!r}; "
+                         f"missing={result.missing_slots}, default={result.default_used}")
+
+    def test_steno_bsi_60kg_gfr60_renders_weight_row(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {"indication": "stenotrophomonas bsi", "body_weight_kg": 60.0, "gfr": 60.0}
+        result = se.run_selection(parsed, slots)
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        # 60 kg row: 3 x 4 amp / 960/4800 mg daily
+        self.assertTrue("4 amp" in rendered or "960" in rendered or "3 x 4" in rendered,
+                        f"60 kg weight row not found: {rendered}")
+
+    def test_missing_weight_asks(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {"indication": "stenotrophomonas bsi", "gfr": 60.0}
+        result = se.run_selection(parsed, slots)
+        self.assertIn("body_weight_kg", result.missing_slots)
+
+    def test_missing_indication_returns_default(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {"body_weight_kg": 60.0, "gfr": 60.0}
+        result = se.run_selection(parsed, slots)
+        self.assertIn("indication", result.missing_slots)
+
+    def test_missing_all_slots(self):
+        parsed = _s9_load("tmpsmx.txt")
+        result = se.run_selection(parsed, {})
+        self.assertTrue(result.missing_slots or result.default_used)
+
+    def test_pcp_50kg_gfr20_high_dose_gfr_15_30(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {"indication": "pcp treatment", "body_weight_kg": 50.0, "gfr": 20.0}
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "HIGH_DOSE_GFR_15_TO_30",
+                         f"Got {result.output_key!r}")
+
+    def test_prophylaxis_gfr_gt_30(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {"indication": "pcp prophylaxis immunosuppressed", "body_weight_kg": 70.0, "gfr": 50.0}
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "PROPHYLAXIS_GFR_GT_30_OR_CRRT")
+
+    def test_ihd_returns_ihd(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {"indication": "stenotrophomonas bsi", "body_weight_kg": 60.0, "ihd": True}
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "IHD")
+
+    def test_gfr_lt_15_returns_warning(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {"indication": "stenotrophomonas bsi", "body_weight_kg": 60.0, "gfr": 10.0}
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "GFR_LT_15_WITHOUT_CRRT")
+
+
+class TestBioFireOrganismMapping(unittest.TestCase):
+
+    def test_pneumococcus_selects_tier1_ceftriaxone(self):
+        """Core test: BioFire pneumococcus -> Tier 1 ceftriaxone."""
+        parsed = _s9_load("pneumonia_pcr.txt")
+        result = se.run_selection(parsed, {"pathogen_list": ["streptococcus pneumoniae"]})
+        self.assertEqual(result.output_key, "TIER_1_CEFTRIAXONE",
+                         f"Got {result.output_key!r}")
+
+    def test_pneumococcus_alias_normalized(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        slots = se.extract_slots_from_query("BioFire PN result: pneumococcus detected",
+                                            parsed_protocol=parsed)
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "TIER_1_CEFTRIAXONE")
+
+    def test_pneumococcus_no_dosing_in_rendered(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        result = se.run_selection(parsed, {"pathogen_list": ["streptococcus pneumoniae"]})
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        self.assertIn("ceftriaxone", rendered.lower())
+        # BioFire should not contain dose amounts
+        self.assertNotRegex(rendered, r"\d+ g/day")
+
+    def test_pseudomonas_tier2_cefepime(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        result = se.run_selection(parsed, {"pathogen_list": ["pseudomonas aeruginosa"]})
+        self.assertEqual(result.output_key, "TIER_2_CEFEPIME")
+
+    def test_ecoli_ctx_m_tier3_ertapenem(self):
+        """E. coli + CTX-M -> Tier 3 ertapenem."""
+        parsed = _s9_load("pneumonia_pcr.txt")
+        slots = {"pathogen_list": ["escherichia coli"], "resistance_gene_list": ["ctx_m"]}
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "TIER_3_ERTAPENEM",
+                         f"CTX-M should upgrade to Tier 3, got {result.output_key!r}")
+
+    def test_acinetobacter_tier4(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        result = se.run_selection(parsed, {"pathogen_list": ["acinetobacter calcoaceticus-baumannii complex"]})
+        self.assertEqual(result.output_key, "TIER_4_MEROPENEM_COLISTIN")
+
+    def test_polymicrobial_highest_tier_wins(self):
+        """Strep pneumoniae (T1) + Pseudomonas (T2) -> Tier 2."""
+        parsed = _s9_load("pneumonia_pcr.txt")
+        slots = {"pathogen_list": ["streptococcus pneumoniae", "pseudomonas aeruginosa"]}
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "TIER_2_CEFEPIME",
+                         f"Polymicrobial highest tier: {result.output_key!r}")
+
+    def test_resistance_marker_without_pathogen_asks(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        result = se.run_selection(parsed, {"resistance_gene_list": ["ctx_m"]})
+        self.assertTrue(result.missing_slots or result.ask_missing)
+        self.assertIsNone(result.output_key)
+
+    def test_no_pathogen_returns_default(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        result = se.run_selection(parsed, {})
+        self.assertTrue(result.default_used)
+
+    def test_staph_mssa_cefazolin(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        result = se.run_selection(parsed, {"pathogen_list": ["staphylococcus aureus"]})
+        self.assertEqual(result.output_key, "STAPH_AUREUS_MSSA")
+
+    def test_staph_mrsa_vancomycin(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        slots = {"pathogen_list": ["staphylococcus aureus"], "resistance_gene_list": ["meca_c"]}
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "STAPH_AUREUS_MRSA")
+
+    def test_influenza_oseltamivir(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        slots = se.extract_slots_from_query("BioFire: Influenza A detected", parsed_protocol=parsed)
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "INFLUENZA")
+
+    def test_carbapenemase_tier4(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        slots = {"pathogen_list": ["klebsiella pneumoniae group"], "resistance_gene_list": ["carbapenemase"]}
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "TIER_4_MEROPENEM_COLISTIN")
+
+
+class TestSlotExtractor(unittest.TestCase):
+
+    def test_gfr_extracted(self):
+        self.assertEqual(se.extract_slots_from_query("meropenem GFR 45").get("gfr"), 45.0)
+
+    def test_weight_extracted(self):
+        self.assertEqual(se.extract_slots_from_query("TMP/SMX 60 kg").get("body_weight_kg"), 60.0)
+
+    def test_crrt_flag(self):
+        self.assertTrue(se.extract_slots_from_query("meropenem CRRT patient").get("crrt"))
+
+    def test_ihd_flag(self):
+        self.assertTrue(se.extract_slots_from_query("amp/sul IHD").get("ihd"))
+
+    def test_intubated_flag(self):
+        self.assertTrue(se.extract_slots_from_query("patient is intubated").get("intubated"))
+
+    def test_patient_status_hospitalized(self):
+        self.assertEqual(se.extract_slots_from_query("hospitalized patient").get("patient_status"), "hospitalized")
+
+    def test_biofire_pneumococcus(self):
+        parsed = _s9_load("pneumonia_pcr.txt")
+        slots = se.extract_slots_from_query("BioFire result: pneumococcus", parsed_protocol=parsed)
+        self.assertIn("streptococcus pneumoniae", slots.get("pathogen_list", []))
+
+    def test_existing_slots_preserved(self):
+        slots = se.extract_slots_from_query("meropenem", existing_slots={"gfr": 45.0})
+        self.assertEqual(slots.get("gfr"), 45.0)
+
+    def test_new_gfr_overwrites_existing(self):
+        slots = se.extract_slots_from_query("GFR 80", existing_slots={"gfr": 45.0})
+        self.assertEqual(slots.get("gfr"), 80.0)
+
+
+class TestEngineNoMatchModes(unittest.TestCase):
+
+    def test_decision_tree_mode_no_match(self):
+        import protocol_parser as pp
+        p = pp._parse_protocol_text("## METADATA\nprotocol_id: test\nselection_mode: decision_tree\n")
+        self.assertTrue(se.run_selection(p, {}).no_match)
+
+    def test_none_mode_no_match(self):
+        import protocol_parser as pp
+        p = pp._parse_protocol_text("## METADATA\nprotocol_id: test\nselection_mode: none\n")
+        self.assertTrue(se.run_selection(p, {}).no_match)
+
+
+# ---------------------------------------------------------------------------
+# Session 13: Conservative Protocol Alias Cleanup Tests
+# ---------------------------------------------------------------------------
+
+class TestSession13AliasCleanup(unittest.TestCase):
+
+    def setUp(self):
+        self._old_aliases = dict(bot.ALIASES)
+        self._old_alias_index = dict(bot.ALIAS_INDEX)
+        self._old_blocked_aliases = set(bot.BLOCKED_ALIASES)
+        self._old_file_labels = dict(bot.PROTOCOL_FILE_TO_LABEL)
+        bot.load_aliases(os.path.join("protocols", "aliases.json"))
+
+    def tearDown(self):
+        bot.ALIASES = self._old_aliases
+        bot.ALIAS_INDEX = self._old_alias_index
+        bot.BLOCKED_ALIASES = self._old_blocked_aliases
+        bot.PROTOCOL_FILE_TO_LABEL = self._old_file_labels
+
+    def _recognized_file(self, query):
+        _, recognized = bot.normalize_question(query)
+        if not recognized:
+            return None
+        return bot.normalize_path(recognized.get("protocol_file", ""))
+
+    def test_broad_carbapenem_no_longer_routes_to_meropenem(self):
+        self.assertNotEqual(
+            self._recognized_file("carbapenem"),
+            bot.normalize_path("protocols/meropenem.txt"),
+        )
+
+    def test_hap_vap_aliases_do_not_route_to_cap(self):
+        for query in [
+            "hap",
+            "vap",
+            "hospital acquired pneumonia",
+            "ventilator associated pneumonia",
+            "nosocomial pneumonia",
+        ]:
+            with self.subTest(query=query):
+                self.assertNotEqual(
+                    self._recognized_file(query),
+                    bot.normalize_path("protocols/cap.txt"),
+                )
+
+    def test_joint_infection_aliases_do_not_route_to_pneumonia_pcr(self):
+        for query in [
+            "ji panel",
+            "joint infection panel",
+            "biofire joint infection",
+            "filmarray ji",
+        ]:
+            with self.subTest(query=query):
+                self.assertNotEqual(
+                    self._recognized_file(query),
+                    bot.normalize_path("protocols/pneumonia_pcr.txt"),
+                )
+
+
+# ---------------------------------------------------------------------------
+# Session 10: Debug/Admin Inspectability Tests
+# ---------------------------------------------------------------------------
+
+class TestSession10DebugCommands(unittest.TestCase):
+
+    PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
+
+    def setUp(self):
+        import telegram_bot as b
+        self._old_parsed = dict(b.PROTOCOL_PARSED_BY_FILE)
+        self._old_aliases = dict(b.ALIASES)
+        self._old_alias_index = dict(b.ALIAS_INDEX)
+        self._old_file_labels = dict(b.PROTOCOL_FILE_TO_LABEL)
+        b.PROTOCOL_PARSED_BY_FILE.clear()
+        b.CONVERSATION_STATE.pop(f"debug_{id(self)}", None)
+
+    def tearDown(self):
+        import telegram_bot as b
+        b.PROTOCOL_PARSED_BY_FILE.clear()
+        b.PROTOCOL_PARSED_BY_FILE.update(self._old_parsed)
+        b.ALIASES = self._old_aliases
+        b.ALIAS_INDEX = self._old_alias_index
+        b.PROTOCOL_FILE_TO_LABEL = self._old_file_labels
+        b.CONVERSATION_STATE.pop(f"debug_{id(self)}", None)
+
+    def _install_protocol(self, filename):
+        import telegram_bot as b
+        import protocol_parser as pp
+        path = os.path.join("protocols", filename)
+        parsed = pp.parse_protocol_file(os.path.join(self.PROTO_DIR, filename))
+        b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(path)] = parsed
+        return path, parsed
+
+    def test_protocols_output_lists_governance_fields(self):
+        import telegram_bot as b
+        self._install_protocol("meropenem.txt")
+        output = b.format_protocols_output()
+        self.assertIn("meropenem", output)
+        self.assertIn("drug_dosing_protocol", output)
+        self.assertIn("draft", output)
+        self.assertIn("0.1", output)
+
+    def test_version_uses_protocol_versions_when_available(self):
+        import telegram_bot as b
+        self._install_protocol("meropenem.txt")
+        output = b.format_version_output()
+        self.assertIn("Bot version:", output)
+        self.assertIn("Protocol library version: 0.1", output)
+
+    def test_debug_trace_explains_fresh_alias_without_prompt_echo(self):
+        import telegram_bot as b
+        self._install_protocol("meropenem.txt")
+        b.load_aliases(os.path.join("protocols", "aliases.json"))
+        fake_chunks = [{
+            "source": "protocols/meropenem.txt",
+            "source_label": "meropenem",
+            "text": "## DEFAULT_ANSWER\nProtocol dosing text",
+            "similarity": 0.9876,
+        }]
+        with patch.object(b, "search_protocols", return_value=fake_chunks):
+            output = b.build_debug_trace("private patient details meropenem dose", f"debug_{id(self)}")
+        self.assertIn("Context source: fresh_alias", output)
+        self.assertIn("Matched alias: meropenem", output)
+        self.assertIn("Protocol type: drug_dosing_protocol", output)
+        self.assertIn("Deterministic/LLM source: deterministic selection_engine", output)
+        self.assertIn("File: protocols/meropenem.txt", output)
+        self.assertIn("Section: DEFAULT_ANSWER", output)
+        self.assertNotIn("private patient details", output)
+        self.assertNotIn("Preview:", output)
+
+    def test_default_logging_redacts_prompt(self):
+        import telegram_bot as b
+        safe = b._safe_user_message_for_log("John Doe fever")
+        self.assertIsInstance(safe, dict)
+        self.assertTrue(safe["redacted"])
+        self.assertNotIn("John Doe", str(safe))
+
+
+# ---------------------------------------------------------------------------
+# Session 11: Module Split Tests
+# ---------------------------------------------------------------------------
+
+class TestSession11ModuleSplit(unittest.TestCase):
+
+    def test_named_modules_import(self):
+        import aliases
+        import authorization
+        import logging_audit
+        import prompting
+        import protocol_schema
+        import retrieval
+        import routing
+        import state
+        import telegram_app
+
+        self.assertTrue(callable(aliases.normalize_question))
+        self.assertTrue(callable(authorization._is_allowed))
+        self.assertTrue(callable(logging_audit._safe_user_message_for_log))
+        self.assertTrue(callable(prompting.build_system_prompt))
+        self.assertTrue(callable(protocol_schema.parse_protocol_file))
+        self.assertTrue(callable(retrieval.search_protocols))
+        self.assertTrue(callable(routing.ask_ai))
+        self.assertTrue(callable(state.get_chat_state))
+        self.assertTrue(callable(telegram_app.main))
+
+    def test_state_module_shares_legacy_runtime_state(self):
+        import telegram_bot as b
+        import state
+
+        chat_id = f"split_{id(self)}"
+        try:
+            from_state = state.get_chat_state(chat_id)
+            from_bot = b.get_chat_state(chat_id)
+            self.assertIs(from_state, from_bot)
+            from_state["context_source"] = "module_split"
+            self.assertEqual(b.get_chat_state(chat_id)["context_source"], "module_split")
+        finally:
+            b.CONVERSATION_STATE.pop(chat_id, None)
 
 if __name__ == "__main__":
-    run_integration = "--all" in sys.argv
-
-    test_alias_recognition()
-    test_fuzzy_recognition()
-    test_protocol_file_paths()
-    test_source_label_derivation()
-    test_clean_response()
-    test_policy_header_extraction()
-    test_schema_parser()
-    test_decision_tree_parser()
-    test_footer_helpers()
-    test_protocol_links()
-    test_dispatcher_smoke()
-
-    if run_integration:
-        test_integration()
-    else:
-        print("\n=== 5. Integration tests ===")
-        print("  (skipped — run with --all to include API tests)")
-
-    total = results["pass"] + results["fail"]
-    print(f"\n{'='*40}")
-    print(f"Results: {results['pass']}/{total} passed", end="")
-    if results["fail"]:
-        print(f"  ({results['fail']} FAILED)")
-        sys.exit(1)
-    else:
-        print("  ✓ all passed")
+    unittest.main(verbosity=2)

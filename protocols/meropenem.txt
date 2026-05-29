@@ -2,13 +2,20 @@
 
 ## METADATA
 
-protocol_name: Meropenem continuous infusion ICU dosing protocol
-drug_class: beta-lactam, carbapenem
+protocol_id: meropenem
+protocol_name: Meropenem continuous infusion ICU protocol
 source_label: meropenem
 canonical_name: meropenem
-protocol_file: protocols/meropenem.txt
-answer_mode: open_default
-broad_query_action: give_default_answer_and_quick_structure
+protocol_type: drug_dosing_protocol
+answer_mode: default_or_required_slots_then_selected_output
+selection_mode: priority_rules
+allows_dosing: yes
+dosing_requires_link: no
+default_dose_allowed: yes
+version: 0.1
+last_reviewed: unknown
+owner: ID team
+status: draft
 
 ## ALIASES
 
@@ -21,125 +28,246 @@ broad_query_action: give_default_answer_and_quick_structure
 - meropenem dose
 - meropenem dosing
 - magas meropenem
-- carbapenem
 
-## ANSWER_POLICY
+## INTENTS
 
-Can default dosing be given if some information is missing?
-- yes
+default_request:
+- meropenem
+- meropenem dose
+- meropenem dosing
+- mero
 
-This is an open default dosing protocol.
+selection_request:
+- GFR
+- eGFR
+- CrCl
+- CRRT
+- IHD
 
-If the user asks a broad or under-specified meropenem question, for example:
-Then:
-- provide the DEFAULT_ANSWER in the user's language if available
+dosing_request:
+- dose
+- dosing
+- adag
+- dózis
+- mennyi
+- pump
+- infusion
+- infúzió
 
-If the user provides renal function, select the dosing tier using PATHWAY_PRIORITY and DOSING_TIERS then also provide DEFAULT_ANSWER a quick dosing table for reference
+info_request:
+- toxicity
+- adverse effect
+- monitoring
+- TDM
+- MIC
+- administration
+- preparation
 
-## REQUIRED_INFORMATION
+link_request:
 (none)
 
-## DEFAULT_QUESTION
+## INPUT_SLOTS
+
+required_for_selection:
+(none)
+
+required_for_dosing:
+(none)
+
+optional_modifiers:
+- gfr
+- crrt
+- ihd
+
+forwardable_slots:
 (none)
 
 ## DEFAULT_ANSWER
 
 ### HU
 
-Meropenem — dozírozási összefoglaló
-- PLUSZ: 6 g/nap — CNS infekció vagy alacsony szint
-- MAGAS: 4 g/nap — septicus shock első 24h, ARC, GFR >90 amíg MIC/TDM nincs
-- ÁTLAGOS: 3 g/nap — GFR 20–90
-- CSÖKKENTETT: 1 g/nap vagy 0.5 g q12h — GFR <20, CRRT nélkül
+Meropenem gyors térkép
+- MAGAS: 4 g/nap - GFR >90
+- ÁTLAGOS: 3 g/nap - GFR 20-90, stabil ICU infekció
+- CSÖKKENTETT: 1 g/nap vagy 0.5 g q12h - GFR <20, CRRT nélkül
 - CRRT: 3 g/nap
 - IHD: 0.5 g q12h
-- Ha kiválasztod melyik, megmondom a pontos pumpa beállíásokat
+
+Pontosabb választáshoz küldd: GFR/CRRT/IHD.
 
 ### EN
 
-Meropenem — quick map
-- PLUSZ: 6 g/day — CNS infection or persistent low levels
-- MAGAS: 4 g/day — septic shock first 24h, ARC, GFR >90 until MIC/TDM available
-- ÁTLAGOS: 3 g/day — GFR 20–90, stable ICU infection
-- CSÖKKENTETT: 1 g/day or 0.5 g q12h — GFR <20, no CRRT
+Meropenem quick map
+- HIGH: 4 g/day - GFR >90
+- STANDARD: 3 g/day - GFR 20-90, stable ICU infection
+- REDUCED: 1 g/day or 0.5 g q12h - GFR <20, no CRRT
 - CRRT: 3 g/day
 - IHD: 0.5 g q12h
-- If you specify dosing I can tell you pump settings
 
+For more exact selection send: GFR/CRRT/IHD.
 
-## PATHWAY_PRIORITY
+## SELECTION_RULES
 
-Priority order (first match wins):
+selection_mode: priority_rules
 
-1. CNS infection                       -> PLUSZ
-2. Persistent subtherapeutic TDM        -> PLUSZ
-3. First 24h of septic shock           -> MAGAS
-4. ARC suspected                       -> MAGAS
-5. GFR >90 until MIC/TDM available     -> MAGAS
-6. CRRT                                -> CRRT
-7. Intermittent hemodialysis (IHD)     -> IHD
-8. GFR <20 without CRRT                -> CSÖKKENTETT
-9. GFR 20-90, stable ICU infection     -> ÁTLAGOS
-10. Broad / under-specified request    -> MAGAS as empiric default
+RULE: MAGAS_GFR_GT_90
+  IF: gfr > 90
+  PRIORITY: 80
+  SELECT: MAGAS
 
-## DOSING_TIERS
+RULE: CRRT
+  IF: crrt == true
+  PRIORITY: 90
+  SELECT: CRRT
 
-TIER: PLUSZ
-DOSE: 6 g/day
-WHEN: CNS infection; persistent low TDM; step-up dosing after subtherapeutic TDM
-ADMIN: continuous infusion over 24h
-PREP: 1 g meropenem in 50 mL NaCl 0.9%
-PUMP: 12.5 mL/h
+RULE: IHD
+  IF: ihd == true
+  PRIORITY: 90
+  SELECT: IHD
 
-TIER: MAGAS
-DOSE: 4 g/day
-WHEN: septic shock empiric therapy; first 24h of septic shock; suspected ARC; GFR >90 until TDM and pathogen MIC available; under-specified broad meropenem dosing question
-ADMIN: continuous infusion over 24h
-PREP: 1 g meropenem in 50 mL NaCl 0.9%
-PUMP: 8.4 mL/h
+RULE: CSOKKENTETT_GFR_LT_20
+  IF: gfr < 20 AND crrt != true
+  PRIORITY: 60
+  SELECT: CSOKKENTETT
 
-TIER: ÁTLAGOS
-DOSE: 3 g/day
-WHEN: standard ICU infection; GFR 20-90; clinically stable patient without ARC/shock/CNS infection
-ADMIN: continuous infusion over 24h
-PREP: 1 g meropenem in 50 mL NaCl 0.9%
-PUMP: 6.3 mL/h
+RULE: ATLAGOS_GFR_20_TO_90
+  IF: gfr >= 20 AND gfr <= 90
+  PRIORITY: 50
+  SELECT: ATLAGOS
 
-TIER: CSÖKKENTETT
-DOSE: 1 g/day OR 0.5 g q12h
-WHEN: GFR <20; severe renal dysfunction without CRRT
-ADMIN: continuous infusion possible; reduced-dose regimens may require modified preparation; intermittent dosing possible
-PREP: individualized / modified preparation may be required
-PUMP: 4.2 mL/h
+RULE: DEFAULT
+  IF: no_selection_input_supplied == true
+  PRIORITY: 1
+  SELECT: DEFAULT_ANSWER
 
-TIER: CRRT
-DOSE: 3 g/day
-WHEN: CRRT; standard effluent rate <40 mL/kg/h
-ADMIN: continuous infusion over 24h
-PREP: 1 g meropenem in 50 mL NaCl 0.9%
-PUMP: 6.3 mL/h
+## SELECTED_OUTPUTS
 
-TIER: IHD
-DOSE: 0.5 g q12h
-WHEN: intermittent hemodialysis
-ADMIN: individualized consideration; intermittent dosing may be preferred
-PREP: individualized
-PUMP: not applicable / individualized
+### MAGAS
 
-## DECISION_TREE
+type: dosing_tier
+display_name_hu: MAGAS
+display_name_en: HIGH
+dose: 4 g/day
+when: GFR >90
+administration: continuous infusion over 24h
+preparation: 1 g meropenem in 50 mL NaCl 0.9%
+pump: 8.4 mL/h
+
+### ATLAGOS
+
+type: dosing_tier
+display_name_hu: ÁTLAGOS
+display_name_en: STANDARD
+dose: 3 g/day
+when: GFR 20-90
+administration: continuous infusion over 24h
+preparation: 1 g meropenem in 50 mL NaCl 0.9%
+pump: 6.3 mL/h
+
+### CSOKKENTETT
+
+type: dosing_tier
+display_name_hu: CSÖKKENTETT
+display_name_en: REDUCED
+dose: 1 g/day OR 0.5 g q12h
+when: GFR <20; severe renal dysfunction without CRRT
+administration: continuous infusion possible; intermittent dosing possible
+preparation: individualized / modified preparation may be required
+pump: 4.2 mL/h if using 1 g/day continuous infusion
+
+### CRRT
+
+type: dosing_tier
+display_name_hu: CRRT
+display_name_en: CRRT
+dose: 3 g/day
+when: CRRT; standard effluent rate <40 mL/kg/h
+administration: continuous infusion over 24h
+preparation: 1 g meropenem in 50 mL NaCl 0.9%
+pump: 6.3 mL/h
+
+### IHD
+
+type: dosing_tier
+display_name_hu: IHD
+display_name_en: IHD
+dose: 0.5 g q12h
+when: intermittent hemodialysis
+administration: individualized consideration; intermittent dosing may be preferred
+preparation: individualized
+pump: individualized / not applicable
+
+## LINKS
+
 (none)
 
-## TREATMENT_PATHWAYS
+## INFO_BLOCKS
 
+### toxicity
 
+This protocol does not contain a detailed meropenem toxicity section.
+If toxicity is asked, answer only that toxicity details are not specified in this protocol.
+Do not invent adverse-effect lists.
 
+### monitoring
 
+TDM should be considered if poor response to therapy, extremes of renal function, deep-seated infection, or uncertain exposure.
+Target should be above pathogen MIC.
+This protocol mentions a practical TDM target range of 8-45 mg/L.
 
-### ESCALATION_AND_WARNINGS
-(none)
+### administration
+
+Use continuous infusion over 24h when the selected tier specifies continuous infusion.
+Give a loading dose of 1 g at first administration, then start the 24h infusion after the loading dose finishes.
+Preparation for standard continuous infusion tiers: 1 g meropenem in 50 mL NaCl 0.9%.
+
+### renal
+
+Renal function affects tier selection.
+The deterministic dosing tier should be selected from SELECTION_RULES and SELECTED_OUTPUTS.
+Do not create renal dosing outside the listed tiers.
+
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- non-meropenem antibiotic advice from this protocol
+- meropenem dosing outside SELECTED_OUTPUTS
+- toxicity details not present in INFO_BLOCKS
+
+## SAFETY_RULES
+
+- Do not reduce meropenem dose in the first 48h of starting therapy unless the protocol-selected tier explicitly does so.
+- Select the dose only from renal/RRT status.
+- CNS infection, first 48h therapy, poor response, renal extremes, deep-seated infection, MIC and TDM are handled by DEFAULT_FOOTER, not by SELECTION_RULES.
+
+## OUTPUT_TEMPLATES
+
+### FINAL_SELECTED_HU
+
+Meropenem - renal base tier: {display_name_hu}
+- renal base dose: {dose}
+- mikor: {when}
+- beadás: {administration}
+- előkészítés: {preparation}
+- pumpa: {pump}
+
+### FINAL_SELECTED_EN
+
+Meropenem - renal base tier: {display_name_en}
+- renal base dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### INFO_ANSWER
+
+Answer only from the selected INFO_BLOCK.
+Do not add dosing unless the selected INFO_BLOCK explicitly says to mention it.
 
 ## DEFAULT_FOOTER
+
 ! In CNS infections use double dose, e.g. 6g/24h
 ! Do not reduce dose in the first 48hrs of starting therapy
 Give a loading dose of 1g at the first administration and start 24hr infusion after loading finishes
-Think TDM if poor response to therapy, extremes of renal function (GFR 20- or 90+), deep seated infection. Aim above pathogen MIC (or 8-45mg/L)
+Think TDM if poor response to therapy, extremes of renal function (GFR 20- or 90+), deep seated infection. Aim above pathogen MIC (or 8-45mg/L).

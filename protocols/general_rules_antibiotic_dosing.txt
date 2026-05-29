@@ -5,42 +5,92 @@
 protocol_name: General antibiotic dosing rules supplement
 source_label: General rules
 protocol_file: protocols/general_rules_antibiotic_dosing.txt
+protocol_id: general_rules_antibiotic_dosing
+protocol_type: general_rules_protocol
+answer_mode: info_only
+selection_mode: none
+allows_dosing: no
+default_dose_allowed: no
+version: 0.1
+last_reviewed: unknown
+owner: ID team
+status: draft
 
 ## ALIASES
 
+- general antibiotic dosing rules supplement
+
+## INTENTS
+
+info_request:
+- general antibiotic dosing rules
+- dosing principles
+- stewardship principles
+- TDM availability
+- augmented renal clearance
+
+dosing_request:
+- dose
+- dosing
+- adag
+- dozis
+- renal
+- GFR
+- eGFR
+- CrCl
+
+## INPUT_SLOTS
+
+required_for_selection:
 (none)
 
-## ANSWER_POLICY
+required_for_dosing:
+This protocol is info_only and must not select patient-specific doses. Use individual antibiotic dosing protocols.
+
+optional_modifiers:
+- renal_function
+- severe_sepsis
+- septic_shock
+- ICU
+- ARC
+- CRRT
+- IHD
+- TDM_available
+
+forwardable_slots:
+- selected_antimicrobial
+- indication
+- severity
+- gfr
+- egfr
+- crcl
+- renal_replacement
+- crrt
+- ihd
+- body_weight_kg
+- allergy
+
+## DEFAULT_ANSWER
+
+This is an info-only supplement. Use individual antibiotic protocols for drug-specific dosing and patient-specific dose selection.
+
+## SELECTION_RULES
+
+selection_mode: none
+
+No patient-specific dosing pathway is selected from this protocol.
+
+## SELECTED_OUTPUTS
 
 (none)
 
-## REQUIRED_INFORMATION
+## LINKS
 
 (none)
 
-## PREFERRED_INFORMATION
+## INFO_BLOCKS
 
-(none)
-
-## MODIFIER_INFORMATION
-
-(none)
-
-## DEFAULT_QUESTION
-
-(none)
-
-## PATHWAY_PRIORITY
-
-(none)
-
-## DECISION_TREE
-
-(none)
-
-## TREATMENT_PATHWAYS
-
-### GENERAL_RULES
+### general_rules
 
 The chatbot should:
 - ask for penicillin allergy if a penicillin derivative is to be advised for the asked condition
@@ -48,7 +98,7 @@ The chatbot should:
 - Individual antibiotic guidelines overwrite these generic rules (e.g. do not provide dosing for tmp/smx or amp/sul until required information is given or confirmed).
 - do not suggest antibiotic dosing reduction for renal function in the first 24 hours of treatment unless the individual antibiotic protocol specifically requires reduced dosing, the patient is anuric/IHD, or toxicity risk is clinically dominant
 
-### SOURCE_PRIORITY
+### source_priority
 
 Priority order:
 1. Individual antibiotic protocol
@@ -57,7 +107,7 @@ Priority order:
 
 Individual antibiotic protocol overrides generic rules.
 
-### INTERACTION_RULES
+### interaction_rules
 
 If the user asks:
 - "how much meropenem?"
@@ -72,7 +122,7 @@ Instead:
 - provide allowed default guidance if defined
 - ask the minimum questions needed for pathway selection
 
-### INFORMATION_HIERARCHY
+### information_hierarchy
 
 Individual protocols may define:
 - REQUIRED_INFORMATION
@@ -84,7 +134,7 @@ Follow the hierarchy defined in system rules.
 
 Individual protocols override these general rules.
 
-### CONTINUOUS_VS_BOLUS_DOSING
+### continuous_vs_bolus_dosing
 
 Continuous infusion is a must for:
 - meropenem
@@ -110,7 +160,7 @@ Bolus dosing preferred for:
 - fluoroquinolones
 - ceftriaxone
 
-### GENERAL_BETA_LACTAM_DOSING_PHILOSOPHY
+### general_beta_lactam_dosing_philosophy
 
 - Continuous infusion preferred in critically ill ICU patients whenever protocol specifies.
 - Full-dose therapy preferred in severe sepsis and septic shock in the first 24 hours.
@@ -118,13 +168,13 @@ Bolus dosing preferred for:
 - ARC (augmented renal clearance) frequently causes underdosing.
 - Consider TDM in the specified indications.
 
-### OBESITY_AND_BETA_LACTAMS
+### obesity_and_beta_lactams
 
 Obesity alone does not mandate beta-lactam escalation.
 
 Do not invent mg/kg dosing unless explicitly specified in the protocol.
 
-### TDM_REQUIRED_DAILY
+### tdm_required_daily
 
 Daily TDM required:
 - vancomycin
@@ -134,7 +184,7 @@ Daily TDM required:
 - ceftazidime/avibactam
 - ceftolozane/tazobactam
 
-### TDM_CONSIDER
+### tdm_consider
 
 Beta-lactam TDM should be considered ONLY for beta-lactams where TDM is available in the individual antibiotic protocol.
 
@@ -156,7 +206,7 @@ Do NOT suggest beta-lactam TDM for antibiotics where TDM is not specified as ava
 
 Individual antibiotic protocols override these general rules.
 
-### TDM_NOT_AVAILABLE
+### tdm_not_available
 
 Assume TDM is NOT available unless:
 - explicitly specified in the individual antibiotic protocol
@@ -168,7 +218,7 @@ If TDM is not available:
 - do not invent sampling strategy
 - do not recommend unavailable monitoring
 
-### ARC_DEFINITION
+### arc_definition
 
 ARC suspected if:
 - GFR/eGFR >90 and urine output >2000 mL/day
@@ -176,7 +226,7 @@ ARC suspected if:
 
 ARC increases risk of beta-lactam underexposure.
 
-### ANSWER_STRUCTURE
+### answer_structure
 
 For beta-lactam dosing answers use this structure:
 
@@ -199,7 +249,7 @@ For beta-lactam dosing answers use this structure:
 5. SOURCE
 - mention protocol/section
 
-### STEWARDSHIP_PRINCIPLES
+### stewardship_principles
 
 - Avoid unnecessarily broad-spectrum therapy.
 - De-escalate according to microbiology and clinical response.
@@ -211,7 +261,7 @@ For beta-lactam dosing answers use this structure:
 - Avoid prolonged empiric carbapenem therapy without microbiological justification.
 - Review antibiotic necessity daily.
 
-### COLONIZATION_VS_INFECTION
+### colonization_vs_infection
 
 Do not automatically interpret positive microbiology as infection.
 
@@ -227,7 +277,25 @@ Respiratory samples may represent colonization.
 
 Positive blood cultures usually represent infection unless the organism and sampling pattern suggest contamination.
 
-## SAFETY_NOTES
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- patient-specific dosing from this general supplement
+- dosing for a drug when the individual antibiotic protocol blocks or requires missing information
+- invented target concentrations, sampling strategies, contraindications, alternatives, or monitoring
+
+For dosing requests:
+- prefer the individual antibiotic dosing protocol
+- if the individual protocol is missing, say that dosing is not specified in the uploaded protocols
+
+## SAFETY_RULES
+
+- This protocol is subordinate to individual antibiotic protocols and infection-specific protocols.
+- Individual antibiotic protocols override these generic rules, including renal pathways and first-24h/first-48h handling.
+- Ask for penicillin allergy when a penicillin derivative is being considered.
+- Do not invent dose adjustments or monitoring not present in the active protocol.
+
+## OUTPUT_TEMPLATES
 
 (none)
 

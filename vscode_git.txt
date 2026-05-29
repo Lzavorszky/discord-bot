@@ -1,3 +1,0 @@
-git add .
-git commit -m "fix: BioFire organism routing, dosing prohibition, aliases JSON syntax"
-git push

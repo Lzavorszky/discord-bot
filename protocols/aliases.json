@@ -65,8 +65,7 @@
         "meropenem dose",
         "meropenem dosing",
         "mem",
-        "magas meropenem",
-        "carbapenem"
+        "magas meropenem"
       ]
     }
   },
@@ -110,12 +109,6 @@
         "aspiration pneumonia",
         "aspirációs pneumonia",
         "aspirachos pneumonia",
-        "hap",
-        "vap",
-        "hospital acquired pneumonia",
-        "ventilator associated pneumonia",
-        "nozokomiális pneumonia",
-        "nosocomial pneumonia",
         "atipusos pneumonia",
         "atípusos pneumonia"
       ]
@@ -133,14 +126,10 @@
         "multiplex pcr",
         "pneumonia pcr",
         "pneumonia panel",
-        "ji panel",
-        "joint infection panel",
-        "biofire joint infection",
         "biofire pneumonia",
         "filmarray",
         "film array",
         "filmarray pneumonia",
-        "filmarray ji",
         "biofre",
         "biofir",
         "biofyre",
@@ -151,5 +140,21 @@
         "pn pcr"
       ]
     }
-  }
+  },
+  "blocked_aliases": [
+    "hap",
+    "vap",
+    "hospital acquired pneumonia",
+    "hospital-acquired pneumonia",
+    "ventilator associated pneumonia",
+    "ventilator-associated pneumonia",
+    "nosocomial pneumonia",
+    "nozokomiális pneumonia",
+    "nozokomialis pneumonia",
+    "ji panel",
+    "joint infection panel",
+    "biofire joint infection",
+    "filmarray ji",
+    "biofire ji"
+  ]
 }

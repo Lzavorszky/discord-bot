@@ -1,0 +1,655 @@
+# Protocol Structure Guide / Prompt
+
+Use this guide when creating or refactoring a protocol file for the hospital protocol bot.
+
+The goal is to separate:
+- deterministic protocol logic handled by Python
+- bounded general information handled by the LLM
+- cross-protocol handoffs handled by explicit links
+
+The LLM may explain, summarize, and format. It must not invent protocol decisions, doses, tiers, antimicrobial choices, or required inputs.
+
+---
+
+## 1. First Questions To Ask The Human
+
+Before writing the protocol, ask these questions. Do not guess unless the answer is obvious from an existing protocol.
+
+### A. Protocol Identity
+
+1. What is the protocol about?
+   - drug dosing
+   - syndrome pathway
+   - microbiology interpretation
+   - diagnostic testing
+   - monitoring / toxicity
+   - calculator / score
+   - general rules only
+
+2. What should the source label be?
+   - Example: `CAP`, `TMP/SMX`, `BioFire`, `meropenem`
+
+3. What aliases should trigger this protocol?
+   - Include local names, brand names, abbreviations, Hungarian spellings, common typos.
+
+### B. What May Be Answered Deterministically?
+
+4. What is the deterministic output?
+   - dose tier
+   - treatment pathway
+   - organism interpretation
+   - diagnostic recommendation
+   - monitoring plan
+   - no deterministic output
+
+5. Is a default answer allowed when details are missing?
+   - yes: broad query returns a quick table/map
+   - no: missing data returns a short request for required information
+
+6. What information is required before the deterministic output?
+   - none
+   - indication
+   - weight
+   - renal function
+   - pathogen
+   - patient status
+   - test result
+   - other
+
+7. What information modifies the deterministic output?
+   - GFR/CRRT/IHD
+   - patient status
+   - severity
+   - resistance marker
+   - organism list
+   - allergy
+   - MIC/TDM
+   - other
+
+8. Are modifiers true selection rules, or should they only appear in a footer?
+   - Example: Meropenem uses GFR/RRT for selection, but CNS infection is only in the footer.
+
+### C. What Should The LLM Answer?
+
+9. What general information should be answerable without deterministic selection?
+   - toxicity
+   - monitoring
+   - administration
+   - diagnostics
+   - limitations
+   - interpretation notes
+   - escalation triggers
+
+10. Which information must not be answered unless explicitly present in the protocol?
+   - toxicity management
+   - dose adjustment
+   - alternative antibiotics
+   - pregnancy advice
+   - allergy alternatives
+   - duration
+
+### D. Links
+
+11. Does this protocol mention drugs, tests, or other protocols that should link elsewhere?
+   - Example: CAP suggests ceftriaxone, but ceftriaxone dosing belongs to a ceftriaxone protocol.
+
+12. If a linked protocol is missing, what should the bot say?
+   - Example: `Ceftriaxone dosing is not specified in the uploaded protocols.`
+
+13. What patient data should be transferred to the linked protocol?
+   - GFR/eGFR/CrCl
+   - CRRT/IHD
+   - weight
+   - indication
+   - organism
+   - severity
+   - allergy
+
+### E. Footer
+
+14. Is there a default footer that must always be appended?
+   - Write it exactly.
+   - Keep it short.
+   - Use it for high-priority reminders that should appear with every answer from the protocol.
+
+---
+
+## 2. Allowed Answer Modes
+
+Use one of these values in `answer_mode`.
+
+### `default_then_selected_output`
+
+Use when a broad query may return a default map/table, but extra information can select a deterministic output.
+
+Examples:
+- Meropenem: default renal table; GFR selects a tier.
+- CAP: quick pathway map; patient status selects a pathway.
+- Ampicillin/sulbactam: default renal table; GFR/CRRT/IHD selects a tier.
+
+### `required_slots_then_selected_output`
+
+Use when no deterministic output should be given until required information is present.
+
+Examples:
+- TMP/SMX dosing requires indication, weight, renal function.
+- BioFire interpretation requires at least one detected pathogen.
+
+### `tree_then_selected_output`
+
+Use when the protocol is genuinely multi-step and the next question depends on a previous answer.
+
+Examples:
+- complex microbiology pathway
+- score/calculator with branching logic
+- protocol requiring sequential yes/no decisions
+
+Avoid this if a flat rule table is enough.
+
+### `info_only`
+
+Use when there is no deterministic selection. The LLM answers only from `INFO_BLOCKS`.
+
+Examples:
+- general antibiotic safety rules
+- monitoring-only document
+- diagnostic limitations note
+
+---
+
+## 3. Allowed Selection Modes
+
+Use one of these values in `selection_mode`.
+
+### `none`
+
+No deterministic selection.
+
+### `priority_rules`
+
+Python evaluates rules and chooses the highest-priority match.
+
+Use for:
+- renal tiers
+- pathway hierarchy
+- “intubated overrides nosocomial risk”
+
+### `table_lookup`
+
+Python classifies inputs, builds a table key, then selects a row.
+
+Use for:
+- weight-based dosing tables
+- renal + indication combined tables
+
+### `decision_tree`
+
+Python tracks current node and collected answers across turns.
+
+Use only when the protocol needs a multi-turn tree.
+
+### `organism_mapping_with_spectrum_escalation`
+
+Python maps organism(s) and resistance marker(s), then applies polymicrobial spectrum logic.
+
+Use for:
+- BioFire / PCR panels
+- culture interpretation protocols
+
+---
+
+## 4. Canonical Protocol File Structure
+
+Every protocol should use these panels in this order. If a panel is intentionally empty, write `(none)`.
+
+```text
+# TITLE
+
+## METADATA
+
+## ALIASES
+
+## INTENTS
+
+## INPUT_SLOTS
+
+## DEFAULT_ANSWER
+
+## SELECTION_RULES
+
+## SELECTED_OUTPUTS
+
+## LINKS
+
+## INFO_BLOCKS
+
+## RESTRICTED_OUTPUTS
+
+## SAFETY_RULES
+
+## OUTPUT_TEMPLATES
+
+## DEFAULT_FOOTER
+```
+
+---
+
+## 5. Panel Semantics
+
+### `## METADATA`
+
+Machine-readable identity and behavior.
+
+Required keys:
+
+```text
+protocol_id:
+protocol_name:
+source_label:
+canonical_name:
+protocol_type:
+answer_mode:
+selection_mode:
+allows_dosing:
+dosing_requires_link:
+default_dose_allowed:
+```
+
+Suggested `protocol_type` values:
+- `drug_dosing_protocol`
+- `pathway_selection_protocol`
+- `microbiology_interpretation_protocol`
+- `diagnostic_protocol`
+- `monitoring_protocol`
+- `general_rules_protocol`
+
+### `## ALIASES`
+
+Terms that trigger the protocol.
+
+For microbiology protocols, separate alias categories when needed:
+
+```text
+platform_aliases:
+- BioFire
+- pneumonia PCR
+
+organism_aliases:
+- Streptococcus pneumoniae
+- Strep pneumo
+
+resistance_gene_aliases:
+- CTX-M
+- mecA/C
+```
+
+Important:
+- organism aliases should not be mixed with syndrome aliases
+- `Streptococcus pneumoniae` should not route to CAP just because it contains `pneumoniae`
+
+### `## INTENTS`
+
+Python-read routing hints.
+
+Use these intent groups:
+
+```text
+default_request:
+selection_request:
+dosing_request:
+info_request:
+link_request:
+```
+
+Routing:
+- `selection_request` / `dosing_request` -> deterministic Python path
+- `info_request` -> bounded LLM answer from `INFO_BLOCKS`
+- `link_request` -> linked protocol handoff
+
+### `## INPUT_SLOTS`
+
+Defines what information is required or optional.
+
+```text
+required_for_selection:
+required_for_dosing:
+optional_modifiers:
+forwardable_slots:
+```
+
+If no required information exists, write:
+
+```text
+required_for_selection:
+(none)
+```
+
+If the protocol does not link elsewhere:
+
+```text
+forwardable_slots:
+(none)
+```
+
+### `## DEFAULT_ANSWER`
+
+Used when a broad query is allowed to return a quick map/table.
+
+Use for:
+- Meropenem quick renal table
+- CAP quick pathway map
+- Ampicillin/sulbactam renal table
+
+Do not use for:
+- closed dosing protocols where required data is missing
+- microbiology interpretation without a pathogen
+
+### `## SELECTION_RULES`
+
+Deterministic logic for Python.
+
+For priority rules:
+
+```text
+selection_mode: priority_rules
+
+RULE: INTUBATED_CAP
+  IF: patient_status == intubated
+  PRIORITY: 100
+  SELECT: INTUBATED_CAP
+```
+
+For table lookup:
+
+```text
+selection_mode: table_lookup
+
+STEP: CHECK_REQUIRED_INPUTS
+STEP: CLASSIFY_INDICATION
+STEP: CLASSIFY_RENAL
+STEP: SELECT_TABLE
+STEP: SELECT_WEIGHT_ROW
+STEP: RENDER_OUTPUT
+```
+
+For microbiology:
+
+```text
+selection_mode: organism_mapping_with_spectrum_escalation
+
+STEP: CHECK_REQUIRED_INPUT
+STEP: NORMALIZE_ENTITIES
+STEP: MAP_SINGLE_ENTITIES
+STEP: APPLY_RESISTANCE_RULES
+STEP: APPLY_POLYMICROBIAL_SPECTRUM_RULE
+STEP: RENDER_OUTPUT
+```
+
+### `## SELECTED_OUTPUTS`
+
+The exact outputs Python may select.
+
+Examples:
+- dosing tier
+- treatment pathway
+- organism interpretation
+- “antibiotics not required”
+- “ID consultation”
+
+The LLM must not invent outputs outside this panel.
+
+### `## LINKS`
+
+Explicit cross-protocol handoffs.
+
+Use when this protocol names an item whose details belong elsewhere.
+
+Example:
+
+```text
+LINK: ceftriaxone_dosing
+  link_type: antimicrobial_dosing
+  when_selected_item: ceftriaxone
+  target_protocol_id: ceftriaxone
+  target_file: protocols/ceftriaxone.txt
+  target_missing_behavior: Ceftriaxone dosing is not specified in the uploaded protocols.
+  trigger_intents:
+    - dosing_request
+    - link_request
+  transfer_slots:
+    - gfr
+    - egfr
+    - crcl
+    - renal_replacement
+    - body_weight_kg
+    - indication
+    - allergy
+```
+
+If no links:
+
+```text
+## LINKS
+
+(none)
+```
+
+### `## INFO_BLOCKS`
+
+Bounded text for LLM answers.
+
+Use for:
+- toxicity
+- monitoring
+- administration
+- diagnostic limitations
+- microbiology notes
+- escalation triggers
+
+The LLM may answer from this panel only. It must not add external knowledge.
+
+### `## RESTRICTED_OUTPUTS`
+
+Hard “never” rules.
+
+Examples:
+
+```text
+Never provide:
+- doses outside SELECTED_OUTPUTS
+- antimicrobial doses from CAP
+- standalone resistance-marker interpretation without a detected pathogen
+- renal adjustment unless a linked dosing protocol is active
+```
+
+### `## SAFETY_RULES`
+
+Protocol-specific safety rules.
+
+Use this for:
+- priority clarifications
+- conflict handling
+- escalation rules
+- “store GFR and transfer through LINKS, do not use it here”
+
+### `## OUTPUT_TEMPLATES`
+
+How Python should render deterministic outputs.
+
+Examples:
+
+```text
+### FINAL_SELECTED_EN
+
+Meropenem - renal base tier: {display_name_en}
+- renal base dose: {dose}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+```
+
+### `## DEFAULT_FOOTER`
+
+Always appended to answers from this protocol.
+
+If no footer:
+
+```text
+(none)
+```
+
+---
+
+## 6. Human/AI Workflow For Creating A New Protocol
+
+Use this process.
+
+1. Read the source protocol.
+2. Ask the human the questions in section 1.
+3. Decide `protocol_type`, `answer_mode`, and `selection_mode`.
+4. Identify aliases.
+5. Identify required slots.
+6. Identify deterministic outputs.
+7. Decide which modifiers are true selection rules vs footer/safety notes.
+8. Write `SELECTION_RULES`.
+9. Write `SELECTED_OUTPUTS`.
+10. Add `LINKS` for any named drug/test/protocol whose details live elsewhere.
+11. Put general explanatory material into `INFO_BLOCKS`.
+12. Add `RESTRICTED_OUTPUTS`.
+13. Add exact `DEFAULT_FOOTER`.
+14. Check the file for contradictions.
+
+---
+
+## 7. Prompt For AI Protocol Drafting
+
+Paste this into a new AI session with the source protocol attached.
+
+```text
+You are helping refactor a hospital protocol into the bot's canonical protocol structure.
+
+Do not write final protocol text until you ask any missing questions needed to safely structure it.
+
+First, inspect the source protocol and answer:
+1. What protocol_type is this?
+2. What answer_mode should it use?
+3. What selection_mode should it use?
+4. What are the aliases?
+5. What information is required before deterministic selection?
+6. Is a default answer allowed?
+7. What outputs should Python select deterministically?
+8. Which modifiers should affect selection, and which should only appear in footer/safety notes?
+9. What general information belongs in INFO_BLOCKS for bounded LLM answers?
+10. What links are needed to other protocols?
+11. What exact footer should always be appended?
+
+If any of these are unclear, ask the human concise questions before drafting.
+
+When drafting, use this exact panel order:
+
+# TITLE
+## METADATA
+## ALIASES
+## INTENTS
+## INPUT_SLOTS
+## DEFAULT_ANSWER
+## SELECTION_RULES
+## SELECTED_OUTPUTS
+## LINKS
+## INFO_BLOCKS
+## RESTRICTED_OUTPUTS
+## SAFETY_RULES
+## OUTPUT_TEMPLATES
+## DEFAULT_FOOTER
+
+Rules:
+- Deterministic clinical decisions belong in SELECTION_RULES and SELECTED_OUTPUTS.
+- LLM-answerable general text belongs only in INFO_BLOCKS.
+- Doses must not be invented.
+- If a protocol does not dose drugs, set allows_dosing: no and use LINKS for dosing.
+- If a linked protocol is missing, include target_missing_behavior.
+- If no data is required, write required_for_selection: (none).
+- If no links exist, write LINKS: (none).
+- If no footer exists, write DEFAULT_FOOTER: (none).
+- Keep files human-readable.
+- Prefer simple rule tables over decision trees unless multi-turn state is truly needed.
+```
+
+---
+
+## 8. Common Patterns
+
+### Open Drug Dosing Protocol
+
+Example: Meropenem.
+
+```text
+answer_mode: default_then_selected_output
+selection_mode: priority_rules
+allows_dosing: yes
+default_dose_allowed: yes
+required_for_selection:
+(none)
+```
+
+### Closed Drug Dosing Protocol
+
+Example: TMP/SMX.
+
+```text
+answer_mode: required_slots_then_selected_output
+selection_mode: table_lookup
+allows_dosing: yes
+default_dose_allowed: no
+required_for_selection:
+- indication
+- body_weight_kg
+- renal_function
+```
+
+### Syndrome Pathway Protocol
+
+Example: CAP.
+
+```text
+answer_mode: default_then_selected_output
+selection_mode: priority_rules
+allows_dosing: no
+dosing_requires_link: yes
+```
+
+### Microbiology Interpretation Protocol
+
+Example: BioFire.
+
+```text
+answer_mode: required_slots_then_selected_output
+selection_mode: organism_mapping_with_spectrum_escalation
+allows_dosing: no
+dosing_requires_link: yes
+required_for_selection:
+- at_least_one_detected_pathogen
+```
+
+---
+
+## 9. Final Checklist
+
+Before accepting a protocol:
+
+- Does every panel exist?
+- Are aliases separated correctly?
+- Are required slots clear?
+- Is default behavior explicit?
+- Is deterministic logic actually deterministic?
+- Are all selected outputs listed in `SELECTED_OUTPUTS`?
+- Are all named drugs linked if this protocol does not dose?
+- Are all missing linked protocols given a `target_missing_behavior`?
+- Are general LLM answers confined to `INFO_BLOCKS`?
+- Are forbidden outputs explicit?
+- Is the footer exact?
+- Could the bot accidentally give a dose from a non-dosing protocol?
+- Could a pathogen alias accidentally route to a syndrome protocol?
+- Could a resistance marker be interpreted without a pathogen?
+- Could polymicrobial logic be left to the LLM? It should not be.
+
