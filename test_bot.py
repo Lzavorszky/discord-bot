@@ -1378,6 +1378,14 @@ class TestSession11ModuleSplit(unittest.TestCase):
         self.assertTrue(callable(state.get_chat_state))
         self.assertTrue(callable(telegram_app.main))
 
+    def test_startup_command_alias_registered(self):
+        import inspect
+        import telegram_bot as b
+
+        src = inspect.getsource(b.main)
+        self.assertIn('CommandHandler("start", handle_start)', src)
+        self.assertIn('CommandHandler("startup", handle_start)', src)
+
     def test_load_protocols_handles_fresh_file_after_module_split(self):
         import numpy as np
         import tempfile

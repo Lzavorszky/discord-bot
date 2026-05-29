@@ -476,6 +476,11 @@ def _run_organism_mapping(parsed, slots):
 
 _GFR_RE    = re.compile(r"\b(?:GFR|eGFR|CrCl)\s*[=:~]?\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 _WEIGHT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*kg\b", re.IGNORECASE)
+_VANCOMYCIN_LEVEL_RE = re.compile(
+    r"\b(?:vancomycin|vanco|vankomicin)?\s*(?:level|szint|concentration|conc|tdm)\s*(?:is|at|=|:|~)?\s*(\d+(?:\.\d+)?)"
+    r"|(\d+(?:\.\d+)?)\s*(?:ug/l|ug/ml|mcg/l|mcg/ml)\b",
+    re.IGNORECASE,
+)
 _BOOL_SLOTS = {
     "intubated":       re.compile(r"\b(intubat(?:ed|alt)|mechanically.vent(?:ilated)?)\b", re.IGNORECASE),
     "crrt":            re.compile(r"\bCRRT\b", re.IGNORECASE),
@@ -530,6 +535,10 @@ def extract_slots_from_query(question, parsed_protocol=None, existing_slots=None
             if genes:
                 existing_genes = slots.get("resistance_gene_list", [])
                 slots["resistance_gene_list"] = list({*existing_genes, *genes})
+        if meta.get("protocol_id") == "vancomycin":
+            vm = _VANCOMYCIN_LEVEL_RE.search(text)
+            if vm:
+                slots["vancomycin_level"] = float(vm.group(1) or vm.group(2))
     return slots
 
 
@@ -585,7 +594,11 @@ def render_selected_output(parsed, result, lang="en"):
         return ""
     templates = _parse_output_templates_panel(parsed.get("output_templates", ""))
     lang_suffix = "_HU" if lang == "hu" else "_EN"
-    tkey = f"FINAL_SELECTED{lang_suffix}"
+    output_type = str(result.output_data.get("type", "")).lower()
+    if output_type.startswith("tdm_"):
+        tkey = f"TDM_SELECTED{lang_suffix}"
+    else:
+        tkey = f"FINAL_SELECTED{lang_suffix}"
     template_text = templates.get(tkey) or templates.get("FINAL_SELECTED_EN") or ""
     if template_text:
         return _render_template(template_text, result.render_vars)

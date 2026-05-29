@@ -184,8 +184,8 @@ display_name_en: GFR 30-60
 sulbactam_dose: 6 g/day
 ampicillin_dose: 12 g/day
 administration: continuous infusion preferred
-preparation: local preparation according to concentration/volume limits
-pump: adjust locally
+preparation: dissolve total daily dose in 250 mL NaCl 0.9%
+pump: 11 mL/h
 
 ### GFR_15_TO_30
 
@@ -194,9 +194,9 @@ display_name_hu: GFR 15-30
 display_name_en: GFR 15-30
 sulbactam_dose: 3 g/day
 ampicillin_dose: 6 g/day
-administration: continuous infusion possible; individualize administration
-preparation: individualized
-pump: individualized
+administration: continuous infusion preferred
+preparation: dissolve total daily dose in 250 mL NaCl 0.9%
+pump: 11 mL/h
 
 ### GFR_LT_15
 
@@ -205,9 +205,9 @@ display_name_hu: GFR <15
 display_name_en: GFR <15
 sulbactam_dose: 2 g/day
 ampicillin_dose: 4 g/day
-administration: bolus/intermittent dosing may be preferred
-preparation: individualized
-pump: individualized / not applicable
+administration: administer once a day
+preparation: dilute in 100ml 0.9% NaCl
+pump: not applicable
 
 ### IHD
 
@@ -216,9 +216,9 @@ display_name_hu: IHD
 display_name_en: IHD
 sulbactam_dose: 1.5 g/day
 ampicillin_dose: 3 g/day
-administration: bolus/intermittent dosing may be preferred
-preparation: individualized
-pump: individualized / not applicable
+administration: administer once a day after IHD (if there is IHD)
+preparation: dilute in 100ml 0.9% NaCl
+pump: not applicable
 
 ## LINKS
 

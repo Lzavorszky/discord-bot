@@ -67,6 +67,22 @@
         "mem",
         "magas meropenem"
       ]
+    },
+    "vancomycin": {
+      "canonical": "vancomycin",
+      "display": "vancomycin",
+      "source_label": "vancomycin",
+      "protocol_file": "protocols/vancomycin.txt",
+      "aliases": [
+        "vancomycin",
+        "vanco",
+        "vancomycin dose",
+        "vancomycin dosing",
+        "vancomycin infusion",
+        "vancomycin level",
+        "vancomycin tdm",
+        "vankomicin"
+      ]
     }
   },
   "conditions": {

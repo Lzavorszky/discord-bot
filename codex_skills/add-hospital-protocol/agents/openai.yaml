@@ -1,0 +1,7 @@
+interface:
+  display_name: "Add Hospital Protocol"
+  short_description: "Draft canonical bot protocol files"
+  default_prompt: "Use $add-hospital-protocol to convert a raw hospital source protocol into the bot's canonical protocol format."
+
+policy:
+  allow_implicit_invocation: true

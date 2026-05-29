@@ -2720,6 +2720,7 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", handle_start))
+    app.add_handler(CommandHandler("startup", handle_start))
     app.add_handler(CommandHandler("whoami", handle_whoami))
     app.add_handler(CommandHandler("protocols", handle_protocols))
     app.add_handler(CommandHandler("version", handle_version))
