@@ -1378,6 +1378,58 @@ class TestSession11ModuleSplit(unittest.TestCase):
         self.assertTrue(callable(state.get_chat_state))
         self.assertTrue(callable(telegram_app.main))
 
+    def test_load_protocols_handles_fresh_file_after_module_split(self):
+        import numpy as np
+        import tempfile
+        import telegram_bot as b
+
+        old_cwd = os.getcwd()
+        old_cache_db = b.CACHE_DB
+        old_chunks = list(b.PROTOCOL_CHUNKS)
+        old_policy = dict(b.PROTOCOL_POLICY_BY_FILE)
+        old_parsed = dict(b.PROTOCOL_PARSED_BY_FILE)
+        old_file_labels = dict(b.PROTOCOL_FILE_TO_LABEL)
+
+        with tempfile.TemporaryDirectory(dir=old_cwd) as tmp:
+            protocols_dir = os.path.join(tmp, "protocols")
+            os.mkdir(protocols_dir)
+            protocol_path = os.path.join(protocols_dir, "fresh.txt")
+            with open(protocol_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "## METADATA\n"
+                    "protocol_id: fresh\n"
+                    "source_label: Fresh Protocol\n\n"
+                    "## DEFAULT_ANSWER\n"
+                    "Fresh protocol answer.\n"
+                )
+
+            try:
+                os.chdir(tmp)
+                b.CACHE_DB = os.path.join(tmp, "embeddings_cache.db")
+                b.PROTOCOL_CHUNKS.clear()
+                b.PROTOCOL_POLICY_BY_FILE.clear()
+                b.PROTOCOL_PARSED_BY_FILE.clear()
+                b.PROTOCOL_FILE_TO_LABEL.clear()
+
+                with patch.object(b, "get_embedding", return_value=np.array([1.0, 0.0])):
+                    b.load_protocols()
+
+                self.assertEqual(len(b.PROTOCOL_CHUNKS), 1)
+                self.assertEqual(b.PROTOCOL_CHUNKS[0]["source_label"], "Fresh Protocol")
+                self.assertIn(
+                    b.normalize_path(os.path.join("protocols", "fresh.txt")),
+                    b.PROTOCOL_PARSED_BY_FILE,
+                )
+            finally:
+                os.chdir(old_cwd)
+                b.CACHE_DB = old_cache_db
+                b.PROTOCOL_CHUNKS[:] = old_chunks
+                b.PROTOCOL_POLICY_BY_FILE.clear()
+                b.PROTOCOL_POLICY_BY_FILE.update(old_policy)
+                b.PROTOCOL_PARSED_BY_FILE.clear()
+                b.PROTOCOL_PARSED_BY_FILE.update(old_parsed)
+                b.PROTOCOL_FILE_TO_LABEL = old_file_labels
+
     def test_state_module_shares_legacy_runtime_state(self):
         import telegram_bot as b
         import state

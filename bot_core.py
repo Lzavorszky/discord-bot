@@ -433,6 +433,16 @@ def extract_source_label_from_text(text):
     return None
 
 
+def get_source_label_for_file(file_path, text):
+    metadata_label = extract_source_label_from_text(text)
+    if metadata_label:
+        return metadata_label
+    normalized = normalize_path(file_path)
+    if normalized in PROTOCOL_FILE_TO_LABEL:
+        return PROTOCOL_FILE_TO_LABEL[normalized]
+    return derive_source_label(file_path)
+
+
 # ---------------------------------------------------------------------------
 # Alias recognition
 # ---------------------------------------------------------------------------
@@ -673,6 +683,27 @@ EXCLUDED_FROM_PROTOCOLS = {
     "safety_rules.txt",
     "aliases.json",
 }
+
+
+def chunk_text(text, source, source_label, max_chars=900):
+    sections = text.split("\n\n")
+    chunks = []
+    current = ""
+    for section in sections:
+        if len(current) + len(section) < max_chars:
+            current += section + "\n\n"
+        else:
+            if current.strip():
+                chunks.append({"source": source, "source_label": source_label, "text": current.strip()})
+            current = section + "\n\n"
+    if current.strip():
+        chunks.append({"source": source, "source_label": source_label, "text": current.strip()})
+    return chunks
+
+
+def get_embedding(text):
+    response = openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text)
+    return np.array(response.data[0].embedding)
 
 
 def load_protocols():
