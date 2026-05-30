@@ -1273,6 +1273,270 @@ class TestSession13AliasCleanup(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Routing Regression Tests: deterministic routing before production changes
+# ---------------------------------------------------------------------------
+
+def _routing_fake_chat_response(text):
+    return types.SimpleNamespace(
+        choices=[
+            types.SimpleNamespace(
+                message=types.SimpleNamespace(content=text)
+            )
+        ]
+    )
+
+
+class TestRoutingRegressionFailures(unittest.TestCase):
+    """Regression coverage for current routing/debug failures.
+
+    These tests intentionally exercise the user-facing dispatcher where
+    possible. Some are expected to fail until routing logic is corrected.
+    """
+
+    PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
+
+    def setUp(self):
+        import protocol_parser as pp
+        import telegram_bot as b
+
+        self.b = b
+        self._old_parsed = dict(b.PROTOCOL_PARSED_BY_FILE)
+        self._old_policy = dict(b.PROTOCOL_POLICY_BY_FILE)
+        self._old_aliases = dict(b.ALIASES)
+        self._old_alias_index = dict(b.ALIAS_INDEX)
+        self._old_blocked_aliases = set(b.BLOCKED_ALIASES)
+        self._old_file_labels = dict(b.PROTOCOL_FILE_TO_LABEL)
+        self._old_state = dict(b.CONVERSATION_STATE)
+
+        b.PROTOCOL_PARSED_BY_FILE.clear()
+        b.PROTOCOL_POLICY_BY_FILE.clear()
+        b.CONVERSATION_STATE.clear()
+        for filename in [
+            "meropenem.txt",
+            "tmpsmx.txt",
+            "pneumonia_pcr.txt",
+            "cap.txt",
+        ]:
+            rel_path = os.path.join("protocols", filename)
+            abs_path = os.path.join(self.PROTO_DIR, filename)
+            with open(abs_path, encoding="utf-8") as f:
+                text = f.read()
+            b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(rel_path)] = pp._parse_protocol_text(
+                text, path=rel_path
+            )
+            b.PROTOCOL_POLICY_BY_FILE[b.normalize_path(rel_path)] = pp.extract_policy_header(text)
+        b.load_aliases(os.path.join("protocols", "aliases.json"))
+
+        self._log_patch = patch.object(b, "_log_query")
+        self.mock_log = self._log_patch.start()
+
+    def tearDown(self):
+        b = self.b
+        self._log_patch.stop()
+        b.PROTOCOL_PARSED_BY_FILE.clear()
+        b.PROTOCOL_PARSED_BY_FILE.update(self._old_parsed)
+        b.PROTOCOL_POLICY_BY_FILE.clear()
+        b.PROTOCOL_POLICY_BY_FILE.update(self._old_policy)
+        b.ALIASES = self._old_aliases
+        b.ALIAS_INDEX = self._old_alias_index
+        b.BLOCKED_ALIASES = self._old_blocked_aliases
+        b.PROTOCOL_FILE_TO_LABEL = self._old_file_labels
+        b.CONVERSATION_STATE.clear()
+        b.CONVERSATION_STATE.update(self._old_state)
+
+    def _chat_id(self, suffix):
+        return f"routing_regression_{suffix}_{id(self)}"
+
+    def _recognized_for(self, query):
+        _, recognized = self.b.normalize_question(query)
+        self.assertIsNotNone(recognized, f"Expected recognized protocol for {query!r}")
+        return recognized
+
+    def _assert_no_rag_or_llm(self):
+        return (
+            patch.object(self.b, "search_protocols",
+                         side_effect=AssertionError("RAG should not run for deterministic routing")),
+            patch.object(self.b.openai_client.chat.completions, "create",
+                         side_effect=AssertionError("LLM should not run for deterministic routing")),
+        )
+
+    def _ask_without_rag_or_llm(self, question, chat_id):
+        rag_patch, llm_patch = self._assert_no_rag_or_llm()
+        with rag_patch, llm_patch:
+            return self.b.ask_ai(question, chat_id)
+
+    def _assert_over_max_weight_returns_review_plus_reference_row(self, parsed, slots, max_table_weight_kg=100.0):
+        self.assertGreater(float(slots["body_weight_kg"]), max_table_weight_kg)
+        result = se.run_selection(parsed, slots)
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        lower = rendered.lower()
+        review_terms = ("individualized", "individualised", "id/pharmacy", "pharmacy")
+        self.assertTrue(
+            any(term in lower for term in review_terms),
+            f"Weight above table maximum should require review, got: {rendered}",
+        )
+        self.assertIn("outside the explicit protocol table range", lower)
+        self.assertIn("automatic dose escalation is not supported", lower)
+        self.assertIn("closest explicit protocol row for reference only", lower)
+        self.assertIn("100 kg row", lower)
+        self.assertIn("not a 150 kg dosing recommendation", lower)
+        self.assertIn("3 x 6 amp", lower)
+
+    def test_fresh_meropenem_deterministic_query_sets_active_protocol(self):
+        chat_id = self._chat_id("fresh_meropenem")
+        answer = self._ask_without_rag_or_llm("meropenem dose GFR 45", chat_id)
+
+        state = self.b.get_chat_state(chat_id)
+        active = state.get("active_recognized")
+        self.assertIsNotNone(active, "Fresh deterministic drug query must activate protocol context.")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(state["collected_slots"].get("gfr"), 45.0)
+        self.assertIn("Source:", answer)
+        self.assertIn("meropenem", answer.lower())
+
+    def test_meropenem_gfr_followup_uses_active_deterministic_context(self):
+        chat_id = self._chat_id("meropenem_followup")
+        self._ask_without_rag_or_llm("meropenem dose GFR 45", chat_id)
+        self.mock_log.reset_mock()
+
+        answer = self._ask_without_rag_or_llm("GFR 30", chat_id)
+
+        state = self.b.get_chat_state(chat_id)
+        active = state.get("active_recognized")
+        self.assertIsNotNone(active)
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(state["collected_slots"].get("gfr"), 30.0)
+        self.assertIn("Source:", answer)
+        self.assertIn("meropenem", answer.lower())
+        logged = self.mock_log.call_args.kwargs
+        self.assertEqual(self.b.normalize_path(logged["recognized"]["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(logged["retrieved_chunks"], [])
+
+    def test_blocked_respiratory_syndromes_without_supported_drug_do_not_recommend_antibiotics(self):
+        unsafe_llm = _routing_fake_chat_response("Use ceftriaxone for VAP.")
+        blocked_queries = [
+            "what ab for VAP?",
+            "HAP/VAP what antibiotic?",
+            "hospital-acquired pneumonia what antibiotic?",
+            "hospital acquired pneumonia what antibiotic?",
+            "ventilator-associated pneumonia antibiotic?",
+            "ventilator associated pneumonia antibiotic?",
+            "nosocomial pneumonia antibiotic?",
+        ]
+
+        for query in blocked_queries:
+            with self.subTest(query=query):
+                chat_id = self._chat_id("blocked_syndrome")
+                self.b.CONVERSATION_STATE.pop(chat_id, None)
+                with patch.object(self.b, "search_protocols", return_value=[]), \
+                        patch.object(self.b.openai_client.chat.completions, "create",
+                                     return_value=unsafe_llm):
+                    answer = self.b.ask_ai(query, chat_id)
+                state = self.b.get_chat_state(chat_id)
+                lower = answer.lower()
+                self.assertIsNone(state.get("active_recognized"))
+                self.assertNotIn("ceftriaxone", lower)
+                self.assertNotIn("meropenem", lower)
+                self.assertTrue(
+                    any(phrase in lower for phrase in [
+                        "no uploaded protocol",
+                        "not specified in the uploaded protocol",
+                        "not specified in the uploaded protocols",
+                        "not covered",
+                        "unsupported",
+                    ]),
+                    f"Blocked syndrome should return a no-protocol message, got: {answer}",
+                )
+
+    def test_explicit_meropenem_overrides_blocked_vap_for_protocol_selection(self):
+        chat_id = self._chat_id("vap_meropenem")
+        answer = self._ask_without_rag_or_llm("GFR 40 and VAP, mero dose?", chat_id)
+
+        state = self.b.get_chat_state(chat_id)
+        active = state.get("active_recognized")
+        self.assertIsNotNone(active)
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(state["collected_slots"].get("gfr"), 40.0)
+        self.assertIn("Source:", answer)
+        self.assertIn("meropenem", answer.lower())
+
+    def test_biofire_clear_previous_pathogens_clears_pathogen_and_resistance_slots(self):
+        for clear_phrase in ["delete previous pathogens", "clear previous pathogens"]:
+            with self.subTest(clear_phrase=clear_phrase):
+                chat_id = self._chat_id(clear_phrase.replace(" ", "_"))
+                state = self.b.get_chat_state(chat_id)
+                state["active_recognized"] = self._recognized_for("BioFire")
+
+                self._ask_without_rag_or_llm("BioFire result pneumococcus CTX-M", chat_id)
+                self.assertIn("streptococcus pneumoniae", state["collected_slots"].get("pathogen_list", []))
+                self.assertIn("ctx_m", state["collected_slots"].get("resistance_gene_list", []))
+
+                self._ask_without_rag_or_llm(clear_phrase, chat_id)
+                self.assertEqual(state["collected_slots"].get("pathogen_list", []), [])
+                self.assertEqual(state["collected_slots"].get("resistance_gene_list", []), [])
+
+                self._ask_without_rag_or_llm("BioFire result pseudomonas", chat_id)
+                self.assertEqual(state["collected_slots"].get("pathogen_list"), ["pseudomonas aeruginosa"])
+                self.assertNotIn("ctx_m", state["collected_slots"].get("resistance_gene_list", []))
+                self.assertNotIn("streptococcus pneumoniae", state["collected_slots"].get("pathogen_list", []))
+
+    def test_numeric_correction_updates_active_tmpsmx_slots_without_cross_routing(self):
+        chat_id = self._chat_id("tmpsmx_correction")
+        state = self.b.get_chat_state(chat_id)
+        state["active_recognized"] = self._recognized_for("TMP/SMX")
+
+        self._ask_without_rag_or_llm("TMP/SMX Steno BSI 70 kg GFR 60", chat_id)
+        self._ask_without_rag_or_llm("not 70kg but 150kg", chat_id)
+
+        active = state.get("active_recognized")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/tmpsmx.txt")
+        self.assertEqual(state["collected_slots"].get("body_weight_kg"), 150.0)
+        self.assertEqual(state["collected_slots"].get("gfr"), 60.0)
+        self.assertIn("steno", state["collected_slots"].get("indication", "").lower())
+        self.assertNotEqual(self.b.normalize_path(active["protocol_file"]), "protocols/pneumonia_pcr.txt")
+
+    def test_tmpsmx_above_table_weight_returns_review_plus_reference_row(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {
+            "indication": "stenotrophomonas bsi",
+            "body_weight_kg": 150.0,
+            "gfr": 60.0,
+        }
+        self._assert_over_max_weight_returns_review_plus_reference_row(parsed, slots)
+
+    def test_casual_out_of_scope_messages_do_not_fuzzy_match_protocols(self):
+        for query in ["hi", "how are you?", "what is the capital of paris?"]:
+            with self.subTest(query=query):
+                _, recognized = self.b.normalize_question(query)
+                self.assertIsNone(recognized, f"Out-of-scope text matched a protocol: {recognized}")
+
+    def test_deterministic_short_circuit_has_source_and_is_logged_without_retrieval(self):
+        chat_id = self._chat_id("deterministic_logging")
+        answer = self._ask_without_rag_or_llm("meropenem GFR 95", chat_id)
+
+        self.assertIn("Source:", answer)
+        self.assertIn("meropenem", answer.lower())
+        logged = self.mock_log.call_args.kwargs
+        self.assertEqual(self.b.normalize_path(logged["recognized"]["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(logged["retrieved_chunks"], [])
+
+    def test_no_match_out_of_scope_does_not_claim_selected_protocol(self):
+        chat_id = self._chat_id("out_of_scope")
+        fake_chunks = [{
+            "source": "protocols/meropenem.txt",
+            "source_label": "meropenem",
+            "text": "## DEFAULT_ANSWER\nMeropenem dosing text",
+            "similarity": 0.01,
+        }]
+        with patch.object(self.b, "search_protocols", return_value=fake_chunks):
+            debug = self.b.build_debug_trace("hi", chat_id)
+        self.assertIn("Context source: none", debug)
+        self.assertIn("Selected protocol: none", debug)
+        self.assertIn("Matched alias: none", debug)
+        self.assertIn("Deterministic/LLM source: LLM-generated RAG path", debug)
+
+
+# ---------------------------------------------------------------------------
 # Session 10: Debug/Admin Inspectability Tests
 # ---------------------------------------------------------------------------
 

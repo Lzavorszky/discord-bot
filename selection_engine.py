@@ -245,20 +245,57 @@ def _find_weight_row(table_rows, weight_kg):
         return None
     best_row, best_delta = None, float("inf")
     for row in table_rows:
-        w_cell = None
-        for k in row:
-            if "weight" in k:
-                w_cell = row[k]; break
-        if w_cell is None and row:
-            w_cell = list(row.values())[0]
-        m = re.search(r"(\d+)", str(w_cell or ""))
-        if not m:
+        row_weight = _numeric_table_row_value(row, "weight")
+        if row_weight is None:
             continue
-        delta = abs(float(m.group(1)) - weight_kg)
+        delta = abs(row_weight - weight_kg)
         if delta < best_delta:
             best_delta = delta
             best_row = row
     return best_row
+
+
+def _numeric_table_row_value(row, preferred_keyword=None):
+    if not row:
+        return None
+    cell = None
+    if preferred_keyword:
+        for k, v in row.items():
+            if preferred_keyword.lower() in k.lower():
+                cell = v
+                break
+    if cell is None:
+        cell = next(iter(row.values()), None)
+    m = re.search(r"(\d+(?:\.\d+)?)", str(cell or ""))
+    return float(m.group(1)) if m else None
+
+
+def _table_numeric_bounds(table_rows, preferred_keyword=None):
+    values = [
+        v for v in (
+            _numeric_table_row_value(row, preferred_keyword)
+            for row in table_rows or []
+        )
+        if v is not None
+    ]
+    if not values:
+        return None, None
+    return min(values), max(values)
+
+
+def _explicit_extrapolation_allowed(parsed, output_data):
+    raw_parts = [
+        parsed.get("selection_rules", ""),
+        output_data.get("_raw", "") if output_data else "",
+        str(output_data.get("extrapolation_allowed", "")) if output_data else "",
+        str(output_data.get("allow_extrapolation", "")) if output_data else "",
+    ]
+    raw = "\n".join(raw_parts).lower()
+    if re.search(r"\b(?:extrapolation_allowed|allow_extrapolation)\s*:\s*(?:true|yes)\b", raw):
+        return True
+    if re.search(r"\b(?:allow|allows|permitted)\s+extrapolat", raw):
+        return True
+    return False
 
 
 def _pick_col(row, keyword):
@@ -302,11 +339,22 @@ def _run_table_lookup(parsed, slots):
         return SelectionResult(default_used=True, mode_used="table_lookup",
             render_vars={**slots, "indication_tier": indication_tier, "renal_category": renal_category})
     weight_row = {}
+    bounds = (None, None)
+    out_of_bounds = False
+    reference_row_value = None
     try:
         wf = float(str(body_weight_kg).replace("kg","").strip())
-        row = _find_weight_row(output_data.get("_table_rows", []), wf)
+        table_rows = output_data.get("_table_rows", [])
+        row = _find_weight_row(table_rows, wf)
         if row:
             weight_row = {k.lower().replace(" ","_"): v for k, v in row.items()}
+            reference_row_value = _numeric_table_row_value(row, "weight")
+        bounds = _table_numeric_bounds(table_rows, "weight")
+        min_bound, max_bound = bounds
+        if (min_bound is not None and max_bound is not None
+                and (wf < min_bound or wf > max_bound)
+                and not _explicit_extrapolation_allowed(parsed, output_data)):
+            out_of_bounds = True
     except (ValueError, TypeError):
         pass
     practical_dose = (_pick_col(weight_row, "practical") or weight_row.get("practical_dose") or "see table")
@@ -314,6 +362,20 @@ def _run_table_lookup(parsed, slots):
     renal_display = {"GFR_GT_30_OR_CRRT": "GFR >30 or CRRT", "GFR_15_TO_30": "GFR 15-30"}.get(renal_category, renal_category)
     rvars = {**slots, **output_data, "indication_tier": indication_tier, "renal_category": renal_display,
              "body_weight_kg": str(body_weight_kg), "practical_dose": practical_dose, "total_daily_tmp_smx": total_daily}
+    if out_of_bounds:
+        min_bound, max_bound = bounds
+        entered_weight = float(str(body_weight_kg).replace("kg","").strip())
+        rvars.update({
+            "table_bound_slot": "body weight",
+            "table_bound_unit": "kg",
+            "entered_bound_value": entered_weight,
+            "table_min_value": min_bound,
+            "table_max_value": max_bound,
+            "nearest_row_value": reference_row_value,
+            "nearest_row_data": weight_row,
+            "out_of_table_range": True,
+            "review_required": True,
+        })
     return SelectionResult(output_key=table_key, output_data=output_data, mode_used="table_lookup", render_vars=rvars)
 
 
@@ -503,12 +565,12 @@ _VIRAL_NEG_RE = re.compile(r"\b(viral.negative|viral.test.negative)\b", re.IGNOR
 def extract_slots_from_query(question, parsed_protocol=None, existing_slots=None):
     slots = dict(existing_slots or {})
     text = question
-    gfr_m = _GFR_RE.search(text)
-    if gfr_m:
-        slots["gfr"] = float(gfr_m.group(1))
-    wm = _WEIGHT_RE.search(text)
-    if wm:
-        slots["body_weight_kg"] = float(wm.group(1))
+    gfr_matches = list(_GFR_RE.finditer(text))
+    if gfr_matches:
+        slots["gfr"] = float(gfr_matches[-1].group(1))
+    weight_matches = list(_WEIGHT_RE.finditer(text))
+    if weight_matches:
+        slots["body_weight_kg"] = float(weight_matches[-1].group(1))
     for sn, pat in _BOOL_SLOTS.items():
         if pat.search(text):
             slots[sn] = True
@@ -525,8 +587,10 @@ def extract_slots_from_query(question, parsed_protocol=None, existing_slots=None
     if parsed_protocol:
         meta = parsed_protocol.get("metadata", {})
         if meta.get("protocol_id") == "tmpsmx":
-            slots["indication"] = _extract_indication_text(text, slots)
-            slots["indication_text"] = slots["indication"]
+            indication = _extract_indication_text(text, slots)
+            if indication:
+                slots["indication"] = indication
+                slots["indication_text"] = indication
         if meta.get("protocol_id") == "biofire_pneumonia":
             organisms, genes = _extract_biofire_entities(text)
             if organisms:
@@ -548,7 +612,7 @@ def _extract_indication_text(text, slots):
         if re.search(pattern, lower):
             m = re.search(pattern, lower)
             return m.group(0) if m else lower
-    return lower
+    return None
 
 
 def _extract_biofire_entities(text):
@@ -584,6 +648,69 @@ def _render_template(template_text, render_vars):
     return result.strip()
 
 
+def _fmt_number(value):
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return str(int(f)) if f.is_integer() else str(f)
+
+
+def _render_out_of_bounds_reference(parsed, result, lang="en"):
+    rv = result.render_vars or {}
+    if not rv.get("out_of_table_range"):
+        return None
+
+    slot = rv.get("table_bound_slot", "value")
+    unit = rv.get("table_bound_unit", "")
+    entered = _fmt_number(rv.get("entered_bound_value"))
+    min_value = _fmt_number(rv.get("table_min_value"))
+    max_value = _fmt_number(rv.get("table_max_value"))
+    nearest = _fmt_number(rv.get("nearest_row_value"))
+    unit_suffix = f" {unit}" if unit else ""
+
+    if lang == "hu":
+        lines = [
+            f"A megadott {slot} ({entered}{unit_suffix}) az explicit protokolltablazat tartomanyan kivul van "
+            f"({min_value}-{max_value}{unit_suffix}).",
+            "Automatikus dozisemeles nem tamogatott, es ennel az erteknel veszelyes lehet.",
+            f"Legkozelebbi explicit protokollsor, csak tajekoztatasra: {nearest}{unit_suffix} sor.",
+            f"Ez nem {entered}{unit_suffix}-ra adott dozisjavaslat.",
+            "Ehhez a beteghez individualizalt ID/gyogyszereszeti felulvizsgalat szukseges.",
+            "",
+            "Referencia protokolladat:",
+        ]
+    else:
+        lines = [
+            f"Patient {slot} {entered}{unit_suffix} is outside the explicit protocol table range "
+            f"({min_value}-{max_value}{unit_suffix}).",
+            "Automatic dose escalation is not supported and may be unsafe at this value.",
+            f"Closest explicit protocol row for reference only: {nearest}{unit_suffix} row.",
+            f"This is not a {entered}{unit_suffix} dosing recommendation.",
+            "Use individualized ID/pharmacy review for this patient.",
+            "",
+            "Reference protocol data:",
+        ]
+
+    nearest_row = rv.get("nearest_row_data") or {}
+    for key, value in nearest_row.items():
+        if value:
+            lines.append(f"- {key.replace('_', ' ')}: {value}")
+
+    context_rows = []
+    for key in ("target", "renal_adjustment", "renal_category", "indication_tier"):
+        value = rv.get(key)
+        if value:
+            context_rows.append((key, value))
+    if context_rows:
+        lines.append("")
+        lines.append("Protocol context:" if lang != "hu" else "Protokoll kontextus:")
+        for key, value in context_rows:
+            lines.append(f"- {key.replace('_', ' ')}: {value}")
+
+    return "\n".join(lines).strip()
+
+
 def render_selected_output(parsed, result, lang="en"):
     if result.default_used:
         da = parsed.get("default_answer", "")
@@ -600,6 +727,9 @@ def render_selected_output(parsed, result, lang="en"):
     else:
         tkey = f"FINAL_SELECTED{lang_suffix}"
     template_text = templates.get(tkey) or templates.get("FINAL_SELECTED_EN") or ""
+    out_of_bounds = _render_out_of_bounds_reference(parsed, result, lang=lang)
+    if out_of_bounds:
+        return out_of_bounds
     if template_text:
         return _render_template(template_text, result.render_vars)
     return _plain_render(result.output_key, result.output_data, lang)
