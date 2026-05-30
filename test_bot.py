@@ -1350,6 +1350,41 @@ class TestSession10DebugCommands(unittest.TestCase):
         self.assertTrue(safe["redacted"])
         self.assertNotIn("John Doe", str(safe))
 
+    def test_full_conversation_logging_prints_reconstructable_turn(self):
+        import contextlib
+        import io
+        import json
+        import telegram_bot as b
+
+        old_full = b.FULL_CONVERSATION_LOG
+        old_query_log = b._query_log
+        b.FULL_CONVERSATION_LOG = True
+        b._query_log = None
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                b._log_query(
+                    chat_id=123,
+                    user_message="John Doe fever",
+                    recognized=None,
+                    retrieved_chunks=[],
+                    raw_llm="raw answer",
+                    final_response="final answer",
+                    duration_ms=7,
+                )
+            turn_line = next(
+                line for line in out.getvalue().splitlines()
+                if line.startswith("[TURN] ")
+            )
+            payload = json.loads(turn_line[len("[TURN] "):])
+            self.assertEqual(payload["event"], "conversation_turn")
+            self.assertEqual(payload["user_message"], "John Doe fever")
+            self.assertEqual(payload["assistant_message"], "final answer")
+            self.assertEqual(payload["raw_llm"], "raw answer")
+        finally:
+            b.FULL_CONVERSATION_LOG = old_full
+            b._query_log = old_query_log
+
 
 # ---------------------------------------------------------------------------
 # Session 11: Module Split Tests

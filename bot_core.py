@@ -82,6 +82,10 @@ CHAT_MODEL        = _CFG_CHAT_MODEL
 MAX_HISTORY_TURNS = _CFG_MAX_HISTORY_TURNS
 BOT_VERSION       = os.getenv("BOT_VERSION", "session-10")
 LOCAL_DEBUG_MODE  = os.getenv("LOCAL_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+FULL_CONVERSATION_LOG = (
+    LOCAL_DEBUG_MODE
+    or os.getenv("FULL_CONVERSATION_LOG", "").strip().lower() in {"1", "true", "yes", "on"}
+)
 
 # ---------------------------------------------------------------------------
 # Global state
@@ -253,10 +257,12 @@ def run_startup_checks():
 # ---------------------------------------------------------------------------
 # Structured logging
 #
-# Every query is written as a JSON line to bot_queries.log AND to stdout.
+# Every query is written as a JSON line to bot_queries.log.
 # JSON-lines format: one complete JSON object per line, easy to grep and parse.
 # The file rotates at 5 MB, keeping 3 old copies (so max ~20 MB on disk).
-# On Railway, stdout is captured in the Railway log viewer automatically.
+# On Railway, stdout is captured in the Railway log viewer automatically. Set
+# LOCAL_DEBUG=1 or FULL_CONVERSATION_LOG=1 to also print a full reconstructable
+# JSON turn to stdout while debugging alone.
 #
 # Each log entry contains:
 #   ts              — ISO timestamp
@@ -304,7 +310,7 @@ _query_log = None
 
 def _safe_user_message_for_log(user_message):
     """Avoid PHI/raw prompt logging unless explicit local debug mode is enabled."""
-    if LOCAL_DEBUG_MODE:
+    if FULL_CONVERSATION_LOG:
         return user_message
     return {
         "redacted": True,
@@ -314,10 +320,27 @@ def _safe_user_message_for_log(user_message):
 
 
 def _safe_prompt_preview_for_stdout(user_message):
-    if LOCAL_DEBUG_MODE:
+    if FULL_CONVERSATION_LOG:
         text = (user_message or "").replace("\n", " ").strip()
         return text[:117] + "..." if len(text) > 120 else text
     return "<redacted>"
+
+
+def _reconstructable_turn_for_stdout(entry):
+    """Return a full raw conversation turn for local debugging stdout logs."""
+    if not FULL_CONVERSATION_LOG:
+        return None
+    return {
+        "event": "conversation_turn",
+        "ts": entry["ts"],
+        "chat_id_hash": entry["chat_id_hash"],
+        "user_message": entry["user_message"],
+        "assistant_message": entry["final"],
+        "raw_llm": entry["raw_llm"],
+        "recognized": entry["recognized"],
+        "retrieved": entry["retrieved"],
+        "duration_ms": entry["duration_ms"],
+    }
 
 
 def _log_query(chat_id, user_message, recognized, retrieved_chunks,
@@ -340,27 +363,35 @@ def _log_query(chat_id, user_message, recognized, retrieved_chunks,
     ts = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
     chat_hash = hashlib.md5(str(chat_id).encode()).hexdigest()[:8]
 
+    entry = {
+        "ts":            ts,
+        "chat_id_hash":  chat_hash,
+        "user_message":  _safe_user_message_for_log(user_message),
+        "recognized":    {
+            "display":       recognized["display"],
+            "matched_alias": recognized.get("matched_alias", ""),
+            "confidence":    recognized["confidence"],
+            "protocol_file": recognized.get("protocol_file", ""),
+        } if recognized else None,
+        "retrieved": [
+            {"source_label": c["source_label"], "similarity": round(c["similarity"], 4)}
+            for c in retrieved_chunks
+        ],
+        "raw_llm":    raw_llm,
+        "final":      final_response,
+        "duration_ms": duration_ms,
+    }
+
     # ── Full JSON to file ──────────────────────────────────────────────────
     if _query_log is not None:
-        entry = {
-            "ts":            ts,
-            "chat_id_hash":  chat_hash,
-            "user_message":  _safe_user_message_for_log(user_message),
-            "recognized":    {
-                "display":       recognized["display"],
-                "matched_alias": recognized.get("matched_alias", ""),
-                "confidence":    recognized["confidence"],
-                "protocol_file": recognized.get("protocol_file", ""),
-            } if recognized else None,
-            "retrieved": [
-                {"source_label": c["source_label"], "similarity": round(c["similarity"], 4)}
-                for c in retrieved_chunks
-            ],
-            "raw_llm":    raw_llm,
-            "final":      final_response,
-            "duration_ms": duration_ms,
-        }
         _query_log.info(json.dumps(entry, ensure_ascii=False))
+
+    reconstructable_turn = _reconstructable_turn_for_stdout(entry)
+    if reconstructable_turn is not None:
+        print(
+            "[TURN] " + json.dumps(reconstructable_turn, ensure_ascii=False),
+            flush=True,
+        )
 
     # ── Short readable summary to stdout (survives Railway log copy) ───────
     rec_str = (
