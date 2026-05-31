@@ -68,6 +68,7 @@ CANONICAL_PANELS = [
     # ── New schema ──────────────────────────────────────────────────────────
     "INTENTS",
     "INPUT_SLOTS",
+    "SLOT_SCHEMA",
     "DEFAULT_ANSWER",
     "SELECTION_RULES",
     "SELECTED_OUTPUTS",
@@ -166,6 +167,7 @@ def _parse_protocol_text(text, path="<inline>"):
     New-schema panels (str unless noted)
     intents               str
     input_slots           str
+    slot_schema           dict
     default_answer        str
     selection_rules       str
     selected_outputs      str
@@ -203,6 +205,7 @@ def _parse_protocol_text(text, path="<inline>"):
         # new schema
         "intents":           "",
         "input_slots":       "",
+        "slot_schema":       {},
         "default_answer":    "",
         "selection_rules":   "",
         "selected_outputs":  "",
@@ -259,6 +262,8 @@ def _parse_protocol_text(text, path="<inline>"):
             result["decision_tree"] = parse_decision_tree(body) if body else None
         elif name == "LINKS":
             result["links"] = _parse_links_block(body, path, result["warnings"])
+        elif name == "SLOT_SCHEMA":
+            result["slot_schema"] = _parse_slot_schema_block(body, path, result["warnings"])
         elif name == "PROTOCOL_LINKS":
             result["protocol_links"] = _parse_protocol_links(body)
         # ── Plain-text panels ────────────────────────────────────────────────
@@ -268,7 +273,7 @@ def _parse_protocol_text(text, path="<inline>"):
 
     # ── Warn if any new-schema panel landed in free_form ────────────────────
     NEW_SCHEMA_PANELS = {
-        "INTENTS", "INPUT_SLOTS", "DEFAULT_ANSWER", "SELECTION_RULES",
+        "INTENTS", "INPUT_SLOTS", "SLOT_SCHEMA", "DEFAULT_ANSWER", "SELECTION_RULES",
         "SELECTED_OUTPUTS", "LINKS", "INFO_BLOCKS", "RESTRICTED_OUTPUTS",
         "SAFETY_RULES", "OUTPUT_TEMPLATES",
     }
@@ -401,6 +406,94 @@ def _parse_link_entry(text):
             in_list = True
 
     return entry
+
+
+# ---------------------------------------------------------------------------
+# SLOT_SCHEMA parser
+# ---------------------------------------------------------------------------
+
+_SLOT_START_RE = re.compile(r"^SLOT:[ \t]+(\S+)[ \t]*$", re.MULTILINE)
+
+
+def _parse_slot_schema_block(text, path="<inline>", warnings=None):
+    """Parse a ## SLOT_SCHEMA panel body.
+
+    Format is intentionally close to LINKS:
+
+        SLOT: body_weight_kg
+          type: number
+          unit: kg
+          clinical_min: 1
+          clinical_max: 300
+          supported_min: 40
+          supported_max: 100
+          out_of_supported_policy: review_plus_nearest_explicit_row
+
+    Returns {slot_name: {key: value}} with numeric-looking bounds converted
+    to floats and list-valued keys preserved as lists.
+    """
+    if warnings is None:
+        warnings = []
+    if not text:
+        return {}
+
+    slot_matches = list(_SLOT_START_RE.finditer(text))
+    if not slot_matches:
+        return {}
+
+    result = {}
+    for i, m in enumerate(slot_matches):
+        name = m.group(1).strip().lower()
+        body_start = m.end()
+        body_end = slot_matches[i + 1].start() if i + 1 < len(slot_matches) else len(text)
+        result[name] = _parse_slot_schema_entry(text[body_start:body_end])
+    return result
+
+
+def _parse_slot_schema_entry(text):
+    entry = {}
+    current_key = None
+    in_list = False
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if stripped.startswith("- ") and current_key is not None:
+            if not isinstance(entry.get(current_key), list):
+                entry[current_key] = []
+            entry[current_key].append(stripped[2:].strip())
+            in_list = True
+            continue
+
+        if ":" not in stripped:
+            continue
+
+        key, _, val = stripped.partition(":")
+        key = key.strip().lower().replace(" ", "_").replace("-", "_")
+        val = val.strip()
+        current_key = key
+        if val:
+            entry[key] = _parse_slot_schema_value(val)
+            in_list = False
+        else:
+            entry[key] = []
+            in_list = True
+
+    return entry
+
+
+def _parse_slot_schema_value(value):
+    lower = value.lower()
+    if lower in {"true", "yes"}:
+        return True
+    if lower in {"false", "no"}:
+        return False
+    try:
+        return float(value)
+    except ValueError:
+        return value
 
 
 # ---------------------------------------------------------------------------

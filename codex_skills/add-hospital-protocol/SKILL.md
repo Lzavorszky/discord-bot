@@ -50,18 +50,20 @@ Use `(none)` for any intentionally empty panel.
 
 1. Read the raw source protocol and identify explicit source facts only.
 2. Read `protocol structure guide.txt`.
-3. Inspect 2-4 closest existing files in `protocols/`:
+3. Inspect `protocols/aliases.json`, including `drugs`, `conditions`, `unsupported_syndromes`, and legacy `blocked_aliases`.
+4. Inspect 2-4 closest existing files in `protocols/`:
    - drug dosing: `meropenem.txt`, `tmpsmx.txt`, `ampsul.txt`
    - pathway: `cap.txt`
    - microbiology: `pneumonia_pcr.txt`
    - info-only: `general_rules_antibiotic_dosing.txt`
-4. Before drafting final protocol text, decide whether any required design facts are unclear.
-5. Ask concise questions for only the missing design facts. Do not ask about facts already explicit in the source.
-6. Draft a design summary first:
+5. Before drafting final protocol text, decide whether any required design facts are unclear.
+6. Ask concise questions for only the missing design facts. Do not ask about facts already explicit in the source.
+7. Draft a design summary first:
    - protocol type
    - answer mode
    - selection mode
    - aliases and alias categories
+   - whether any alias/term currently appears in `unsupported_syndromes` or legacy `blocked_aliases`
    - required and optional input slots
    - whether a default answer is allowed
    - deterministic outputs
@@ -70,15 +72,20 @@ Use `(none)` for any intentionally empty panel.
    - INFO_BLOCKS topics
    - links and target_missing_behavior
    - default footer text
-7. Draft the protocol file only after the design summary has no unresolved clinical facts.
-8. Run contradiction checks before accepting the draft.
-9. If a file is created or edited, run the linter:
+8. Draft the protocol file only after the design summary has no unresolved clinical facts.
+9. If this new protocol makes a formerly unsupported syndrome/test supported, update `protocols/aliases.json` in the same change:
+   - add supported aliases under `drugs` or `conditions` as appropriate
+   - remove or narrow matching terms from `unsupported_syndromes`
+   - keep unrelated unsupported policy entries
+   - keep legacy `blocked_aliases` compatible unless deliberately migrating/removing duplicates
+10. Run contradiction checks before accepting the draft.
+11. If a file is created or edited, run the linter:
 
 ```powershell
-python -m protocol_linter protocols/<new_protocol>.txt
+python -m protocol_linter
 ```
 
-10. If aliases should be synchronized after the final protocol is approved, run:
+12. If aliases should be synchronized after the final protocol is approved, run:
 
 ```powershell
 python alias_sync.py
@@ -114,6 +121,13 @@ Do not ask the user to confirm invented doses, tiers, antibiotic choices, or cli
 - Keep syndrome aliases separate from organism or platform aliases when needed.
 - For microbiology protocols, use category labels such as `platform_aliases`, `organism_aliases`, and `resistance_gene_aliases`.
 - Avoid broad aliases that would steal unrelated queries.
+
+`protocols/aliases.json`
+- Supported runtime routing comes from central `drugs` and `conditions` entries.
+- Unsupported syndrome/test policy lives in `unsupported_syndromes`, with `terms`, `message`, and `allowed_if_explicit_drug`.
+- Before adding VAP, HAP, JI PCR, immunosuppressed pneumonia, or any previously unsupported item as a supported protocol, remove or narrow the corresponding unsupported policy terms; otherwise runtime will still block unsupported-only queries.
+- Do not silence a real collision with `allow_supported_alias_collision: true` unless the user explicitly wants a temporary transitional state. Normal supported-protocol additions should eliminate the collision.
+- Legacy `blocked_aliases` remain backward-compatible fallback policy terms, so check them too.
 
 `INTENTS`
 - Use `default_request`, `selection_request`, `dosing_request`, `info_request`, `link_request`.
@@ -190,6 +204,8 @@ Before accepting the draft, verify:
 - RESTRICTED_OUTPUTS block likely unsafe requests
 - footer text is exact and short
 - aliases do not collide or overmatch
+- supported aliases do not collide with `unsupported_syndromes` unless explicitly allowed for a temporary transition
+- any newly supported formerly-unsupported syndrome/test no longer has active unsupported policy terms that would block it
 - polymicrobial, resistance, renal, RRT, weight, and severity logic is deterministic when it affects decisions
 
 ## Per-Protocol Prompt

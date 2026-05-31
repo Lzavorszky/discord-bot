@@ -63,5 +63,10 @@ CHAT_MODEL      = "gpt-4o-mini"
 # ---------------------------------------------------------------------------
 
 MAX_HISTORY_TURNS = 10
-CACHE_DB          = "embeddings_cache.db"
-LOG_FILE          = "bot_queries.log"
+
+_ON_RAILWAY = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+CACHE_DB = os.getenv(
+    "CACHE_DB",
+    "/tmp/id_bot_embeddings_cache.db" if _ON_RAILWAY else "embeddings_cache.db",
+)
+LOG_FILE = os.getenv("LOG_FILE", "bot_queries.log")

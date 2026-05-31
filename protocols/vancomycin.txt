@@ -98,6 +98,36 @@ optional_modifiers:
 forwardable_slots:
 (none)
 
+## SLOT_SCHEMA
+
+SLOT: body_weight_kg
+  type: number
+  unit: kg
+  clinical_min: 1
+  clinical_max: 300
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: gfr
+  type: number
+  unit: mL/min
+  clinical_min: 0
+  clinical_max: 250
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: vancomycin_level
+  type: number
+  unit: mg/L
+  clinical_min: 0
+  clinical_max: 150
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: mic
+  type: number
+  unit: mg/L
+  clinical_min: 0
+  clinical_max: 32
+  out_of_clinical_policy: ask_confirmation
+
 ## DEFAULT_ANSWER
 
 ### HU
@@ -597,4 +627,3 @@ Do not add dosing unless the selected INFO_BLOCK explicitly says to mention it.
 Ae you sure you need vancomycin? Does this pt has MRSA? If not think twice. If administering for other Staphylococci (e.g. hominis) check if it is not contamination first.
 Use only if the pathogen's vancomycin MIC is 1mg/L or less
 Needs daily monitoring, target level: 20-25 ug/ml
-

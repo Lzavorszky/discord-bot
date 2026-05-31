@@ -1,28 +1,57 @@
 """
 Allowlist and admin authorization helpers.
+
+The helpers here are the implementation boundary. ``bot_core`` keeps wrapper
+functions and compatibility globals so older imports and monkeypatches continue
+to behave as before.
 """
 
-import bot_core as _core
+import os
+
+
+ALLOWED_USER_IDS: set[int] = set()
+ADMIN_USER_IDS: set[int] = set()
+
+
+def _parse_user_id_set(raw: str, label: str) -> set[int]:
+    ids = set()
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part.isdigit():
+            ids.add(int(part))
+        else:
+            print(f"[{label}] WARNING: ignoring non-numeric entry: {part!r}")
+    return ids
 
 
 def _load_allowlist():
-    return _core._load_allowlist()
+    """Return allowed Telegram user IDs, or an empty set for unrestricted use."""
+    return _parse_user_id_set(os.getenv("ALLOWED_USER_IDS", "").strip(), "allowlist")
 
 
 def _load_admin_ids():
-    return _core._load_admin_ids()
+    """Return Telegram user IDs allowed to run admin-only commands."""
+    return _parse_user_id_set(os.getenv("ADMIN_USER_IDS", "").strip(), "admin")
+
+
+def is_allowed(user_id: int, allowed_user_ids=None) -> bool:
+    allowed = ALLOWED_USER_IDS if allowed_user_ids is None else allowed_user_ids
+    return not allowed or user_id in allowed
+
+
+def is_admin(user_id: int, admin_user_ids=None) -> bool:
+    admins = ADMIN_USER_IDS if admin_user_ids is None else admin_user_ids
+    return user_id in admins
 
 
 def _is_allowed(user_id: int) -> bool:
-    return _core._is_allowed(user_id)
+    return is_allowed(user_id)
 
 
 def _is_admin(user_id: int) -> bool:
-    return _core._is_admin(user_id)
-
-
-def __getattr__(name):
-    return getattr(_core, name)
+    return is_admin(user_id)
 
 
 __all__ = [
@@ -30,6 +59,8 @@ __all__ = [
     "ADMIN_USER_IDS",
     "_load_allowlist",
     "_load_admin_ids",
+    "is_allowed",
+    "is_admin",
     "_is_allowed",
     "_is_admin",
 ]

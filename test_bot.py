@@ -9,7 +9,7 @@ import io
 import unittest
 import importlib.util
 import types
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 # Allow importing from protocols/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "protocols"))
@@ -141,8 +141,8 @@ class TestFooterPlacement(unittest.TestCase):
                       "SAFETY_FOOTER must appear before the Source line")
 
 
-class TestAllowlistWarning(unittest.TestCase):
-    """!! ALLOWED USERS NOT DEFINED !! must be printed when allowlist env var is absent."""
+class TestProductionStartupHardening(unittest.TestCase):
+    """Production startup must fail closed and avoid mutating protocol sources."""
 
     def test_warning_text_present_in_source(self):
         """Verify the exact warning string is in run_startup_checks source code."""
@@ -154,29 +154,107 @@ class TestAllowlistWarning(unittest.TestCase):
             "Expected warning string not found in run_startup_checks"
         )
 
-    def test_warning_emitted_when_allowlist_missing(self):
-        """run_startup_checks prints the warning when ALLOWED_USER_IDS is unset.
-
-        sys.exit is patched to a no-op so the function runs past the error-check
-        block (which exits early in the test env due to missing aliases.json) and
-        reaches the ALLOWED_USER_IDS check.
-        """
-        saved = os.environ.pop("ALLOWED_USER_IDS", None)
+    def test_missing_allowlist_fails_closed_outside_local_debug(self):
+        saved_allowed = os.environ.pop("ALLOWED_USER_IDS", None)
+        saved_debug = os.environ.pop("LOCAL_DEBUG", None)
         try:
             buf = io.StringIO()
             from contextlib import redirect_stdout
-            from unittest.mock import patch as _patch
-            with redirect_stdout(buf), _patch("sys.exit"):
+            os.environ["TELEGRAM_TOKEN"] = "dummy"
+            os.environ["OPENAI_API_KEY"] = "dummy"
+            with redirect_stdout(buf), self.assertRaises(SystemExit):
                 bot.run_startup_checks()
             output = buf.getvalue()
             self.assertIn(
-                "!! ALLOWED USERS NOT DEFINED !!",
+                "ALLOWED_USER_IDS environment variable is not set",
                 output,
-                f"Expected warning not in stdout. Got:\n{output}"
+                f"Expected fail-closed startup error. Got:\n{output}"
             )
         finally:
-            if saved is not None:
-                os.environ["ALLOWED_USER_IDS"] = saved
+            if saved_allowed is not None:
+                os.environ["ALLOWED_USER_IDS"] = saved_allowed
+            else:
+                os.environ.pop("ALLOWED_USER_IDS", None)
+            if saved_debug is not None:
+                os.environ["LOCAL_DEBUG"] = saved_debug
+            else:
+                os.environ.pop("LOCAL_DEBUG", None)
+
+    def test_missing_allowlist_allowed_with_local_debug_warning(self):
+        saved_allowed = os.environ.pop("ALLOWED_USER_IDS", None)
+        saved_debug = os.environ.get("LOCAL_DEBUG")
+        try:
+            buf = io.StringIO()
+            from contextlib import redirect_stdout
+            os.environ["TELEGRAM_TOKEN"] = "dummy"
+            os.environ["OPENAI_API_KEY"] = "dummy"
+            os.environ["LOCAL_DEBUG"] = "1"
+            with redirect_stdout(buf):
+                bot.run_startup_checks()
+            output = buf.getvalue()
+            self.assertIn("!! ALLOWED USERS NOT DEFINED !!", output)
+            self.assertIn("[startup] All checks passed.", output)
+        finally:
+            if saved_allowed is not None:
+                os.environ["ALLOWED_USER_IDS"] = saved_allowed
+            else:
+                os.environ.pop("ALLOWED_USER_IDS", None)
+            if saved_debug is not None:
+                os.environ["LOCAL_DEBUG"] = saved_debug
+            else:
+                os.environ.pop("LOCAL_DEBUG", None)
+
+    def test_alias_sync_not_called_in_production_startup(self):
+        saved_debug = os.environ.pop("LOCAL_DEBUG", None)
+        saved_sync = os.environ.get("ALIAS_SYNC_ON_STARTUP")
+        try:
+            os.environ["ALIAS_SYNC_ON_STARTUP"] = "1"
+            with patch.object(bot, "ALIAS_SYNC_AVAILABLE", True), \
+                    patch.object(bot, "_alias_sync") as sync_mock:
+                ran = bot._maybe_run_alias_sync_on_startup()
+            self.assertFalse(ran)
+            sync_mock.assert_not_called()
+        finally:
+            if saved_debug is not None:
+                os.environ["LOCAL_DEBUG"] = saved_debug
+            else:
+                os.environ.pop("LOCAL_DEBUG", None)
+            if saved_sync is not None:
+                os.environ["ALIAS_SYNC_ON_STARTUP"] = saved_sync
+            else:
+                os.environ.pop("ALIAS_SYNC_ON_STARTUP", None)
+
+    def test_linter_blocking_error_prevents_startup(self):
+        import protocol_linter
+
+        issue = protocol_linter.LintIssue(
+            "ERROR", "parse_crash", "protocols/bad.txt", "Parser crashed"
+        )
+        fake_result = MagicMock()
+        fake_result.errors.return_value = [issue]
+        fake_result.warnings.return_value = []
+
+        saved_allowed = os.environ.get("ALLOWED_USER_IDS")
+        saved_debug = os.environ.pop("LOCAL_DEBUG", None)
+        try:
+            os.environ["TELEGRAM_TOKEN"] = "dummy"
+            os.environ["OPENAI_API_KEY"] = "dummy"
+            os.environ["ALLOWED_USER_IDS"] = "123"
+            buf = io.StringIO()
+            from contextlib import redirect_stdout
+            with patch.object(protocol_linter, "run_linter", return_value=fake_result), \
+                    redirect_stdout(buf), self.assertRaises(SystemExit):
+                bot.run_startup_checks()
+            self.assertIn("Protocol linter blocking error", buf.getvalue())
+        finally:
+            if saved_allowed is not None:
+                os.environ["ALLOWED_USER_IDS"] = saved_allowed
+            else:
+                os.environ.pop("ALLOWED_USER_IDS", None)
+            if saved_debug is not None:
+                os.environ["LOCAL_DEBUG"] = saved_debug
+            else:
+                os.environ.pop("LOCAL_DEBUG", None)
 
 
 
@@ -235,7 +313,7 @@ class TestNewSchemaParser(unittest.TestCase):
     def test_meropenem_new_panels_not_in_free_form(self):
         p = self._parse("meropenem.txt")
         for panel in ["INTENTS", "INPUT_SLOTS", "DEFAULT_ANSWER",
-                      "SELECTION_RULES", "SELECTED_OUTPUTS", "INFO_BLOCKS",
+                      "SLOT_SCHEMA", "SELECTION_RULES", "SELECTED_OUTPUTS", "INFO_BLOCKS",
                       "RESTRICTED_OUTPUTS", "SAFETY_RULES", "OUTPUT_TEMPLATES"]:
             self.assertNotIn(panel, p["free_form"],
                              f"meropenem.txt: '{panel}' must not be in free_form")
@@ -246,6 +324,14 @@ class TestNewSchemaParser(unittest.TestCase):
         self.assertIn("priority_rules", p["selection_rules"])
         self.assertIn("INTUBATED_CAP", p["selected_outputs"])
         self.assertIn("ceftriaxone", p["info_blocks"])
+
+    def test_slot_schema_parsed_for_numeric_bounds(self):
+        p = self._parse("tmpsmx.txt")
+        schema = p["slot_schema"]
+        self.assertEqual(schema["body_weight_kg"]["type"], "number")
+        self.assertEqual(schema["body_weight_kg"]["clinical_min"], 1.0)
+        self.assertEqual(schema["body_weight_kg"]["supported_max"], 100.0)
+        self.assertEqual(schema["gfr"]["clinical_max"], 250.0)
 
     # ── Old-schema file still loads cleanly ──────────────────────────────────
 
@@ -366,14 +452,11 @@ class TestAnswerModeValidation(unittest.TestCase):
         self.assertEqual(mode_warnings, [],
                          f"cap.txt has a valid answer_mode but got warnings: {mode_warnings}")
 
-    def test_invalid_answer_mode_produces_warning(self):
-        """meropenem uses default_or_required_slots_then_selected_output (not in guide)."""
+    def test_meropenem_answer_mode_no_warning(self):
         p = self._parse("meropenem.txt")
         mode_warnings = [w for w in p["warnings"] if "answer_mode" in w]
-        self.assertTrue(
-            len(mode_warnings) > 0,
-            "meropenem.txt has an invalid answer_mode but no warning was emitted"
-        )
+        self.assertEqual(mode_warnings, [],
+                         f"meropenem.txt should use a current answer_mode. Got: {mode_warnings}")
 
     def test_inline_invalid_mode_warning(self):
         import protocol_parser as pp
@@ -572,6 +655,61 @@ class TestLinterAliases(unittest.TestCase):
         pl._lint_cross_protocol(all_aliases, result)
         self.assertNotIn("alias_collision", _codes(result))
 
+    def test_unsupported_policy_collision_with_cap_alias_detected(self):
+        import json
+        import tempfile
+        import protocol_linter as pl
+
+        alias_data = {
+            "conditions": {
+                "cap": {
+                    "canonical": "community-acquired pneumonia",
+                    "display": "CAP",
+                    "aliases": ["cap"],
+                }
+            },
+            "unsupported_syndromes": {
+                "bad_policy": {
+                    "terms": ["cap"],
+                    "message": "Unsupported.",
+                    "allowed_if_explicit_drug": True,
+                }
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump(alias_data, f)
+            path = f.name
+        try:
+            result = pl.LintResult()
+            pl._lint_aliases_json(path, result)
+            self.assertIn("unsupported_policy_collision", _codes(result))
+        finally:
+            os.unlink(path)
+
+    def test_unsupported_policy_requires_terms_and_message(self):
+        import json
+        import tempfile
+        import protocol_linter as pl
+
+        alias_data = {
+            "unsupported_syndromes": {
+                "empty": {
+                    "terms": [],
+                    "message": "",
+                }
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump(alias_data, f)
+            path = f.name
+        try:
+            result = pl.LintResult()
+            pl._lint_aliases_json(path, result)
+            self.assertIn("unsupported_policy_empty_terms", _codes(result))
+            self.assertIn("unsupported_policy_missing_message", _codes(result))
+        finally:
+            os.unlink(path)
+
 
 class TestLinterDosingSafety(unittest.TestCase):
 
@@ -602,6 +740,307 @@ class TestLinterDosingSafety(unittest.TestCase):
         self.assertNotIn("dosing_without_flag", _codes(result))
 
 
+class TestLinterSlotSchemaSafety(unittest.TestCase):
+
+    def _deterministic_text(self, slot_schema=""):
+        schema_panel = f"\n## SLOT_SCHEMA\n\n{slot_schema}\n" if slot_schema is not None else ""
+        return (
+            "## METADATA\n"
+            "protocol_id: renal_dose\n"
+            "protocol_name: Renal dose protocol\n"
+            "source_label: RENAL DOSE\n"
+            "protocol_type: drug_dosing_protocol\n"
+            "answer_mode: default_then_selected_output\n"
+            "selection_mode: priority_rules\n"
+            "allows_dosing: yes\n"
+            "default_dose_allowed: yes\n"
+            "version: 1.0\n"
+            "last_reviewed: 2024-01-01\n"
+            "owner: test_team\n"
+            "status: draft\n"
+            "\n"
+            "## ALIASES\n"
+            "- renal dose test\n"
+            f"{schema_panel}"
+            "## SELECTION_RULES\n"
+            "\n"
+            "selection_mode: priority_rules\n"
+            "\n"
+            "RULE: RENAL_LOW\n"
+            "  IF: gfr < 30\n"
+            "  PRIORITY: 10\n"
+            "  SELECT: LOW\n"
+            "\n"
+            "## SELECTED_OUTPUTS\n"
+            "\n"
+            "### LOW\n"
+            "dose: reduce dose\n"
+        )
+
+    def test_deterministic_numeric_selection_slot_without_slot_schema_is_error(self):
+        result = _lint_text(self._deterministic_text(slot_schema=None))
+        issues = [i for i in result.issues if i.code == "missing_slot_schema"]
+        self.assertTrue(issues)
+        self.assertTrue(all(i.severity == "ERROR" for i in issues))
+
+    def test_deterministic_numeric_slot_missing_clinical_bounds_is_error(self):
+        text = self._deterministic_text(
+            "SLOT: gfr\n"
+            "  type: number\n"
+            "  unit: mL/min\n"
+        )
+        result = _lint_text(text)
+        issues = [i for i in result.issues if i.code == "missing_numeric_slot_bounds"]
+        self.assertTrue(issues)
+        self.assertTrue(all(i.severity == "ERROR" for i in issues))
+
+    def test_numeric_selection_slot_missing_from_existing_schema_is_error(self):
+        text = self._deterministic_text(
+            "SLOT: body_weight_kg\n"
+            "  type: number\n"
+            "  clinical_min: 1\n"
+            "  clinical_max: 300\n"
+        )
+        result = _lint_text(text)
+        issues = [i for i in result.issues if i.code == "undeclared_numeric_selection_slot"]
+        self.assertTrue(issues)
+        self.assertTrue(all(i.severity == "ERROR" for i in issues))
+
+    def test_info_only_numeric_slot_missing_bounds_is_warning(self):
+        text = (
+            "## METADATA\n"
+            "protocol_id: info_numeric\n"
+            "protocol_name: Numeric info protocol\n"
+            "source_label: INFO NUMERIC\n"
+            "protocol_type: general_rules_protocol\n"
+            "answer_mode: info_only\n"
+            "selection_mode: none\n"
+            "allows_dosing: no\n"
+            "default_dose_allowed: no\n"
+            "version: 1.0\n"
+            "last_reviewed: 2024-01-01\n"
+            "owner: test_team\n"
+            "status: draft\n"
+            "\n"
+            "## ALIASES\n"
+            "- numeric info test\n"
+            "\n"
+            "## SLOT_SCHEMA\n"
+            "\n"
+            "SLOT: gfr\n"
+            "  type: number\n"
+            "\n"
+            "## INFO_BLOCKS\n"
+            "\n"
+            "Mentions GFR for background only.\n"
+        )
+        result = _lint_text(text)
+        issues = [i for i in result.issues if i.code == "missing_numeric_slot_bounds"]
+        self.assertTrue(issues)
+        self.assertTrue(all(i.severity == "WARNING" for i in issues))
+
+    def test_table_lookup_missing_supported_axis_bounds_is_error(self):
+        text = (
+            "## METADATA\n"
+            "protocol_id: table_dose\n"
+            "protocol_name: Table dose protocol\n"
+            "source_label: TABLE DOSE\n"
+            "protocol_type: drug_dosing_protocol\n"
+            "answer_mode: required_slots_then_selected_output\n"
+            "selection_mode: table_lookup\n"
+            "allows_dosing: yes\n"
+            "default_dose_allowed: yes\n"
+            "version: 1.0\n"
+            "last_reviewed: 2024-01-01\n"
+            "owner: test_team\n"
+            "status: draft\n"
+            "\n"
+            "## ALIASES\n"
+            "- table dose test\n"
+            "\n"
+            "## SLOT_SCHEMA\n"
+            "\n"
+            "SLOT: body_weight_kg\n"
+            "  type: number\n"
+            "  unit: kg\n"
+            "  clinical_min: 1\n"
+            "  clinical_max: 300\n"
+            "\n"
+            "## SELECTION_RULES\n"
+            "\n"
+            "selection_mode: table_lookup\n"
+            "\n"
+            "STEP: SELECT_WEIGHT_ROW\n"
+            "  METHOD: closest_practical_row\n"
+            "  WEIGHT_SLOT: body_weight_kg\n"
+            "\n"
+            "## SELECTED_OUTPUTS\n"
+            "\n"
+            "### TABLE\n"
+            "dose: see table\n"
+        )
+        result = _lint_text(text)
+        issues = [i for i in result.issues if i.code == "missing_supported_table_bounds"]
+        self.assertTrue(issues)
+        self.assertTrue(all(i.severity == "ERROR" for i in issues))
+
+    def test_table_lookup_detects_axis_from_selected_outputs_table(self):
+        text = (
+            "## METADATA\n"
+            "protocol_id: selected_output_axis\n"
+            "protocol_name: Selected output axis protocol\n"
+            "source_label: SELECTED OUTPUT AXIS\n"
+            "protocol_type: drug_dosing_protocol\n"
+            "answer_mode: required_slots_then_selected_output\n"
+            "selection_mode: table_lookup\n"
+            "allows_dosing: yes\n"
+            "default_dose_allowed: yes\n"
+            "version: 1.0\n"
+            "last_reviewed: 2024-01-01\n"
+            "owner: test_team\n"
+            "status: draft\n"
+            "\n"
+            "## ALIASES\n"
+            "- selected output axis test\n"
+            "\n"
+            "## SLOT_SCHEMA\n"
+            "\n"
+            "SLOT: body_weight_kg\n"
+            "  type: number\n"
+            "  unit: kg\n"
+            "  clinical_min: 1\n"
+            "  clinical_max: 300\n"
+            "\n"
+            "## SELECTION_RULES\n"
+            "\n"
+            "selection_mode: table_lookup\n"
+            "STEP: SELECT_TABLE\n"
+            "  TABLE_KEY: TABLE\n"
+            "\n"
+            "## SELECTED_OUTPUTS\n"
+            "\n"
+            "### TABLE\n"
+            "type: dosing_table\n"
+            "| Weight | Practical dose |\n"
+            "|---|---|\n"
+            "| 40 kg | low dose |\n"
+            "| 100 kg | high dose |\n"
+        )
+        result = _lint_text(text)
+        issues = [i for i in result.issues if i.code == "missing_supported_table_bounds"]
+        self.assertTrue(issues)
+        self.assertTrue(all(i.severity == "ERROR" for i in issues))
+
+    def test_table_lookup_extrapolation_allowed_without_method_is_error(self):
+        text = (
+            "## METADATA\n"
+            "protocol_id: unsafe_extrapolation\n"
+            "protocol_name: Unsafe extrapolation protocol\n"
+            "source_label: UNSAFE EXTRAPOLATION\n"
+            "protocol_type: drug_dosing_protocol\n"
+            "answer_mode: required_slots_then_selected_output\n"
+            "selection_mode: table_lookup\n"
+            "allows_dosing: yes\n"
+            "default_dose_allowed: yes\n"
+            "version: 1.0\n"
+            "last_reviewed: 2024-01-01\n"
+            "owner: test_team\n"
+            "status: draft\n"
+            "\n"
+            "## ALIASES\n"
+            "- unsafe extrapolation test\n"
+            "\n"
+            "## SLOT_SCHEMA\n"
+            "\n"
+            "SLOT: body_weight_kg\n"
+            "  type: number\n"
+            "  unit: kg\n"
+            "  clinical_min: 1\n"
+            "  clinical_max: 300\n"
+            "  extrapolation_allowed: true\n"
+            "\n"
+            "## SELECTION_RULES\n"
+            "\n"
+            "selection_mode: table_lookup\n"
+            "STEP: SELECT_TABLE_ROW\n"
+            "  AXIS_SLOT: body_weight_kg\n"
+            "\n"
+            "## SELECTED_OUTPUTS\n"
+            "\n"
+            "### TABLE\n"
+            "type: dosing_table\n"
+            "| Weight | Practical dose |\n"
+            "|---|---|\n"
+            "| 40 kg | low dose |\n"
+            "| 100 kg | high dose |\n"
+        )
+        result = _lint_text(text)
+        issues = [i for i in result.issues if i.code == "unsafe_table_extrapolation_policy"]
+        self.assertTrue(issues)
+        self.assertTrue(all(i.severity == "ERROR" for i in issues))
+
+    def test_generic_table_lookup_valid_bounds_gets_review_response(self):
+        import protocol_parser as pp
+        import selection_engine as se
+
+        text = (
+            "## METADATA\n"
+            "protocol_id: valid_generic_table\n"
+            "protocol_name: Valid generic table protocol\n"
+            "source_label: VALID GENERIC TABLE\n"
+            "protocol_type: drug_dosing_protocol\n"
+            "answer_mode: required_slots_then_selected_output\n"
+            "selection_mode: table_lookup\n"
+            "allows_dosing: yes\n"
+            "default_dose_allowed: yes\n"
+            "version: 1.0\n"
+            "last_reviewed: 2024-01-01\n"
+            "owner: test_team\n"
+            "status: draft\n"
+            "\n"
+            "## ALIASES\n"
+            "- valid generic table test\n"
+            "\n"
+            "## SLOT_SCHEMA\n"
+            "\n"
+            "SLOT: body_weight_kg\n"
+            "  type: number\n"
+            "  unit: kg\n"
+            "  clinical_min: 1\n"
+            "  clinical_max: 300\n"
+            "  supported_min: 40\n"
+            "  supported_max: 100\n"
+            "\n"
+            "## SELECTION_RULES\n"
+            "\n"
+            "selection_mode: table_lookup\n"
+            "STEP: SELECT_TABLE\n"
+            "  TABLE_KEY: TABLE\n"
+            "STEP: SELECT_TABLE_ROW\n"
+            "  AXIS_SLOT: body_weight_kg\n"
+            "\n"
+            "## SELECTED_OUTPUTS\n"
+            "\n"
+            "### TABLE\n"
+            "type: dosing_table\n"
+            "target: 10 mg/kg/day\n"
+            "| Weight | Practical dose |\n"
+            "|---|---|\n"
+            "| 40 kg | low dose |\n"
+            "| 100 kg | high dose |\n"
+        )
+        parsed = pp._parse_protocol_text(text)
+        result = se.run_selection(parsed, {"body_weight_kg": 150.0})
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        lower = rendered.lower()
+        self.assertEqual(result.output_key, "TABLE")
+        self.assertIn("outside the explicit protocol table range", lower)
+        self.assertIn("automatic dose escalation is not supported", lower)
+        self.assertIn("100 kg row", lower)
+        self.assertIn("high dose", lower)
+        self.assertIn("10 mg/kg/day", lower)
+
+
 class TestLinterOnRealFiles(unittest.TestCase):
 
     PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
@@ -619,12 +1058,12 @@ class TestLinterOnRealFiles(unittest.TestCase):
         crashes = [i for i in result.issues if i.code == "parse_crash"]
         self.assertEqual(crashes, [], f"Parser crashed: {crashes}")
 
-    def test_meropenem_invalid_answer_mode_flagged(self):
+    def test_meropenem_answer_mode_is_current(self):
         result = self._run()
         issues = [i for i in result.issues
                   if i.code == "invalid_answer_mode" and "meropenem" in i.protocol]
-        self.assertTrue(len(issues) > 0,
-                        "Expected invalid_answer_mode warning for meropenem.txt")
+        self.assertEqual(issues, [],
+                         f"meropenem.txt should not use retired answer modes: {issues}")
 
     def test_broad_alias_detected_in_library(self):
         result = self._run()
@@ -636,6 +1075,20 @@ class TestLinterOnRealFiles(unittest.TestCase):
         result = self._run()
         gov = [i for i in result.issues if i.code == "missing_governance"]
         self.assertEqual(gov, [], f"Unexpected missing_governance warnings: {gov}")
+
+    def test_real_protocols_pass_slot_schema_safety_checks(self):
+        result = self._run()
+        slot_schema_codes = {
+            "missing_slot_schema",
+            "missing_numeric_slot_bounds",
+            "invalid_numeric_slot_bounds",
+            "missing_supported_table_bounds",
+            "invalid_supported_table_bounds",
+            "undeclared_numeric_selection_slot",
+            "unsafe_table_extrapolation_policy",
+        }
+        issues = [i for i in result.issues if i.code in slot_schema_codes]
+        self.assertEqual(issues, [], f"Unexpected SLOT_SCHEMA lint issues: {issues}")
 
 
 
@@ -1080,6 +1533,15 @@ class TestTMPSMXTableLookup(unittest.TestCase):
         result = se.run_selection(parsed, slots)
         self.assertEqual(result.output_key, "GFR_LT_15_WITHOUT_CRRT")
 
+    def test_implausible_numeric_slot_asks_confirmation_before_dosing(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {"indication": "stenotrophomonas bsi", "body_weight_kg": 60.0, "gfr": 900.0}
+        result = se.run_selection(parsed, slots)
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        self.assertEqual(result.output_key, "SLOT_OUT_OF_CLINICAL_BOUNDS")
+        self.assertIn("outside the expected clinical bounds", rendered)
+        self.assertIn("Please confirm or correct", rendered)
+
 
 class TestBioFireOrganismMapping(unittest.TestCase):
 
@@ -1223,6 +1685,7 @@ class TestSession13AliasCleanup(unittest.TestCase):
         self._old_aliases = dict(bot.ALIASES)
         self._old_alias_index = dict(bot.ALIAS_INDEX)
         self._old_blocked_aliases = set(bot.BLOCKED_ALIASES)
+        self._old_unsupported_syndromes = dict(bot.UNSUPPORTED_SYNDROMES)
         self._old_file_labels = dict(bot.PROTOCOL_FILE_TO_LABEL)
         bot.load_aliases(os.path.join("protocols", "aliases.json"))
 
@@ -1230,6 +1693,7 @@ class TestSession13AliasCleanup(unittest.TestCase):
         bot.ALIASES = self._old_aliases
         bot.ALIAS_INDEX = self._old_alias_index
         bot.BLOCKED_ALIASES = self._old_blocked_aliases
+        bot.UNSUPPORTED_SYNDROMES = self._old_unsupported_syndromes
         bot.PROTOCOL_FILE_TO_LABEL = self._old_file_labels
 
     def _recognized_file(self, query):
@@ -1271,6 +1735,27 @@ class TestSession13AliasCleanup(unittest.TestCase):
                     bot.normalize_path("protocols/pneumonia_pcr.txt"),
                 )
 
+    def test_unsupported_policy_hit_exposes_key_term_and_message(self):
+        hit = bot._detect_unsupported_policy("what ab for ventilator associated pneumonia?")
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit["key"], "vap")
+        self.assertEqual(hit["matched_term"], "ventilator associated pneumonia")
+        self.assertIn("VAP antibiotic selection", hit["message"])
+
+    def test_legacy_blocked_alias_still_works_without_policy(self):
+        import aliases as alias_helpers
+
+        hit = alias_helpers._detect_unsupported_policy(
+            "legacy syndrome antibiotic?",
+            unsupported_policies={},
+            blocked_aliases={"legacy syndrome"},
+            rapidfuzz_available=False,
+        )
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit["key"], "legacy syndrome")
+        self.assertEqual(hit["matched_term"], "legacy syndrome")
+        self.assertIn("LEGACY SYNDROME antibiotic selection", hit["message"])
+
 
 # ---------------------------------------------------------------------------
 # Routing Regression Tests: deterministic routing before production changes
@@ -1286,12 +1771,225 @@ def _routing_fake_chat_response(text):
     )
 
 
-class TestRoutingRegressionFailures(unittest.TestCase):
-    """Regression coverage for current routing/debug failures.
+GOLDEN_ROUTING_CASES = [
+    {
+        "name": "meropenem_gfr_45_atlagos",
+        "input_turns": ["meropenem dose GFR 45"],
+        "expected_protocol_file": "protocols/meropenem.txt",
+        "expected_protocol_id": "meropenem",
+        "expected_selected_output_key": "ATLAGOS",
+        "expected_slots": {"gfr": 45.0},
+        "expected_deterministic_or_llm": "deterministic_selection",
+        "expected_llm_called": False,
+        "expected_source_label": "meropenem",
+        "expected_unsupported_syndrome": None,
+        "expected_unsupported_action": None,
+        "expected_answer_fragments": [
+            "Meropenem - renal base tier: STANDARD",
+            "3 g/day",
+            "Source: meropenem",
+        ],
+        "forbidden_answer_fragments": ["No uploaded protocol supports"],
+    },
+    {
+        "name": "meropenem_then_gfr_30_carried_context",
+        "input_turns": ["meropenem", "GFR 30"],
+        "expected_protocol_file": "protocols/meropenem.txt",
+        "expected_protocol_id": "meropenem",
+        "expected_selected_output_key": "ATLAGOS",
+        "expected_slots": {"gfr": 30.0},
+        "expected_deterministic_or_llm": "deterministic_selection",
+        "expected_llm_called": False,
+        "expected_source_label": "meropenem",
+        "expected_unsupported_syndrome": None,
+        "expected_unsupported_action": None,
+        "expected_answer_fragments": [
+            "Meropenem - renal base tier: STANDARD",
+            "3 g/day",
+            "Source: meropenem",
+        ],
+        "forbidden_answer_fragments": ["No uploaded protocol supports"],
+    },
+    {
+        "name": "vap_only_unsupported_no_antibiotic_recommendation",
+        "input_turns": ["VAP antibiotic?"],
+        "expected_protocol_file": None,
+        "expected_protocol_id": None,
+        "expected_selected_output_key": None,
+        "expected_slots": {},
+        "expected_deterministic_or_llm": "deterministic_policy",
+        "expected_llm_called": False,
+        "expected_source_label": None,
+        "expected_unsupported_syndrome": "vap",
+        "expected_unsupported_action": "blocked",
+        "expected_answer_fragments": [
+            "No uploaded protocol supports VAP antibiotic selection",
+            "cannot recommend antibiotics",
+        ],
+        "forbidden_answer_fragments": ["ceftriaxone", "meropenem"],
+    },
+    {
+        "name": "hap_only_unsupported_no_antibiotic_recommendation",
+        "input_turns": ["HAP antibiotic?"],
+        "expected_protocol_file": None,
+        "expected_protocol_id": None,
+        "expected_selected_output_key": None,
+        "expected_slots": {},
+        "expected_deterministic_or_llm": "deterministic_policy",
+        "expected_llm_called": False,
+        "expected_source_label": None,
+        "expected_unsupported_syndrome": "hap",
+        "expected_unsupported_action": "blocked",
+        "expected_answer_fragments": [
+            "No uploaded protocol supports HAP antibiotic selection",
+            "cannot recommend antibiotics",
+        ],
+        "forbidden_answer_fragments": ["ceftriaxone", "meropenem"],
+    },
+    {
+        "name": "vap_plus_meropenem_gfr_40_ignores_unsupported",
+        "input_turns": ["VAP patient, meropenem dose GFR 40"],
+        "expected_protocol_file": "protocols/meropenem.txt",
+        "expected_protocol_id": "meropenem",
+        "expected_selected_output_key": "ATLAGOS",
+        "expected_slots": {"gfr": 40.0},
+        "expected_deterministic_or_llm": "deterministic_selection",
+        "expected_llm_called": False,
+        "expected_source_label": "meropenem",
+        "expected_unsupported_syndrome": "vap",
+        "expected_unsupported_action": "ignored_explicit_drug",
+        "expected_answer_fragments": [
+            "Meropenem - renal base tier: STANDARD",
+            "3 g/day",
+            "Source: meropenem",
+        ],
+        "forbidden_answer_fragments": ["No uploaded protocol supports"],
+    },
+    {
+        "name": "biofire_clear_previous_pathogens_no_old_gene_retention",
+        "input_turns": [
+            "BioFire result pneumococcus CTX-M",
+            "clear previous pathogens",
+            "BioFire result pseudomonas",
+        ],
+        "expected_protocol_file": "protocols/pneumonia_pcr.txt",
+        "expected_protocol_id": "biofire_pneumonia",
+        "expected_selected_output_key": "TIER_2_CEFEPIME",
+        "expected_slots": {"pathogen_list": ["pseudomonas aeruginosa"]},
+        "expected_deterministic_or_llm": "deterministic_selection",
+        "expected_llm_called": False,
+        "expected_source_label": "BioFire",
+        "expected_unsupported_syndrome": None,
+        "expected_unsupported_action": None,
+        "expected_answer_fragments": [
+            "pseudomonas aeruginosa",
+            "Tier 2 - cefepime",
+            "Source: BioFire",
+        ],
+        "forbidden_answer_fragments": [
+            "streptococcus pneumoniae",
+            "ctx-m",
+            "ceftriaxone",
+            "ertapenem",
+        ],
+        "forbidden_slot_values": {
+            "pathogen_list": ["streptococcus pneumoniae"],
+            "resistance_gene_list": ["ctx_m"],
+        },
+    },
+    {
+        "name": "tmpsmx_weight_correction_to_150kg_review_reference_row",
+        "input_turns": [
+            "TMP/SMX Steno BSI 70 kg GFR 60",
+            "not 70kg but 150kg",
+        ],
+        "expected_protocol_file": "protocols/tmpsmx.txt",
+        "expected_protocol_id": "tmpsmx",
+        "expected_selected_output_key": "HIGH_DOSE_GFR_GT_30_OR_CRRT",
+        "expected_slots": {
+            "gfr": 60.0,
+            "body_weight_kg": 150.0,
+            "indication": "steno",
+        },
+        "expected_deterministic_or_llm": "deterministic_selection",
+        "expected_llm_called": False,
+        "expected_source_label": "TMP/SMX",
+        "expected_unsupported_syndrome": None,
+        "expected_unsupported_action": None,
+        "expected_answer_fragments": [
+            "outside the explicit protocol table range",
+            "Closest explicit protocol row for reference only: 100 kg row",
+            "not a 150 kg dosing recommendation",
+            "3 x 6 amp",
+            "Source: TMP/SMX",
+        ],
+        "forbidden_answer_fragments": ["70 kg row", "not a 70 kg dosing recommendation"],
+    },
+    {
+        "name": "casual_out_of_scope_without_active_protocol_no_clinical_protocol",
+        "input_turns": ["hi"],
+        "expected_protocol_file": None,
+        "expected_protocol_id": None,
+        "expected_selected_output_key": None,
+        "expected_slots": {},
+        "expected_deterministic_or_llm": "deterministic_policy",
+        "expected_llm_called": False,
+        "expected_source_label": None,
+        "expected_unsupported_syndrome": None,
+        "expected_unsupported_action": None,
+        "expected_answer_fragments": [
+            "No active clinical protocol is selected",
+            "does not match an uploaded clinical protocol",
+        ],
+        "forbidden_answer_fragments": ["Source:", "ceftriaxone", "meropenem"],
+    },
+    {
+        "name": "casual_out_of_scope_with_active_protocol_confirmation_prompt",
+        "input_turns": ["meropenem GFR 45", "how are you?"],
+        "expected_protocol_file": "protocols/meropenem.txt",
+        "expected_protocol_id": "meropenem",
+        "expected_selected_output_key": None,
+        "expected_slots": {"gfr": 45.0},
+        "expected_deterministic_or_llm": "deterministic_confirmation",
+        "expected_llm_called": False,
+        "expected_source_label": "meropenem",
+        "expected_unsupported_syndrome": None,
+        "expected_unsupported_action": None,
+        "expected_answer_fragments": [
+            "not sure this message belongs",
+            "Reply yes",
+            "Source: meropenem",
+        ],
+        "forbidden_answer_fragments": ["No active clinical protocol is selected"],
+    },
+    {
+        "name": "immunosuppressed_pneumonia_unsupported_without_explicit_protocol",
+        "input_turns": ["immunosuppressed pneumonia what antibiotic?"],
+        "expected_protocol_file": None,
+        "expected_protocol_id": None,
+        "expected_selected_output_key": None,
+        "expected_slots": {},
+        "expected_deterministic_or_llm": "deterministic_policy",
+        "expected_llm_called": False,
+        "expected_source_label": None,
+        "expected_unsupported_syndrome": "immunosuppressed pneumonia",
+        "expected_unsupported_action": "blocked",
+        "expected_answer_fragments": [
+            "No uploaded protocol supports IMMUNOSUPPRESSED PNEUMONIA",
+            "cannot recommend antibiotics",
+        ],
+        "forbidden_answer_fragments": [
+            "ceftriaxone",
+            "clarithromycin",
+            "amoxicillin",
+            "Source: CAP",
+        ],
+    },
+]
 
-    These tests intentionally exercise the user-facing dispatcher where
-    possible. Some are expected to fail until routing logic is corrected.
-    """
+
+class TestGoldenRoutingCases(unittest.TestCase):
+    """Data-driven golden cases for clinical routing and deterministic output."""
 
     PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
 
@@ -1305,6 +2003,7 @@ class TestRoutingRegressionFailures(unittest.TestCase):
         self._old_aliases = dict(b.ALIASES)
         self._old_alias_index = dict(b.ALIAS_INDEX)
         self._old_blocked_aliases = set(b.BLOCKED_ALIASES)
+        self._old_unsupported_syndromes = dict(b.UNSUPPORTED_SYNDROMES)
         self._old_file_labels = dict(b.PROTOCOL_FILE_TO_LABEL)
         self._old_state = dict(b.CONVERSATION_STATE)
 
@@ -1316,6 +2015,144 @@ class TestRoutingRegressionFailures(unittest.TestCase):
             "tmpsmx.txt",
             "pneumonia_pcr.txt",
             "cap.txt",
+            "vancomycin.txt",
+        ]:
+            rel_path = os.path.join("protocols", filename)
+            abs_path = os.path.join(self.PROTO_DIR, filename)
+            with open(abs_path, encoding="utf-8") as f:
+                text = f.read()
+            b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(rel_path)] = pp._parse_protocol_text(
+                text, path=rel_path
+            )
+            b.PROTOCOL_POLICY_BY_FILE[b.normalize_path(rel_path)] = pp.extract_policy_header(text)
+        b.load_aliases(os.path.join("protocols", "aliases.json"))
+
+    def tearDown(self):
+        b = self.b
+        b.PROTOCOL_PARSED_BY_FILE.clear()
+        b.PROTOCOL_PARSED_BY_FILE.update(self._old_parsed)
+        b.PROTOCOL_POLICY_BY_FILE.clear()
+        b.PROTOCOL_POLICY_BY_FILE.update(self._old_policy)
+        b.ALIASES = self._old_aliases
+        b.ALIAS_INDEX = self._old_alias_index
+        b.BLOCKED_ALIASES = self._old_blocked_aliases
+        b.UNSUPPORTED_SYNDROMES = self._old_unsupported_syndromes
+        b.PROTOCOL_FILE_TO_LABEL = self._old_file_labels
+        b.CONVERSATION_STATE.clear()
+        b.CONVERSATION_STATE.update(self._old_state)
+
+    def _chat_id(self, case):
+        return f"golden_{case['name']}_{id(self)}"
+
+    def _assert_slot_subset(self, actual_slots, expected_slots):
+        for key, expected_value in expected_slots.items():
+            self.assertIn(key, actual_slots, f"Expected slot {key!r} in {actual_slots}")
+            self.assertEqual(actual_slots[key], expected_value)
+
+    def _assert_forbidden_slot_values_absent(self, actual_slots, forbidden):
+        for key, forbidden_values in forbidden.items():
+            actual = actual_slots.get(key, [])
+            if not isinstance(actual, (list, tuple, set)):
+                actual = [actual]
+            for forbidden_value in forbidden_values:
+                self.assertNotIn(forbidden_value, actual)
+
+    def _run_golden_case(self, case):
+        chat_id = self._chat_id(case)
+        fake_llm = _routing_fake_chat_response("MOCK LLM RESPONSE SHOULD NOT BE USED")
+
+        search_patch = patch.object(
+            self.b,
+            "search_protocols",
+            side_effect=AssertionError("RAG should not run for this golden deterministic case"),
+        )
+        llm_patch = patch.object(
+            self.b.openai_client.chat.completions,
+            "create",
+            side_effect=AssertionError("OpenAI should not run for this golden deterministic case"),
+        )
+        if case["expected_llm_called"]:
+            search_patch = patch.object(self.b, "search_protocols", return_value=[])
+            llm_patch = patch.object(self.b.openai_client.chat.completions, "create", return_value=fake_llm)
+
+        with search_patch as search_mock, llm_patch as llm_mock, patch.object(self.b, "_log_query") as log_mock:
+            answer = None
+            for turn in case["input_turns"]:
+                answer = self.b.ask_ai(turn, chat_id)
+
+        self.assertIsNotNone(log_mock.call_args, "Golden case did not produce an audit log entry")
+        trace = log_mock.call_args.kwargs["trace"]
+        state = self.b.get_chat_state(chat_id)
+        answer_lower = (answer or "").lower()
+
+        expected_file = case["expected_protocol_file"]
+        if expected_file is None:
+            self.assertIsNone(trace.get("selected_protocol_file"))
+        else:
+            self.assertEqual(
+                self.b.normalize_path(trace.get("selected_protocol_file")),
+                self.b.normalize_path(expected_file),
+            )
+        self.assertEqual(trace.get("selected_protocol_id"), case["expected_protocol_id"])
+        self.assertEqual(trace.get("selection_output_key"), case["expected_selected_output_key"])
+        self.assertEqual(trace.get("deterministic_or_llm"), case["expected_deterministic_or_llm"])
+        self.assertEqual(trace.get("llm_called"), case["expected_llm_called"])
+        self.assertEqual(trace.get("source_label"), case["expected_source_label"])
+        self.assertEqual(trace.get("unsupported_syndrome"), case["expected_unsupported_syndrome"])
+        self.assertEqual(trace.get("unsupported_action"), case["expected_unsupported_action"])
+
+        self._assert_slot_subset(state.get("collected_slots", {}), case["expected_slots"])
+        self._assert_forbidden_slot_values_absent(
+            state.get("collected_slots", {}),
+            case.get("forbidden_slot_values", {}),
+        )
+
+        for fragment in case["expected_answer_fragments"]:
+            self.assertIn(fragment.lower(), answer_lower)
+        for fragment in case["forbidden_answer_fragments"]:
+            self.assertNotIn(fragment.lower(), answer_lower)
+
+        if case["expected_llm_called"]:
+            self.assertGreater(llm_mock.call_count, 0)
+        else:
+            self.assertEqual(getattr(llm_mock, "call_count", 0), 0)
+            self.assertEqual(getattr(search_mock, "call_count", 0), 0)
+
+    def test_golden_routing_cases(self):
+        for case in GOLDEN_ROUTING_CASES:
+            with self.subTest(case=case["name"]):
+                self.b.CONVERSATION_STATE.pop(self._chat_id(case), None)
+                self._run_golden_case(case)
+
+
+class TestRoutingRegressionGuardrails(unittest.TestCase):
+    """Regression coverage for routing, traceability, and safety guardrails."""
+
+    PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
+
+    def setUp(self):
+        import protocol_parser as pp
+        import telegram_bot as b
+
+        self.b = b
+        self._old_parsed = dict(b.PROTOCOL_PARSED_BY_FILE)
+        self._old_policy = dict(b.PROTOCOL_POLICY_BY_FILE)
+        self._old_aliases = dict(b.ALIASES)
+        self._old_alias_index = dict(b.ALIAS_INDEX)
+        self._old_blocked_aliases = set(b.BLOCKED_ALIASES)
+        self._old_unsupported_syndromes = dict(b.UNSUPPORTED_SYNDROMES)
+        self._old_file_labels = dict(b.PROTOCOL_FILE_TO_LABEL)
+        self._old_state = dict(b.CONVERSATION_STATE)
+
+        b.PROTOCOL_PARSED_BY_FILE.clear()
+        b.PROTOCOL_POLICY_BY_FILE.clear()
+        b.CONVERSATION_STATE.clear()
+        for filename in [
+            "meropenem.txt",
+            "tmpsmx.txt",
+            "pneumonia_pcr.txt",
+            "cap.txt",
+            "vancomycin.txt",
         ]:
             rel_path = os.path.join("protocols", filename)
             abs_path = os.path.join(self.PROTO_DIR, filename)
@@ -1340,6 +2177,7 @@ class TestRoutingRegressionFailures(unittest.TestCase):
         b.ALIASES = self._old_aliases
         b.ALIAS_INDEX = self._old_alias_index
         b.BLOCKED_ALIASES = self._old_blocked_aliases
+        b.UNSUPPORTED_SYNDROMES = self._old_unsupported_syndromes
         b.PROTOCOL_FILE_TO_LABEL = self._old_file_labels
         b.CONVERSATION_STATE.clear()
         b.CONVERSATION_STATE.update(self._old_state)
@@ -1362,8 +2200,26 @@ class TestRoutingRegressionFailures(unittest.TestCase):
 
     def _ask_without_rag_or_llm(self, question, chat_id):
         rag_patch, llm_patch = self._assert_no_rag_or_llm()
-        with rag_patch, llm_patch:
-            return self.b.ask_ai(question, chat_id)
+        with rag_patch as search_mock, llm_patch as llm_mock:
+            answer = self.b.ask_ai(question, chat_id)
+        self.assertEqual(search_mock.call_count, 0)
+        self.assertEqual(llm_mock.call_count, 0)
+        return answer
+
+    def _last_logged(self):
+        self.assertIsNotNone(self.mock_log.call_args, "Expected an audit log entry")
+        return self.mock_log.call_args.kwargs
+
+    def _last_trace(self):
+        return self._last_logged()["trace"]
+
+    def _assert_trace_selected_protocol(self, trace, protocol_id, protocol_file, source_label):
+        self.assertEqual(trace.get("selected_protocol_id"), protocol_id)
+        self.assertEqual(self.b.normalize_path(trace.get("selected_protocol_file")), protocol_file)
+        self.assertEqual(trace.get("source_label"), source_label)
+
+    def _protocol_slots(self, state, query):
+        return self.b._get_protocol_slots(state, self._recognized_for(query))
 
     def _assert_over_max_weight_returns_review_plus_reference_row(self, parsed, slots, max_table_weight_kg=100.0):
         self.assertGreater(float(slots["body_weight_kg"]), max_table_weight_kg)
@@ -1495,6 +2351,103 @@ class TestRoutingRegressionFailures(unittest.TestCase):
         self.assertIn("steno", state["collected_slots"].get("indication", "").lower())
         self.assertNotEqual(self.b.normalize_path(active["protocol_file"]), "protocols/pneumonia_pcr.txt")
 
+    def test_hungarian_numeric_correction_updates_weight(self):
+        chat_id = self._chat_id("tmpsmx_hu_correction")
+        state = self.b.get_chat_state(chat_id)
+        state["active_recognized"] = self._recognized_for("TMP/SMX")
+
+        self._ask_without_rag_or_llm("TMP/SMX Steno BSI 70 kg GFR 60", chat_id)
+        self._ask_without_rag_or_llm("nem 70kg hanem 150kg", chat_id)
+
+        self.assertEqual(state["collected_slots"].get("body_weight_kg"), 150.0)
+        self.assertEqual(state["collected_slots"].get("gfr"), 60.0)
+
+    def test_gfr_correction_updates_active_protocol_renal_slot(self):
+        chat_id = self._chat_id("gfr_correction")
+        state = self.b.get_chat_state(chat_id)
+        state["active_recognized"] = self._recognized_for("meropenem")
+
+        self._ask_without_rag_or_llm("meropenem dose GFR 70", chat_id)
+        self._ask_without_rag_or_llm("actually GFR 40", chat_id)
+
+        active = state.get("active_recognized")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(state["collected_slots"].get("gfr"), 40.0)
+
+    def test_ml_per_min_correction_updates_active_protocol_gfr(self):
+        chat_id = self._chat_id("ml_min_correction")
+        state = self.b.get_chat_state(chat_id)
+        state["active_recognized"] = self._recognized_for("meropenem")
+
+        self._ask_without_rag_or_llm("meropenem dose GFR 70", chat_id)
+        self._ask_without_rag_or_llm("rather 30 ml/min", chat_id)
+
+        self.assertEqual(state["collected_slots"].get("gfr"), 30.0)
+
+    def test_biofire_clear_previous_result_uses_generic_clear_slot_operation(self):
+        chat_id = self._chat_id("biofire_clear_result")
+        state = self.b.get_chat_state(chat_id)
+        state["active_recognized"] = self._recognized_for("BioFire")
+
+        self._ask_without_rag_or_llm("BioFire result pneumococcus CTX-M", chat_id)
+        self.assertIn("streptococcus pneumoniae", state["collected_slots"].get("pathogen_list", []))
+        self.assertIn("ctx_m", state["collected_slots"].get("resistance_gene_list", []))
+
+        self._ask_without_rag_or_llm("clear previous result", chat_id)
+
+        self.assertNotIn("pathogen_list", state["collected_slots"])
+        self.assertNotIn("resistance_gene_list", state["collected_slots"])
+
+    def test_forget_gfr_removes_active_protocol_gfr(self):
+        chat_id = self._chat_id("forget_gfr")
+        state = self.b.get_chat_state(chat_id)
+        state["active_recognized"] = self._recognized_for("meropenem")
+
+        self._ask_without_rag_or_llm("meropenem dose GFR 70", chat_id)
+        self.assertEqual(state["collected_slots"].get("gfr"), 70.0)
+
+        self._ask_without_rag_or_llm("forget GFR", chat_id)
+
+        self.assertNotIn("gfr", state["collected_slots"])
+        active = state.get("active_recognized")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+
+    def test_correction_does_not_switch_protocol_without_explicit_alias(self):
+        chat_id = self._chat_id("correction_no_switch")
+        state = self.b.get_chat_state(chat_id)
+        state["active_recognized"] = self._recognized_for("TMP/SMX")
+
+        self._ask_without_rag_or_llm("TMP/SMX Steno BSI 70 kg GFR 60", chat_id)
+        self._ask_without_rag_or_llm("actually GFR 40", chat_id)
+
+        active = state.get("active_recognized")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/tmpsmx.txt")
+        self.assertEqual(state["collected_slots"].get("gfr"), 40.0)
+        self.assertEqual(state["collected_slots"].get("body_weight_kg"), 70.0)
+
+    def test_ambiguous_numeric_correction_asks_which_slot(self):
+        chat_id = self._chat_id("ambiguous_correction")
+        state = self.b.get_chat_state(chat_id)
+        state["active_recognized"] = self._recognized_for("TMP/SMX")
+
+        self._ask_without_rag_or_llm("TMP/SMX Steno BSI 70 kg GFR 60", chat_id)
+        answer = self._ask_without_rag_or_llm("actually 80", chat_id)
+
+        self.assertIn("Which slot should I correct", answer)
+        self.assertEqual(state["collected_slots"].get("body_weight_kg"), 70.0)
+        self.assertEqual(state["collected_slots"].get("gfr"), 60.0)
+
+    def test_admin_debug_note_does_not_update_patient_facts(self):
+        chat_id = self._chat_id("debug_note")
+        state = self.b.get_chat_state(chat_id)
+        state["active_recognized"] = self._recognized_for("meropenem")
+
+        self._ask_without_rag_or_llm("meropenem dose GFR 70", chat_id)
+        answer = self._ask_without_rag_or_llm("debug: GFR parser saw 15", chat_id)
+
+        self.assertIn("Admin/debug note ignored", answer)
+        self.assertEqual(state["collected_slots"].get("gfr"), 70.0)
+
     def test_tmpsmx_above_table_weight_returns_review_plus_reference_row(self):
         parsed = _s9_load("tmpsmx.txt")
         slots = {
@@ -1510,6 +2463,91 @@ class TestRoutingRegressionFailures(unittest.TestCase):
                 _, recognized = self.b.normalize_question(query)
                 self.assertIsNone(recognized, f"Out-of-scope text matched a protocol: {recognized}")
 
+    def test_capital_of_paris_full_routing_selects_no_protocol(self):
+        chat_id = self._chat_id("capital_of_paris")
+        answer = self._ask_without_rag_or_llm("capital of paris", chat_id)
+
+        state = self.b.get_chat_state(chat_id)
+        self.assertIsNone(state.get("active_recognized"))
+        self.assertIn("No active clinical protocol is selected", answer)
+        logged = self.mock_log.call_args.kwargs
+        self.assertIsNone(logged["recognized"])
+        trace = logged["trace"]
+        self.assertIsNone(trace.get("selected_protocol_file"))
+        self.assertFalse(trace.get("llm_called"))
+
+    @unittest.skipUnless(bot.RAPIDFUZZ_AVAILABLE, "rapidfuzz not installed")
+    def test_medium_confidence_fuzzy_requires_confirmation_without_clinical_output(self):
+        chat_id = self._chat_id("medium_fuzzy")
+        answer = self._ask_without_rag_or_llm("meropn dose GFR 45", chat_id)
+
+        state = self.b.get_chat_state(chat_id)
+        self.assertIsNone(state.get("active_recognized"))
+        self.assertIsNotNone(state.get("pending_context_confirmation"))
+        self.assertIn("Did you mean meropenem", answer)
+        self.assertNotIn("3 g/day", answer)
+        logged = self.mock_log.call_args.kwargs
+        self.assertIsNone(logged["recognized"])
+        trace = logged["trace"]
+        self.assertTrue(trace.get("confirmation_required"))
+        self.assertIsNone(trace.get("selected_protocol_file"))
+        self.assertEqual(trace.get("deterministic_or_llm"), "deterministic_confirmation")
+        self.assertFalse(trace.get("llm_called"))
+
+    @unittest.skipUnless(bot.RAPIDFUZZ_AVAILABLE, "rapidfuzz not installed")
+    def test_confirmed_medium_confidence_fuzzy_can_then_route(self):
+        chat_id = self._chat_id("confirmed_medium_fuzzy")
+        self._ask_without_rag_or_llm("meropn dose GFR 45", chat_id)
+        self.mock_log.reset_mock()
+
+        answer = self._ask_without_rag_or_llm("yes", chat_id)
+
+        state = self.b.get_chat_state(chat_id)
+        active = state.get("active_recognized")
+        self.assertIsNotNone(active)
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(state["collected_slots"].get("gfr"), 45.0)
+        self.assertIn("Meropenem - renal base tier", answer)
+        self.assertIn("Source: meropenem", answer)
+
+    @unittest.skipUnless(bot.RAPIDFUZZ_AVAILABLE, "rapidfuzz not installed")
+    def test_blocked_respiratory_typos_do_not_fuzzy_route_to_cap(self):
+        chat_id = self._chat_id("blocked_resp_typo")
+        answer = self._ask_without_rag_or_llm("ventilator asociated pneumonia antibiotic", chat_id)
+
+        state = self.b.get_chat_state(chat_id)
+        self.assertIsNone(state.get("active_recognized"))
+        self.assertIn("No uploaded protocol supports VAP", answer)
+        logged = self.mock_log.call_args.kwargs
+        trace = logged["trace"]
+        self.assertEqual(trace.get("unsupported_syndrome"), "vap")
+        self.assertEqual(trace.get("unsupported_key"), "vap")
+        self.assertEqual(trace.get("unsupported_matched_term"), "ventilator associated pneumonia")
+        self.assertEqual(trace.get("unsupported_action"), "blocked")
+        self.assertIsNone(trace.get("selected_protocol_file"))
+
+    @unittest.skipUnless(bot.RAPIDFUZZ_AVAILABLE, "rapidfuzz not installed")
+    def test_explicit_meropenem_typo_with_dosing_context_routes_high_confidence(self):
+        chat_id = self._chat_id("high_fuzzy_meropenem")
+        answer = self._ask_without_rag_or_llm("meropnem dose GFR 45", chat_id)
+
+        state = self.b.get_chat_state(chat_id)
+        active = state.get("active_recognized")
+        self.assertIsNotNone(active)
+        self.assertEqual(active.get("confidence"), "high")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(state["collected_slots"].get("gfr"), 45.0)
+        self.assertIn("Meropenem - renal base tier", answer)
+        self.assertIn("Source: meropenem", answer)
+
+    @unittest.skipUnless(bot.RAPIDFUZZ_AVAILABLE, "rapidfuzz not installed")
+    def test_misspelled_clinical_pneumonia_can_match_cap_safely(self):
+        _, recognized = self.b.normalize_question("penumonia outpatient antibiotic")
+
+        self.assertIsNotNone(recognized)
+        self.assertIn(recognized.get("confidence"), {"exact", "high", "medium"})
+        self.assertEqual(self.b.normalize_path(recognized["protocol_file"]), "protocols/cap.txt")
+
     def test_deterministic_short_circuit_has_source_and_is_logged_without_retrieval(self):
         chat_id = self._chat_id("deterministic_logging")
         answer = self._ask_without_rag_or_llm("meropenem GFR 95", chat_id)
@@ -1519,6 +2557,176 @@ class TestRoutingRegressionFailures(unittest.TestCase):
         logged = self.mock_log.call_args.kwargs
         self.assertEqual(self.b.normalize_path(logged["recognized"]["protocol_file"]), "protocols/meropenem.txt")
         self.assertEqual(logged["retrieved_chunks"], [])
+        trace = logged["trace"]
+        self.assertEqual(trace["selected_protocol_id"], "meropenem")
+        self.assertEqual(trace["selection_output_key"], "MAGAS")
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_selection")
+        self.assertFalse(trace["llm_called"])
+        self.assertEqual(trace["slots"]["gfr"], 95.0)
+
+    def test_deterministic_answer_trace_fields_are_complete(self):
+        chat_id = self._chat_id("trace_deterministic")
+        answer = self._ask_without_rag_or_llm("meropenem GFR 95", chat_id)
+
+        logged = self._last_logged()
+        trace = logged["trace"]
+        self._assert_trace_selected_protocol(
+            trace, "meropenem", "protocols/meropenem.txt", "meropenem"
+        )
+        self.assertEqual(logged["retrieved_chunks"], [])
+        self.assertEqual(trace["retrieved_chunks"], [])
+        self.assertEqual(trace["protocol_type"], "drug_dosing_protocol")
+        self.assertEqual(trace["selection_output_key"], "MAGAS")
+        self.assertEqual(trace["selected_output_key"], "MAGAS")
+        self.assertEqual(trace["selection_mode"], "priority_rules")
+        self.assertEqual(trace["missing_slots"], [])
+        self.assertEqual(trace["slots"], {"gfr": 95.0})
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_selection")
+        self.assertFalse(trace["llm_called"])
+        self.assertIsNone(trace["unsupported_syndrome"])
+        self.assertIsNone(trace["unsupported_action"])
+        self.assertIsNone(trace["blocked_reason"])
+        self.assertIn("Meropenem - renal base tier", trace["final_body"])
+        self.assertEqual(trace["final_answer"], answer)
+        self.assertEqual(
+            self.b.normalize_path(trace["active_after"]["protocol_file"]),
+            "protocols/meropenem.txt",
+        )
+        self.assertEqual(trace["turn_context"]["protocol_slots_after"], {"gfr": 95.0})
+
+    def test_unsupported_syndrome_block_trace_fields_are_complete(self):
+        chat_id = self._chat_id("trace_unsupported_block")
+        answer = self._ask_without_rag_or_llm("VAP antibiotic?", chat_id)
+
+        logged = self._last_logged()
+        trace = logged["trace"]
+        self.assertIsNone(logged["recognized"])
+        self.assertEqual(logged["retrieved_chunks"], [])
+        self.assertIsNone(trace["selected_protocol_id"])
+        self.assertIsNone(trace["selected_protocol_file"])
+        self.assertIsNone(trace["selection_output_key"])
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_policy")
+        self.assertFalse(trace["llm_called"])
+        self.assertEqual(trace["retrieved_chunks"], [])
+        self.assertEqual(trace["unsupported_syndrome"], "vap")
+        self.assertEqual(trace["unsupported_key"], "vap")
+        self.assertEqual(trace["unsupported_matched_term"], "vap")
+        self.assertEqual(trace["unsupported_action"], "blocked")
+        self.assertEqual(trace["blocked_reason"], "unsupported_syndrome")
+        self.assertEqual(trace["turn_context"]["unsupported_syndrome"], "vap")
+        self.assertEqual(trace["turn_context"]["selected_recognized"], None)
+        self.assertEqual(trace["final_answer"], answer)
+        self.assertIn("No uploaded protocol supports VAP", answer)
+
+    def test_explicit_drug_overrides_unsupported_syndrome_trace_fields(self):
+        chat_id = self._chat_id("trace_explicit_drug_overrides_vap")
+        answer = self._ask_without_rag_or_llm("GFR 40 and VAP, mero dose?", chat_id)
+
+        trace = self._last_trace()
+        self._assert_trace_selected_protocol(
+            trace, "meropenem", "protocols/meropenem.txt", "meropenem"
+        )
+        self.assertEqual(trace["selection_output_key"], "ATLAGOS")
+        self.assertEqual(trace["selection_mode"], "priority_rules")
+        self.assertEqual(trace["slots"]["gfr"], 40.0)
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_selection")
+        self.assertFalse(trace["llm_called"])
+        self.assertEqual(trace["unsupported_syndrome"], "vap")
+        self.assertEqual(trace["unsupported_key"], "vap")
+        self.assertEqual(trace["unsupported_matched_term"], "vap")
+        self.assertEqual(trace["unsupported_action"], "ignored_explicit_drug")
+        self.assertIsNone(trace["blocked_reason"])
+        self.assertEqual(trace["turn_context"]["unsupported_syndrome"], "vap")
+        self.assertEqual(trace["turn_context"]["protocol_slots_after"]["gfr"], 40.0)
+        self.assertIn("Source: meropenem", answer)
+        self.assertNotIn("No uploaded protocol supports", answer)
+
+    def test_deterministic_missing_and_out_of_bounds_cases_do_not_call_rag_or_llm(self):
+        cases = [
+            {
+                "name": "missing_weight",
+                "query": "TMP/SMX Steno BSI GFR 60",
+                "expected_output": "default",
+                "expected_missing": ["body_weight_kg"],
+                "expected_fragments": ["Missing: body_weight_kg", "Source: TMP/SMX"],
+            },
+            {
+                "name": "out_of_bounds_weight",
+                "query": "TMP/SMX Steno BSI 150 kg GFR 60",
+                "expected_output": "HIGH_DOSE_GFR_GT_30_OR_CRRT",
+                "expected_missing": [],
+                "expected_fragments": [
+                    "outside the explicit protocol table range",
+                    "not a 150 kg dosing recommendation",
+                    "Source: TMP/SMX",
+                ],
+            },
+        ]
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                chat_id = self._chat_id(case["name"])
+                self.mock_log.reset_mock()
+
+                answer = self._ask_without_rag_or_llm(case["query"], chat_id)
+
+                trace = self._last_trace()
+                self._assert_trace_selected_protocol(
+                    trace, "tmpsmx", "protocols/tmpsmx.txt", "TMP/SMX"
+                )
+                self.assertEqual(trace["deterministic_or_llm"], "deterministic_selection")
+                self.assertFalse(trace["llm_called"])
+                self.assertEqual(trace["retrieved_chunks"], [])
+                self.assertEqual(trace["selection_mode"], "table_lookup")
+                self.assertEqual(trace["selection_output_key"], case["expected_output"])
+                self.assertEqual(trace["missing_slots"], case["expected_missing"])
+                for fragment in case["expected_fragments"]:
+                    self.assertIn(fragment, answer)
+
+    def test_conversation_confirmation_yes_and_no_flows_are_deterministic(self):
+        no_chat_id = self._chat_id("confirmation_no")
+        self._ask_without_rag_or_llm("meropenem GFR 45", no_chat_id)
+        self.mock_log.reset_mock()
+
+        prompt = self._ask_without_rag_or_llm("how are you?", no_chat_id)
+        prompt_trace = self._last_trace()
+        self.assertIn("Reply yes", prompt)
+        self.assertEqual(prompt_trace["deterministic_or_llm"], "deterministic_confirmation")
+        self.assertTrue(prompt_trace["confirmation_required"])
+        self.assertEqual(prompt_trace["blocked_reason"], "unclear_followup")
+        self.assertIsNotNone(
+            self.b.get_chat_state(no_chat_id).get("pending_context_confirmation")
+        )
+
+        self.mock_log.reset_mock()
+        no_answer = self._ask_without_rag_or_llm("no", no_chat_id)
+        no_trace = self._last_trace()
+        self.assertIn("will not apply", no_answer)
+        self.assertEqual(no_trace["deterministic_or_llm"], "deterministic_confirmation")
+        self.assertFalse(no_trace["llm_called"])
+        self.assertEqual(no_trace["blocked_reason"], "context_confirmation_no")
+        self.assertTrue(no_trace["confirmation_pending"])
+        self.assertIsNone(
+            self.b.get_chat_state(no_chat_id).get("pending_context_confirmation")
+        )
+
+        yes_chat_id = self._chat_id("confirmation_yes")
+        self._ask_without_rag_or_llm("meropenem GFR 45", yes_chat_id)
+        self._ask_without_rag_or_llm("how are you?", yes_chat_id)
+        self.mock_log.reset_mock()
+
+        yes_answer = self._ask_without_rag_or_llm("yes", yes_chat_id)
+        yes_trace = self._last_trace()
+        self.assertIn("Meropenem - renal base tier", yes_answer)
+        self._assert_trace_selected_protocol(
+            yes_trace, "meropenem", "protocols/meropenem.txt", "meropenem"
+        )
+        self.assertEqual(yes_trace["deterministic_or_llm"], "deterministic_selection")
+        self.assertFalse(yes_trace["llm_called"])
+        self.assertTrue(yes_trace["confirmation_pending"])
+        self.assertEqual(yes_trace["slots"], {"gfr": 45.0})
+        self.assertIsNone(
+            self.b.get_chat_state(yes_chat_id).get("pending_context_confirmation")
+        )
 
     def test_no_match_out_of_scope_does_not_claim_selected_protocol(self):
         chat_id = self._chat_id("out_of_scope")
@@ -1534,6 +2742,151 @@ class TestRoutingRegressionFailures(unittest.TestCase):
         self.assertIn("Selected protocol: none", debug)
         self.assertIn("Matched alias: none", debug)
         self.assertIn("Deterministic/LLM source: LLM-generated RAG path", debug)
+
+    def test_debug_trace_shows_unsupported_syndrome_block(self):
+        chat_id = self._chat_id("debug_vap")
+        with patch.object(self.b, "search_protocols", return_value=[]):
+            debug = self.b.build_debug_trace("what ab for VAP?", chat_id)
+        self.assertIn("Selected protocol: none", debug)
+        self.assertIn("Unsupported syndrome: vap", debug)
+        self.assertIn("Unsupported key: vap", debug)
+        self.assertIn("Unsupported matched term: vap", debug)
+        self.assertIn("Unsupported action: blocked", debug)
+        self.assertIn("LLM called: false", debug)
+
+    def test_debug_trace_shows_unsupported_syndrome_ignored_for_explicit_drug(self):
+        chat_id = self._chat_id("debug_vap_meropenem")
+        self._install_protocol_for_debug("meropenem.txt")
+        with patch.object(self.b, "search_protocols", return_value=[]):
+            debug = self.b.build_debug_trace("mero dose for VAP GFR 40", chat_id)
+        self.assertIn("Selected protocol: meropenem", debug)
+        self.assertIn("Unsupported syndrome: vap", debug)
+        self.assertIn("Unsupported key: vap", debug)
+        self.assertIn("Unsupported matched term: vap", debug)
+        self.assertIn("Unsupported action: ignored_explicit_drug", debug)
+        self.assertIn("Selection output: ATLAGOS", debug)
+
+    def _install_protocol_for_debug(self, filename):
+        import protocol_parser as pp
+        path = os.path.join("protocols", filename)
+        parsed = pp.parse_protocol_file(os.path.join(self.PROTO_DIR, filename))
+        self.b.PROTOCOL_PARSED_BY_FILE[self.b.normalize_path(path)] = parsed
+        return path, parsed
+
+    def test_unclear_followup_with_active_protocol_asks_confirmation(self):
+        chat_id = self._chat_id("unclear_followup")
+        self._ask_without_rag_or_llm("meropenem GFR 45", chat_id)
+
+        answer = self._ask_without_rag_or_llm("how are you?", chat_id)
+        self.assertIn("not sure this message belongs", answer)
+        self.assertIn("Reply yes", answer)
+        self.assertIsNotNone(self.b.get_chat_state(chat_id).get("pending_context_confirmation"))
+
+        answer = self._ask_without_rag_or_llm("no", chat_id)
+        self.assertIn("will not apply", answer)
+        self.assertIsNone(self.b.get_chat_state(chat_id).get("pending_context_confirmation"))
+
+    def test_biofire_organisms_do_not_affect_drug_protocol_slots(self):
+        chat_id = self._chat_id("biofire_to_drugs")
+        state = self.b.get_chat_state(chat_id)
+
+        self._ask_without_rag_or_llm("BioFire result pneumococcus CTX-M", chat_id)
+        self.assertIn("streptococcus pneumoniae", self._protocol_slots(state, "BioFire").get("pathogen_list", []))
+
+        self._ask_without_rag_or_llm("meropenem dose GFR 40", chat_id)
+        meropenem_slots = self._protocol_slots(state, "meropenem")
+        self.assertEqual(meropenem_slots.get("gfr"), 40.0)
+        self.assertNotIn("pathogen_list", meropenem_slots)
+        self.assertNotIn("resistance_gene_list", meropenem_slots)
+
+        self._ask_without_rag_or_llm("vancomycin dose 70 kg GFR 40", chat_id)
+        vancomycin_slots = self._protocol_slots(state, "vancomycin")
+        self.assertEqual(vancomycin_slots.get("body_weight_kg"), 70.0)
+        self.assertNotIn("pathogen_list", vancomycin_slots)
+        self.assertNotIn("resistance_gene_list", vancomycin_slots)
+
+        self._ask_without_rag_or_llm("TMP/SMX Steno BSI 70 kg GFR 60", chat_id)
+        tmpsmx_slots = self._protocol_slots(state, "TMP/SMX")
+        self.assertEqual(tmpsmx_slots.get("body_weight_kg"), 70.0)
+        self.assertEqual(tmpsmx_slots.get("gfr"), 60.0)
+        self.assertNotIn("pathogen_list", tmpsmx_slots)
+        self.assertNotIn("resistance_gene_list", tmpsmx_slots)
+
+    def test_tmpsmx_weight_and_gfr_do_not_affect_biofire(self):
+        chat_id = self._chat_id("tmpsmx_to_biofire")
+        state = self.b.get_chat_state(chat_id)
+
+        self._ask_without_rag_or_llm("TMP/SMX Steno BSI 70 kg GFR 60", chat_id)
+        self._ask_without_rag_or_llm("BioFire result pseudomonas", chat_id)
+
+        biofire_slots = self._protocol_slots(state, "BioFire")
+        self.assertEqual(biofire_slots.get("pathogen_list"), ["pseudomonas aeruginosa"])
+        self.assertNotIn("body_weight_kg", biofire_slots)
+        self.assertNotIn("gfr", biofire_slots)
+        self.assertNotIn("indication", biofire_slots)
+        self.assertEqual(self._protocol_slots(state, "TMP/SMX").get("body_weight_kg"), 70.0)
+
+    def test_meropenem_to_tmpsmx_switch_starts_tmpsmx_slots_clean(self):
+        chat_id = self._chat_id("mero_to_tmpsmx_clean")
+        state = self.b.get_chat_state(chat_id)
+
+        self._ask_without_rag_or_llm("meropenem dose GFR 70", chat_id)
+        self._ask_without_rag_or_llm("TMP/SMX dose", chat_id)
+
+        tmpsmx_slots = self._protocol_slots(state, "TMP/SMX")
+        self.assertNotIn("gfr", tmpsmx_slots)
+        self.assertNotIn("body_weight_kg", tmpsmx_slots)
+        self.assertEqual(self._protocol_slots(state, "meropenem").get("gfr"), 70.0)
+
+    def test_new_patient_reset_clears_slots_by_protocol(self):
+        chat_id = self._chat_id("reset_slots_by_protocol")
+        state = self.b.get_chat_state(chat_id)
+
+        self._ask_without_rag_or_llm("meropenem dose GFR 70", chat_id)
+        self._ask_without_rag_or_llm("TMP/SMX Steno BSI 70 kg GFR 60", chat_id)
+        self.assertTrue(state.get("slots_by_protocol"))
+
+        self._ask_without_rag_or_llm("new patient", chat_id)
+
+        self.assertEqual(state.get("slots_by_protocol"), {})
+        self.assertEqual(state.get("collected_slots"), {})
+        self.assertIsNone(state.get("active_recognized"))
+
+    def test_debug_trace_shows_active_protocol_slots_only(self):
+        chat_id = self._chat_id("debug_active_slots")
+        state = self.b.get_chat_state(chat_id)
+
+        self._ask_without_rag_or_llm("BioFire result pneumococcus CTX-M", chat_id)
+        self._ask_without_rag_or_llm("meropenem dose GFR 45", chat_id)
+
+        with patch.object(self.b, "search_protocols", return_value=[]):
+            debug = self.b.build_debug_trace("dose", chat_id)
+
+        self.assertIn('Collected slots: {"gfr": 45.0}', debug)
+        self.assertNotIn("pathogen_list", debug)
+        self.assertNotIn("resistance_gene_list", debug)
+
+    def test_links_transfer_only_explicit_target_safe_slots(self):
+        chat_id = self._chat_id("link_transfer_safe")
+        state = self.b.get_chat_state(chat_id)
+        biofire = self._recognized_for("BioFire")
+        state["active_recognized"] = biofire
+        self.b._set_protocol_slots(state, biofire, {
+            "pathogen_list": ["pseudomonas aeruginosa"],
+            "resistance_gene_list": ["carbapenemase"],
+            "gfr": 40.0,
+            "body_weight_kg": 80.0,
+        })
+        state["last_recommended_antibiotics"] = ["meropenem"]
+
+        self._ask_without_rag_or_llm("dose?", chat_id)
+
+        active = state.get("active_recognized")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        meropenem_slots = self._protocol_slots(state, "meropenem")
+        self.assertEqual(meropenem_slots, {"gfr": 40.0})
+        biofire_slots = self._protocol_slots(state, "BioFire")
+        self.assertIn("pathogen_list", biofire_slots)
 
 
 # ---------------------------------------------------------------------------
@@ -1750,6 +3103,68 @@ class TestSession11ModuleSplit(unittest.TestCase):
             self.assertEqual(b.get_chat_state(chat_id)["context_source"], "module_split")
         finally:
             b.CONVERSATION_STATE.pop(chat_id, None)
+
+
+class TestRuntimeFailureBoundaries(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        import telegram_bot as b
+        self.b = b
+        self._old_state = dict(b.CONVERSATION_STATE)
+        self._old_allowed = set(b.ALLOWED_USER_IDS)
+
+    def tearDown(self):
+        b = self.b
+        b.CONVERSATION_STATE.clear()
+        b.CONVERSATION_STATE.update(self._old_state)
+        b.ALLOWED_USER_IDS = self._old_allowed
+
+    def test_openai_chat_failure_returns_safe_error_and_logs(self):
+        fake_chunk = {
+            "source": "protocols/test.txt",
+            "source_label": "Test Protocol",
+            "text": "Clinical protocol context",
+            "similarity": 0.9,
+        }
+        with patch.object(self.b, "search_protocols", return_value=[fake_chunk]), \
+                patch.object(self.b.openai_client.chat.completions, "create",
+                             side_effect=RuntimeError("openai unavailable")), \
+                patch.object(self.b, "_log_query") as log_mock:
+            answer = self.b.ask_ai("clinical protocol question", f"chat_failure_{id(self)}")
+
+        self.assertEqual(answer, self.b.SAFE_RUNTIME_FAILURE_MESSAGE)
+        self.assertTrue(log_mock.called)
+        self.assertTrue(log_mock.call_args.kwargs["trace"]["runtime_error"])
+
+    def test_openai_embedding_failure_returns_safe_error_and_logs(self):
+        with patch.object(self.b, "get_embedding", side_effect=RuntimeError("embedding unavailable")), \
+                patch.object(self.b, "_log_query") as log_mock:
+            answer = self.b.ask_ai("clinical protocol question", f"embedding_failure_{id(self)}")
+
+        self.assertEqual(answer, self.b.SAFE_RUNTIME_FAILURE_MESSAGE)
+        self.assertTrue(log_mock.called)
+        self.assertTrue(log_mock.call_args.kwargs["trace"]["runtime_error"])
+
+    async def test_telegram_reply_failure_is_handled_and_logged(self):
+        b = self.b
+        b.ALLOWED_USER_IDS = {123}
+        message = types.SimpleNamespace(
+            text="clinical question",
+            chat=types.SimpleNamespace(send_action=AsyncMock()),
+            reply_text=AsyncMock(side_effect=RuntimeError("telegram unavailable")),
+        )
+        update = types.SimpleNamespace(
+            message=message,
+            effective_user=types.SimpleNamespace(id=123),
+            effective_chat=types.SimpleNamespace(id=456),
+        )
+
+        with patch.object(b, "ask_ai", return_value="safe answer"), \
+                patch.object(b, "_log_runtime_error") as log_mock:
+            await b.handle_message(update, types.SimpleNamespace())
+
+        message.reply_text.assert_awaited()
+        log_mock.assert_called()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

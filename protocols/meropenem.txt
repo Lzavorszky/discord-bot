@@ -7,7 +7,7 @@ protocol_name: Meropenem continuous infusion ICU protocol
 source_label: meropenem
 canonical_name: meropenem
 protocol_type: drug_dosing_protocol
-answer_mode: default_or_required_slots_then_selected_output
+answer_mode: default_then_selected_output
 selection_mode: priority_rules
 allows_dosing: yes
 dosing_requires_link: no
@@ -81,6 +81,15 @@ optional_modifiers:
 
 forwardable_slots:
 (none)
+
+## SLOT_SCHEMA
+
+SLOT: gfr
+  type: number
+  unit: mL/min
+  clinical_min: 0
+  clinical_max: 250
+  out_of_clinical_policy: ask_confirmation
 
 ## DEFAULT_ANSWER
 

@@ -28,8 +28,14 @@ import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+import aliases as alias_helpers
+import authorization as authorization_helpers
+import logging_audit as audit_helpers
+import retrieval as retrieval_helpers
+import state as state_helpers
 import numpy as np
 from openai import OpenAI
+from routing import AnswerEnvelope, TurnContext
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 
@@ -86,6 +92,19 @@ FULL_CONVERSATION_LOG = (
     LOCAL_DEBUG_MODE
     or os.getenv("FULL_CONVERSATION_LOG", "").strip().lower() in {"1", "true", "yes", "on"}
 )
+SAFE_RUNTIME_FAILURE_MESSAGE = (
+    "I could not safely complete that request because an external service failed. "
+    "Please retry in a moment, and use local clinical review if the decision is urgent."
+)
+_CACHE_DISABLED = False
+
+
+def _env_flag(name):
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _local_debug_enabled():
+    return _env_flag("LOCAL_DEBUG")
 
 # ---------------------------------------------------------------------------
 # Global state
@@ -95,6 +114,7 @@ PROTOCOL_CHUNKS         = []
 ALIASES                 = {}
 ALIAS_INDEX             = {}
 BLOCKED_ALIASES         = set()
+UNSUPPORTED_SYNDROMES   = {}
 PROTOCOL_FILE_TO_LABEL  = {}
 # Always-included gating header per protocol file (ANSWER_POLICY,
 # DEFAULT_QUESTION, REQUIRED_INFORMATION, PATHWAY_PRIORITY).
@@ -114,6 +134,7 @@ SAFETY_RULES        = ""
 # Per-chat conversation state:
 # { chat_id: {"history": [...], "active_recognized": {...} or None} }
 CONVERSATION_STATE = {}
+state_helpers.bind_state(CONVERSATION_STATE)
 
 
 # ---------------------------------------------------------------------------
@@ -129,33 +150,11 @@ CONVERSATION_STATE = {}
 # ---------------------------------------------------------------------------
 
 def _load_allowlist():
-    """Return a set of allowed integer user IDs, or empty set if unrestricted."""
-    raw = os.getenv("ALLOWED_USER_IDS", "").strip()
-    if not raw:
-        return set()
-    ids = set()
-    for part in raw.split(","):
-        part = part.strip()
-        if part.isdigit():
-            ids.add(int(part))
-        else:
-            print(f"[allowlist] WARNING: ignoring non-numeric entry: {part!r}")
-    return ids
+    return authorization_helpers._load_allowlist()
 
 
 def _load_admin_ids():
-    """Return Telegram user IDs allowed to run admin-only commands."""
-    raw = os.getenv("ADMIN_USER_IDS", "").strip()
-    if not raw:
-        return set()
-    ids = set()
-    for part in raw.split(","):
-        part = part.strip()
-        if part.isdigit():
-            ids.add(int(part))
-        else:
-            print(f"[admin] WARNING: ignoring non-numeric entry: {part!r}")
-    return ids
+    return authorization_helpers._load_admin_ids()
 
 
 ALLOWED_USER_IDS: set = set()  # populated at startup
@@ -163,13 +162,25 @@ ADMIN_USER_IDS: set = set()    # populated at startup
 
 
 def _is_allowed(user_id: int) -> bool:
-    """Return True if allowlist is empty (open) or user_id is in it."""
-    return not ALLOWED_USER_IDS or user_id in ALLOWED_USER_IDS
+    return authorization_helpers.is_allowed(user_id, ALLOWED_USER_IDS)
 
 
 def _is_admin(user_id: int) -> bool:
-    """Return True when the user is explicitly listed as a bot admin."""
-    return user_id in ADMIN_USER_IDS
+    return authorization_helpers.is_admin(user_id, ADMIN_USER_IDS)
+
+
+def _should_run_alias_sync_on_startup():
+    return ALIAS_SYNC_AVAILABLE and _local_debug_enabled() and _env_flag("ALIAS_SYNC_ON_STARTUP")
+
+
+def _maybe_run_alias_sync_on_startup():
+    if _should_run_alias_sync_on_startup():
+        print("Syncing aliases...")
+        _alias_sync()
+        return True
+    if ALIAS_SYNC_AVAILABLE:
+        print("[startup] Skipping alias_sync at startup; run it explicitly before deploy.")
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +248,34 @@ def run_startup_checks():
             print(f"[startup] Found {len(real_files)} protocol file(s): "
                   f"{[Path(f).name for f in real_files]}")
 
+        try:
+            from protocol_linter import run_linter
+            lint_result = run_linter(proto_dir="protocols")
+            lint_errors = lint_result.errors()
+            lint_warnings = lint_result.warnings()
+            for issue in lint_errors:
+                errors.append(
+                    f"Protocol linter blocking error: {issue.protocol}: "
+                    f"[{issue.code}] {issue.message}"
+                )
+            if lint_warnings:
+                warnings.append(
+                    f"Protocol linter reported {len(lint_warnings)} warning(s); "
+                    "run 'python -m protocol_linter' for details."
+                )
+        except Exception as exc:
+            errors.append(f"Protocol linter failed during startup validation: {exc}")
+
+    # 6. Production must fail closed. Local debug may run unrestricted.
+    if not os.getenv("ALLOWED_USER_IDS", "").strip():
+        if _local_debug_enabled():
+            warnings.append("!! ALLOWED USERS NOT DEFINED !!")
+        else:
+            errors.append(
+                "ALLOWED_USER_IDS environment variable is not set. "
+                "Set it before running outside LOCAL_DEBUG."
+            )
+
     # Report
     for w in warnings:
         print(f"[startup] WARNING: {w}")
@@ -249,8 +288,6 @@ def run_startup_checks():
         print("=" * 60)
         sys.exit(1)
 
-    if not os.getenv("ALLOWED_USER_IDS", "").strip():
-        print("!! ALLOWED USERS NOT DEFINED !!")
     print(f"[startup] All checks passed.")
 
 
@@ -276,32 +313,8 @@ def run_startup_checks():
 # ---------------------------------------------------------------------------
 
 def setup_logging():
-    """Call once at startup. Full JSON logs go to bot_queries.log (file only).
-    Short human-readable summaries go to stdout so Railway captures them cleanly."""
-    import sys
+    return audit_helpers.setup_logging(LOG_FILE)
 
-    # Root logger for general bot messages — stdout, so Railway shows them without [err]
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
-
-    # Separate structured logger for full JSON audit trail — FILE ONLY.
-    # We do NOT add a StreamHandler here: Railway truncates long JSON lines when
-    # copying/downloading logs, making them appear blank. Use _log_query_stdout()
-    # for a short human-readable summary instead.
-    query_logger = logging.getLogger("query")
-    query_logger.setLevel(logging.INFO)
-    query_logger.propagate = False  # don't double-log to root
-
-    # Rotating file: max 5 MB, keep 3 backups
-    fh = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
-    fh.setFormatter(logging.Formatter("%(message)s"))  # raw JSON only
-    query_logger.addHandler(fh)
-
-    logging.info(f"Logging initialised → {LOG_FILE}")
-    return query_logger
 
 
 # Module-level query logger (populated by setup_logging())
@@ -309,109 +322,98 @@ _query_log = None
 
 
 def _safe_user_message_for_log(user_message):
-    """Avoid PHI/raw prompt logging unless explicit local debug mode is enabled."""
-    if FULL_CONVERSATION_LOG:
-        return user_message
-    return {
-        "redacted": True,
-        "length": len(user_message or ""),
-        "sha256_12": hashlib.sha256((user_message or "").encode("utf-8")).hexdigest()[:12],
-    }
+    return audit_helpers._safe_user_message_for_log(user_message, FULL_CONVERSATION_LOG)
+
 
 
 def _safe_prompt_preview_for_stdout(user_message):
-    if FULL_CONVERSATION_LOG:
-        text = (user_message or "").replace("\n", " ").strip()
-        return text[:117] + "..." if len(text) > 120 else text
-    return "<redacted>"
+    return audit_helpers._safe_prompt_preview_for_stdout(user_message, FULL_CONVERSATION_LOG)
+
 
 
 def _reconstructable_turn_for_stdout(entry):
-    """Return a full raw conversation turn for local debugging stdout logs."""
-    if not FULL_CONVERSATION_LOG:
-        return None
-    return {
-        "event": "conversation_turn",
-        "ts": entry["ts"],
-        "chat_id_hash": entry["chat_id_hash"],
-        "user_message": entry["user_message"],
-        "assistant_message": entry["final"],
-        "raw_llm": entry["raw_llm"],
-        "recognized": entry["recognized"],
-        "retrieved": entry["retrieved"],
-        "duration_ms": entry["duration_ms"],
-    }
+    return audit_helpers._reconstructable_turn_for_stdout(entry, FULL_CONVERSATION_LOG)
+
 
 
 def _log_query(chat_id, user_message, recognized, retrieved_chunks,
-               raw_llm, final_response, duration_ms):
-    """Write full JSON to the audit log file AND a short readable summary to stdout.
+               raw_llm, final_response, duration_ms, trace=None):
+    return audit_helpers._log_query(
+        _query_log,
+        chat_id,
+        user_message,
+        recognized,
+        retrieved_chunks,
+        raw_llm,
+        final_response,
+        duration_ms,
+        trace=trace,
+        full_conversation_log=FULL_CONVERSATION_LOG,
+    )
 
-    The JSON in the file is the full audit record (raw_llm + final included).
-    The stdout summary is intentionally short so Railway log copy/download never
-    truncates it — it's what you read when debugging.
 
-    Summary format example:
-      [Q] a3f2c1 | "Sumetrolim, Steno BSI, 60 kg, GFR 60" → TMP/SMX (exact)
-      [R] TMP/SMX:0.89  TMP/SMX:0.85  TMP/SMX:0.81
-      [A] Stenotrophomonas BSI → high-dose TMP/SMX. GFR 60: no renal adjustment...  [1843ms]
-    """
-    import sys
 
-    # Timezone-aware UTC (datetime.utcnow() is deprecated in Python 3.12+).
+def _runtime_error_payload(component, error, chat_id=None, user_message=None, duration_ms=None):
     import datetime as _dt
-    ts = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
-    chat_hash = hashlib.md5(str(chat_id).encode()).hexdigest()[:8]
-
-    entry = {
-        "ts":            ts,
-        "chat_id_hash":  chat_hash,
-        "user_message":  _safe_user_message_for_log(user_message),
-        "recognized":    {
-            "display":       recognized["display"],
-            "matched_alias": recognized.get("matched_alias", ""),
-            "confidence":    recognized["confidence"],
-            "protocol_file": recognized.get("protocol_file", ""),
-        } if recognized else None,
-        "retrieved": [
-            {"source_label": c["source_label"], "similarity": round(c["similarity"], 4)}
-            for c in retrieved_chunks
-        ],
-        "raw_llm":    raw_llm,
-        "final":      final_response,
-        "duration_ms": duration_ms,
+    payload = {
+        "event": "runtime_error",
+        "component": component,
+        "ts": _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "error_type": type(error).__name__,
+        "error_message": str(error),
     }
+    if chat_id is not None:
+        payload["chat_id_hash"] = hashlib.md5(str(chat_id).encode()).hexdigest()[:8]
+    if user_message is not None:
+        payload["user_message"] = _safe_user_message_for_log(user_message)
+    if duration_ms is not None:
+        payload["duration_ms"] = duration_ms
+    return payload
 
-    # ── Full JSON to file ──────────────────────────────────────────────────
+
+def _log_runtime_error(component, error, chat_id=None, user_message=None, duration_ms=None):
+    payload = _runtime_error_payload(component, error, chat_id, user_message, duration_ms)
+    line = json.dumps(payload, ensure_ascii=False)
+    logging.error(line, exc_info=True)
     if _query_log is not None:
-        _query_log.info(json.dumps(entry, ensure_ascii=False))
+        _query_log.info(line)
 
-    reconstructable_turn = _reconstructable_turn_for_stdout(entry)
-    if reconstructable_turn is not None:
-        print(
-            "[TURN] " + json.dumps(reconstructable_turn, ensure_ascii=False),
-            flush=True,
+
+def _log_safe_runtime_failure(t_start, chat_id, question, error, component):
+    duration_ms = round((time.monotonic() - t_start) * 1000)
+    trace = {
+        "runtime_error": True,
+        "component": component,
+        "error_type": type(error).__name__,
+        "safe_failure": True,
+        "deterministic_or_llm": "runtime_failure",
+        "llm_called": False,
+    }
+    _log_runtime_error(component, error, chat_id, question, duration_ms)
+    try:
+        _log_query(
+            chat_id=chat_id,
+            user_message=question,
+            recognized=None,
+            retrieved_chunks=[],
+            raw_llm="",
+            final_response=SAFE_RUNTIME_FAILURE_MESSAGE,
+            duration_ms=duration_ms,
+            trace=trace,
+        )
+    except Exception as log_error:
+        logging.error(
+            json.dumps(
+                _runtime_error_payload("query_log_failure", log_error, chat_id, question),
+                ensure_ascii=False,
+            ),
+            exc_info=True,
         )
 
-    # ── Short readable summary to stdout (survives Railway log copy) ───────
-    rec_str = (
-        f"{recognized['display']} ({recognized['confidence']})"
-        if recognized else "NO MATCH"
-    )
-    chunks_str = "  ".join(
-        f"{c['source_label']}:{round(c['similarity'], 2)}"
-        for c in retrieved_chunks
-    ) or "none"
 
-    # Truncate the final answer at 120 chars for the summary line
-    answer_preview = (final_response or "").replace("\n", " ").strip()
-    if len(answer_preview) > 120:
-        answer_preview = answer_preview[:117] + "..."
+def _format_trace_for_stdout(trace):
+    return audit_helpers._format_trace_for_stdout(trace)
 
-    prompt_preview = _safe_prompt_preview_for_stdout(user_message)
-    print(f"[Q] {chat_hash} | {prompt_preview!r} → {rec_str}", flush=True)
-    print(f"[R] {chunks_str}", flush=True)
-    print(f"[A] {answer_preview}  [{duration_ms}ms]", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -436,42 +438,27 @@ def load_rule_files():
 
 
 def normalize_path(path):
-    return str(Path(path)).replace("\\", "/").lower()
+    return retrieval_helpers.normalize_path(path)
+
 
 
 def derive_source_label(file_path):
-    stem = Path(file_path).stem.lower()
-    fallback_labels = {
-        "tmpsmx":                          "TMP/SMX",
-        "tmp_smx":                         "TMP/SMX",
-        "ampsul":                          "ampicillin/sulbactam",
-        "ampicillin_sulbactam":            "ampicillin/sulbactam",
-        "amp_sul":                         "ampicillin/sulbactam",
-        "meropenem":                       "meropenem",
-        "cap":                             "CAP",
-        "biofire":                         "BioFire",
-        "pneumonia_pcr":                   "BioFire",
-        "general_rules_antibiotic_dosing": "General antibiotic dosing rules",
-    }
-    return fallback_labels.get(stem, stem.replace("_", " ").title())
+    return retrieval_helpers.derive_source_label(file_path)
+
 
 
 def extract_source_label_from_text(text):
-    for line in text.splitlines()[:20]:
-        match = re.match(r"^\s*source_label\s*:\s*(.+?)\s*$", line, flags=re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-    return None
+    return retrieval_helpers.extract_source_label_from_text(text)
+
 
 
 def get_source_label_for_file(file_path, text):
-    metadata_label = extract_source_label_from_text(text)
-    if metadata_label:
-        return metadata_label
-    normalized = normalize_path(file_path)
-    if normalized in PROTOCOL_FILE_TO_LABEL:
-        return PROTOCOL_FILE_TO_LABEL[normalized]
-    return derive_source_label(file_path)
+    return retrieval_helpers.get_source_label_for_file(
+        file_path,
+        text,
+        protocol_file_to_label=PROTOCOL_FILE_TO_LABEL,
+    )
+
 
 
 # ---------------------------------------------------------------------------
@@ -479,151 +466,73 @@ def get_source_label_for_file(file_path, text):
 # ---------------------------------------------------------------------------
 
 def load_aliases(path="protocols/aliases.json"):
-    global ALIASES, ALIAS_INDEX, BLOCKED_ALIASES, PROTOCOL_FILE_TO_LABEL
-    if not os.path.exists(path):
-        print("No aliases.json found. Alias recognition disabled.")
-        ALIASES = {}
-        ALIAS_INDEX = {}
-        BLOCKED_ALIASES = set()
-        PROTOCOL_FILE_TO_LABEL = {}
-        return
-    with open(path, "r", encoding="utf-8") as f:
-        ALIASES = json.load(f)
-    ALIAS_INDEX, BLOCKED_ALIASES, PROTOCOL_FILE_TO_LABEL = _build_alias_index(ALIASES)
-    print(f"Loaded {len(ALIAS_INDEX)} aliases")
-    if not RAPIDFUZZ_AVAILABLE:
-        print("rapidfuzz not installed — fuzzy matching disabled, exact matching only.")
+    global ALIASES, ALIAS_INDEX, BLOCKED_ALIASES, UNSUPPORTED_SYNDROMES, PROTOCOL_FILE_TO_LABEL
+    alias_helpers.load_aliases(path)
+    ALIASES = alias_helpers.ALIASES
+    ALIAS_INDEX = alias_helpers.ALIAS_INDEX
+    BLOCKED_ALIASES = alias_helpers.BLOCKED_ALIASES
+    UNSUPPORTED_SYNDROMES = alias_helpers.UNSUPPORTED_SYNDROMES
+    PROTOCOL_FILE_TO_LABEL = alias_helpers.PROTOCOL_FILE_TO_LABEL
+
 
 
 def _build_alias_index(alias_data):
-    alias_index = {}
-    blocked_aliases = {
-        term.lower()
-        for term in alias_data.get("blocked_aliases", [])
-        if isinstance(term, str) and term.strip()
-    }
-    protocol_file_to_label = {}
-    for category in ["drugs", "conditions"]:
-        for key, item in alias_data.get(category, {}).items():
-            display       = item.get("display", key)
-            canonical     = item.get("canonical", display)
-            source_label  = item.get("source_label", display)
-            protocol_file = item.get("protocol_file", "")
-            data = {
-                "key": key, "category": category,
-                "display": display, "canonical": canonical,
-                "source_label": source_label, "protocol_file": protocol_file,
-            }
-            if protocol_file:
-                protocol_file_to_label[normalize_path(protocol_file)] = source_label
-            terms = [display, canonical] + item.get("aliases", [])
-            for term in terms:
-                if term:
-                    alias_index[term.lower()] = data
-    return alias_index, blocked_aliases, protocol_file_to_label
+    return alias_helpers._build_alias_index(alias_data, normalize_path_fn=normalize_path)
+
 
 
 def _alias_term_matches(term, text):
-    return re.search(r"\b" + re.escape(term) + r"\b", text) is not None
+    return alias_helpers._alias_term_matches(term, text)
+
 
 
 def normalize_question(question):
-    """
-    Returns (normalized_question, recognized_metadata_or_None).
+    return alias_helpers.normalize_question(
+        question,
+        alias_index=ALIAS_INDEX,
+        blocked_aliases=BLOCKED_ALIASES,
+        unsupported_policies=UNSUPPORTED_SYNDROMES,
+        rapidfuzz_available=RAPIDFUZZ_AVAILABLE,
+        process_module=process if RAPIDFUZZ_AVAILABLE else None,
+        fuzz_module=fuzz if RAPIDFUZZ_AVAILABLE else None,
+    )
 
-    Matching cascade (each step short-circuits on hit):
-      1. Substring exact (longest alias first) — catches all spellings
-         already known in aliases.json.
-      2. Per-word fuzzy — split the query into words ≥5 chars and fuzz each
-         word against the alias index. Isolates the keyword from sentence
-         noise like "mit adjak?", which otherwise drags WRatio below the
-         threshold for typical misspells.
-      3. Whole-text partial_ratio — safety net for compound aliases like
-         "ampicillin sulbactam" that are not a single token.
 
-    Thresholds: HIGH ≥88, MED ≥80. Per-word fuzzy on an isolated word
-    scores typical one-letter misspells around 90, so 88 is the sweet
-    spot — high enough to reject random text, low enough to catch the
-    misspells we care about.
-    """
-    text = question.lower().strip()
-    for blocked_alias in sorted(BLOCKED_ALIASES, key=len, reverse=True):
-        if _alias_term_matches(blocked_alias, text):
-            return question, None
+def _detect_unsupported_policy(question):
+    return alias_helpers._detect_unsupported_policy(
+        question,
+        unsupported_policies=UNSUPPORTED_SYNDROMES,
+        blocked_aliases=BLOCKED_ALIASES,
+        rapidfuzz_available=RAPIDFUZZ_AVAILABLE,
+        process_module=process if RAPIDFUZZ_AVAILABLE else None,
+        fuzz_module=fuzz if RAPIDFUZZ_AVAILABLE else None,
+    )
 
-    if not ALIAS_INDEX:
-        return question, None
 
-    # ── 1. Substring exact — longest alias first to avoid short-alias collisions
-    for alias in sorted(ALIAS_INDEX.keys(), key=len, reverse=True):
-        data = ALIAS_INDEX[alias]
-        matched = _alias_term_matches(alias, text)
-        if matched:
-            normalized_question = (
-                question
-                + f"\n\nRecognized term: {data['display']}"
-                + f"\nCanonical term: {data['canonical']}"
-            )
-            return normalized_question, {
-                **data, "matched_alias": alias,
-                "confidence": "exact", "score": 100,
-            }
 
-    if not RAPIDFUZZ_AVAILABLE:
-        return question, None
+def _detect_unsupported_syndrome(question):
+    return alias_helpers._detect_unsupported_syndrome(
+        question,
+        unsupported_policies=UNSUPPORTED_SYNDROMES,
+        blocked_aliases=BLOCKED_ALIASES,
+    )
 
-    # Only fuzz against aliases ≥5 chars. Short aliases like "cap", "mem",
-    # "hap", "vap" produce noisy partial-string matches against unrelated
-    # words (e.g. partial_ratio("vancomycin", "cap") flagged "vancomycin
-    # dose" as CAP). Short aliases are already handled by step 1's exact
-    # word-boundary substring match — bypassing them here removes a class
-    # of false positives without losing any real match.
-    alias_keys = [a for a in ALIAS_INDEX.keys() if len(a) >= 5]
-    best = {"alias": None, "score": 0, "source": ""}
 
-    # ── 2. Per-word fuzzy — only consider words long enough to be meaningful.
-    # Short tokens like "mit", "a", "re", "is" are filler — fuzzing them
-    # against the alias index produces noisy matches.
-    for word in re.findall(r"\w+", text):
-        if len(word) < 5:
-            continue
-        m = process.extractOne(word, alias_keys, scorer=fuzz.WRatio)
-        if m and m[1] > best["score"]:
-            best = {"alias": m[0], "score": m[1], "source": f"word:{word}"}
 
-    # ── 3. Whole-text partial_ratio — multi-word aliases.
-    m2 = process.extractOne(text, alias_keys, scorer=fuzz.partial_ratio)
-    if m2 and m2[1] > best["score"]:
-        best = {"alias": m2[0], "score": m2[1], "source": "partial_ratio"}
+_OBVIOUS_NONCLINICAL_RE = re.compile(
+    r"^\s*(?:"
+    r"hi|hello|hey|good morning|good afternoon|good evening|"
+    r"how are you\??|thanks?|thank you|ok|okay|"
+    r"what is the capital of .+|capital of .+|"
+    r"tell me a joke|what'?s the weather\??"
+    r")\s*$",
+    re.IGNORECASE,
+)
 
-    if not best["alias"]:
-        return question, None
 
-    alias = best["alias"]
-    score = best["score"]
-    data = ALIAS_INDEX[alias]
+def _is_obvious_nonclinical_message(question):
+    return alias_helpers._is_obvious_nonclinical_message(question)
 
-    if score >= 88:
-        normalized_question = (
-            question
-            + f"\n\nRecognized term: {data['display']}"
-            + f"\nCanonical term: {data['canonical']}"
-        )
-        return normalized_question, {
-            **data, "matched_alias": alias,
-            "confidence": "high", "score": score,
-        }
-    if score >= 80:
-        normalized_question = (
-            question
-            + f"\nPossible recognized term: {data['display']}"
-            + f"\nCanonical term: {data['canonical']}"
-        )
-        return normalized_question, {
-            **data, "matched_alias": alias,
-            "confidence": "medium", "score": score,
-        }
-    return question, None
 
 
 # ---------------------------------------------------------------------------
@@ -639,68 +548,25 @@ def normalize_question(question):
 # ---------------------------------------------------------------------------
 
 def _compute_file_hash(file_path):
-    """MD5 fingerprint of a file's contents. Changes if the file changes."""
-    h = hashlib.md5()
-    with open(file_path, "rb") as f:
-        h.update(f.read())
-    return h.hexdigest()
+    return retrieval_helpers._compute_file_hash(file_path)
+
 
 
 def _init_cache_db():
-    """Create the cache table if it doesn't exist yet."""
-    con = sqlite3.connect(CACHE_DB)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS embedding_cache (
-            file_hash    TEXT PRIMARY KEY,
-            source       TEXT NOT NULL,
-            source_label TEXT NOT NULL,
-            chunks_json  TEXT NOT NULL,
-            created_at   TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    con.commit()
-    con.close()
+    global _CACHE_DISABLED
+    ok, _CACHE_DISABLED = retrieval_helpers.init_cache_db(CACHE_DB, _CACHE_DISABLED)
+    return ok
+
 
 
 def _load_from_cache(file_hash):
-    """Return list of chunk dicts if hash found, else None."""
-    con = sqlite3.connect(CACHE_DB)
-    row = con.execute(
-        "SELECT chunks_json FROM embedding_cache WHERE file_hash = ?",
-        (file_hash,)
-    ).fetchone()
-    con.close()
-    if row is None:
-        return None
-    raw = json.loads(row[0])
-    # Restore numpy arrays from plain lists
-    for chunk in raw:
-        chunk["embedding"] = np.array(chunk["embedding"])
-    return raw
+    return retrieval_helpers.load_from_cache(file_hash, CACHE_DB, _CACHE_DISABLED)
+
 
 
 def _save_to_cache(file_hash, chunks):
-    """Persist chunks (with embeddings as plain lists) under file_hash."""
-    serialisable = []
-    for chunk in chunks:
-        serialisable.append({
-            "source":       chunk["source"],
-            "source_label": chunk["source_label"],
-            "text":         chunk["text"],
-            "embedding":    chunk["embedding"].tolist(),
-        })
-    con = sqlite3.connect(CACHE_DB)
-    con.execute(
-        """INSERT OR REPLACE INTO embedding_cache
-           (file_hash, source, source_label, chunks_json)
-           VALUES (?, ?, ?, ?)""",
-        (file_hash,
-         chunks[0]["source"],
-         chunks[0]["source_label"],
-         json.dumps(serialisable))
-    )
-    con.commit()
-    con.close()
+    return retrieval_helpers.save_to_cache(file_hash, chunks, CACHE_DB, _CACHE_DISABLED)
+
 
 
 # ---------------------------------------------------------------------------
@@ -717,125 +583,41 @@ EXCLUDED_FROM_PROTOCOLS = {
 
 
 def chunk_text(text, source, source_label, max_chars=900):
-    sections = text.split("\n\n")
-    chunks = []
-    current = ""
-    for section in sections:
-        if len(current) + len(section) < max_chars:
-            current += section + "\n\n"
-        else:
-            if current.strip():
-                chunks.append({"source": source, "source_label": source_label, "text": current.strip()})
-            current = section + "\n\n"
-    if current.strip():
-        chunks.append({"source": source, "source_label": source_label, "text": current.strip()})
-    return chunks
+    return retrieval_helpers.chunk_text(text, source, source_label, max_chars)
+
 
 
 def get_embedding(text):
-    response = openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text)
-    return np.array(response.data[0].embedding)
+    return retrieval_helpers.get_embedding(text, openai_client, EMBEDDING_MODEL)
+
 
 
 def load_protocols():
-    global PROTOCOL_CHUNKS
-    _init_cache_db()
-
-    # Support both flat and nested protocol folder.
-    # Normalize to absolute paths before deduplicating so that
-    # protocols/*.txt and protocols/**/*.txt never produce duplicate
-    # entries for the same file on any OS/filesystem.
-    raw = (
-        glob.glob("protocols/*.txt") +
-        glob.glob("protocols/**/*.txt", recursive=True)
+    global _CACHE_DISABLED, PROTOCOL_CHUNKS
+    _CACHE_DISABLED = retrieval_helpers.load_protocols(
+        protocol_chunks=PROTOCOL_CHUNKS,
+        policy_by_file=PROTOCOL_POLICY_BY_FILE,
+        parsed_by_file=PROTOCOL_PARSED_BY_FILE,
+        protocol_file_to_label=PROTOCOL_FILE_TO_LABEL,
+        cache_db=CACHE_DB,
+        cache_disabled=_CACHE_DISABLED,
+        embedding_client=openai_client,
+        embedding_model=EMBEDDING_MODEL,
     )
-    files = list({os.path.abspath(f): f for f in raw}.values())
 
-    loaded = cached = fresh = 0
-    for file_path in sorted(files):
-        if Path(file_path).name in EXCLUDED_FROM_PROTOCOLS:
-            print(f"Skipping excluded file: {file_path}")
-            continue
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            text = f.read()
-
-        # Always (re)extract policy header — cheap, no API call, and we want
-        # it picked up even when chunks come from the embeddings cache.
-        policy_header = extract_policy_header(text)
-        if policy_header:
-            PROTOCOL_POLICY_BY_FILE[normalize_path(file_path)] = policy_header
-
-        # Also parse the full canonical-panel schema so later steps can read
-        # decision_tree, default_footer, default_question, etc. Safe for any
-        # file: missing panels become empty/None and old-style content goes
-        # into free_form. Not yet consumed by ask_ai — that's the next step.
-        parsed = _parse_protocol_text(text, path=file_path)
-        PROTOCOL_PARSED_BY_FILE[normalize_path(file_path)] = parsed
-        for w in parsed.get("warnings", []):
-            print(f"[startup] WARNING: {w}")
-
-        file_hash = _compute_file_hash(file_path)
-        cached_chunks = _load_from_cache(file_hash)
-
-        if cached_chunks is not None:
-            # File unchanged — use stored embeddings, no API call
-            PROTOCOL_CHUNKS.extend(cached_chunks)
-            print(f"  [cache] {file_path} ({len(cached_chunks)} chunks)")
-            cached += 1
-        else:
-            # File is new or changed — embed and store
-            source_label = get_source_label_for_file(file_path, text)
-            chunks = chunk_text(text=text, source=file_path, source_label=source_label)
-            for chunk in chunks:
-                chunk["embedding"] = get_embedding(chunk["text"])
-            _save_to_cache(file_hash, chunks)
-            PROTOCOL_CHUNKS.extend(chunks)
-            print(f"  [fresh] {file_path} ({len(chunks)} chunks, embeddings computed)")
-            fresh += 1
-
-        loaded += 1
-
-    print(f"Total: {len(PROTOCOL_CHUNKS)} chunks from {loaded} files "
-          f"({cached} from cache, {fresh} freshly embedded)")
 
 
 def search_protocols(question, top_k=3, preferred_file=None, guaranteed_slots=2):
-    """
-    Semantic search. When preferred_file is set, guarantee at least
-    `guaranteed_slots` results come from that file so the active protocol
-    is not crowded out by unrelated files during multi-turn conversations.
-    """
-    question_embedding = get_embedding(question)
-    preferred_file_norm = normalize_path(preferred_file) if preferred_file else None
+    return retrieval_helpers.search_protocols(
+        question,
+        top_k=top_k,
+        preferred_file=preferred_file,
+        guaranteed_slots=guaranteed_slots,
+        protocol_chunks=PROTOCOL_CHUNKS,
+        embedding_client=openai_client,
+        embedding_model=EMBEDDING_MODEL,
+    )
 
-    preferred_chunks = []
-    other_chunks = []
-
-    for chunk in PROTOCOL_CHUNKS:
-        similarity = float(np.dot(question_embedding, chunk["embedding"]))
-        entry = {
-            "source":       chunk["source"],
-            "source_label": chunk["source_label"],
-            "text":         chunk["text"],
-            "similarity":   similarity,
-        }
-        if preferred_file_norm and normalize_path(chunk["source"]) == preferred_file_norm:
-            preferred_chunks.append(entry)
-        else:
-            other_chunks.append(entry)
-
-    preferred_chunks.sort(key=lambda x: x["similarity"], reverse=True)
-    other_chunks.sort(key=lambda x: x["similarity"], reverse=True)
-
-    if preferred_file_norm and preferred_chunks:
-        slots_for_preferred = min(guaranteed_slots, len(preferred_chunks), top_k)
-        slots_for_others    = top_k - slots_for_preferred
-        return preferred_chunks[:slots_for_preferred] + other_chunks[:slots_for_others]
-
-    all_chunks = preferred_chunks + other_chunks
-    all_chunks.sort(key=lambda x: x["similarity"], reverse=True)
-    return all_chunks[:top_k]
 
 # ---------------------------------------------------------------------------
 # Protocol parser — extracted to protocol_parser.py
@@ -965,137 +747,539 @@ EXPLICIT_RESET_RE = re.compile(
 
 
 def _now_iso():
-    """UTC timestamp in ISO 8601 with Z suffix. Matches the format used in
-    _log_query so timestamps line up across logs and state."""
-    import datetime as _dt
-    return _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    return state_helpers._now_iso()
+
 
 
 def _parse_iso(ts):
-    """Inverse of _now_iso. Returns a timezone-aware datetime, or None."""
-    import datetime as _dt
-    if not ts:
-        return None
-    try:
-        return _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except ValueError:
-        return None
+    return state_helpers._parse_iso(ts)
+
 
 
 def get_chat_state(chat_id):
-    """Return (creating if necessary) the per-chat state dict.
+    state_helpers.bind_state(CONVERSATION_STATE)
+    return state_helpers.get_chat_state(chat_id)
 
-    Always exposes the full key set, including the newer `tree` and
-    `pending_topic_switch` fields, so callers never need to .get() with a
-    default. setdefault() calls backfill any state that pre-dated the
-    schema (matters once we move to Redis/SQLite persistence later).
-    """
-    if chat_id not in CONVERSATION_STATE:
-        CONVERSATION_STATE[chat_id] = {
-            "history":              [],
-            "active_recognized":    None,
-            "tree":                 None,
-            "pending_topic_switch": None,
-            "pending_links":        None,
-            # Session 8: extended routing state
-            "active_protocol_id":               None,
-            "protocol_type":                    None,
-            "last_user_intent":                 None,
-            "collected_slots":                  {},
-            "pending_question":                 None,
-            "last_recommended_antibiotics":     [],
-            "dosing_allowed":                   None,
-            "linked_dosing_protocol_available": None,
-            "context_source":                   None,  # "fresh_alias" | "carried_context"
-        }
-    state = CONVERSATION_STATE[chat_id]
-    state.setdefault("tree", None)
-    state.setdefault("pending_topic_switch", None)
-    state.setdefault("pending_links", None)
-    # Backfill session-8 fields for states created before this version
-    state.setdefault("active_protocol_id", None)
-    state.setdefault("protocol_type", None)
-    state.setdefault("last_user_intent", None)
-    state.setdefault("collected_slots", {})
-    state.setdefault("pending_question", None)
-    state.setdefault("last_recommended_antibiotics", [])
-    state.setdefault("dosing_allowed", None)
-    state.setdefault("linked_dosing_protocol_available", None)
-    state.setdefault("context_source", None)
-    return state
 
 
 def init_tree_state(state, parsed_protocol, recognized):
-    """Start a new tree walk. Idempotent only in the sense that it
-    overwrites any previous tree — callers should call reset_tree_state
-    first if they want clean transitions."""
-    tree_def = parsed_protocol.get("decision_tree") if parsed_protocol else None
-    if not tree_def or not tree_def.get("root"):
-        return
-    now = _now_iso()
-    state["tree"] = {
-        "protocol_file": recognized.get("protocol_file", ""),
-        "current_node":  tree_def["root"],
-        "collected":     {},
-        "started_at":    now,
-        "last_node_at":  now,
-    }
+    return state_helpers.init_tree_state(state, parsed_protocol, recognized)
+
 
 
 def advance_tree_state(state, next_node_id, collected_updates=None):
-    """Move the current tree to next_node_id, optionally merging in
-    newly-collected values, and refresh last_node_at."""
-    if not state.get("tree"):
-        return
-    state["tree"]["current_node"] = next_node_id
-    if collected_updates:
-        state["tree"]["collected"].update(collected_updates)
-    state["tree"]["last_node_at"] = _now_iso()
+    return state_helpers.advance_tree_state(state, next_node_id, collected_updates)
+
 
 
 def reset_tree_state(state):
-    """Clear the tree walk + any pending topic-switch prompt. Leaves
-    history, active_recognized, and pending_links alone (pending_links
-    survives a tree reset so the offer is still visible after the tree ends)."""
-    state["tree"] = None
-    state["pending_topic_switch"] = None
-    # Clear session-8 per-flow routing state
-    state["last_user_intent"] = None
-    state["collected_slots"] = {}
-    state["pending_question"] = None
-    state["last_recommended_antibiotics"] = []
-    state["context_source"] = None
+    return state_helpers.reset_tree_state(state)
+
+
+def reset_patient_state(state):
+    return state_helpers.reset_patient_state(state)
+
+
+
+def _slot_namespace_for_recognized(recognized):
+    return state_helpers._slot_namespace_for_recognized(recognized)
+
+
+
+def _get_protocol_slots(state, recognized):
+    return state_helpers._get_protocol_slots(state, recognized)
+
+
+
+def _set_protocol_slots(state, recognized, slots):
+    return state_helpers._set_protocol_slots(state, recognized, slots)
+
+
+def _mirror_active_protocol_slots(state, recognized=None):
+    return state_helpers.mirror_active_protocol_slots(state, recognized)
+
+
+def _transfer_protocol_slots(
+    state,
+    source_recognized,
+    target_recognized,
+    transfer_slots,
+    *,
+    target_slot_names=None,
+    extra_slots=None,
+):
+    return state_helpers.transfer_protocol_slots(
+        state,
+        source_recognized,
+        target_recognized,
+        transfer_slots,
+        target_slot_names=target_slot_names,
+        extra_slots=extra_slots,
+    )
+
+
+
+def _recognized_protocol_summary(recognized):
+    if not recognized:
+        return None
+    meta = _protocol_meta_for_file(recognized.get("protocol_file", ""))
+    return {
+        "protocol_id": meta.get("protocol_id") or recognized.get("protocol_id") or recognized.get("display"),
+        "protocol_file": recognized.get("protocol_file", ""),
+        "source_label": meta.get("source_label") or recognized.get("source_label"),
+        "protocol_type": meta.get("protocol_type") or recognized.get("protocol_type"),
+    }
+
+
+_CORRECTION_RE = re.compile(
+    r"\b(?:not|nem|actually|instead|rather|correction|correct|but|hanem|helyett)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_correction_intent(question):
+    return bool(_CORRECTION_RE.search(question or ""))
+
+
+_ADMIN_DEBUG_NOTE_RE = re.compile(
+    r"^\s*(?:/debug\b|debug\s*:|admin\s*:|note\s+to\s+self\s*:|audit\s*:|log\s*:|todo\s*:)",
+    re.IGNORECASE,
+)
+
+
+def _is_admin_debug_note(question):
+    return bool(_ADMIN_DEBUG_NOTE_RE.search(question or ""))
+
+
+_KNOWN_SLOT_ALIASES = {
+    "gfr": [
+        "gfr", "egfr", "crcl", "renal", "kidney", "kidney function",
+        "renal function", "vesefunkcio", "vesefunkció", "ml/min",
+    ],
+    "egfr": ["egfr"],
+    "body_weight_kg": [
+        "weight", "body weight", "kg", "suly", "súly", "testsuly", "testsúly",
+    ],
+    "adjusted_body_weight": ["adjusted body weight", "abw", "adjusted weight"],
+    "pathogen_list": [
+        "pathogen", "pathogens", "organism", "organisms", "bacteria",
+        "bacterium", "detected pathogen", "result", "biofire result",
+    ],
+    "resistance_gene_list": [
+        "resistance", "resistance gene", "resistance marker", "gene", "genes",
+        "marker", "markers", "ctx-m", "ctxm", "esbl", "carbapenemase",
+        "meca", "mec-a",
+    ],
+    "indication": ["indication", "diagnosis", "infection", "reason"],
+    "patient_status": [
+        "status", "patient status", "intubated", "hospitalized",
+        "hospitalised", "dischargeable", "outpatient", "ambulant",
+    ],
+    "intubated": ["intubated", "ventilated", "mechanically ventilated"],
+    "crrt": ["crrt"],
+    "ihd": ["ihd", "hemodialysis", "haemodialysis", "dialysis"],
+    "viral_test_result": ["viral", "viral test", "influenza", "flu"],
+    "vancomycin_level": ["vancomycin level", "vanco level", "level", "tdm"],
+    "mic": ["mic"],
+}
+
+
+def _slot_display_name(slot_name):
+    return {
+        "body_weight_kg": "weight",
+        "gfr": "GFR",
+        "egfr": "eGFR",
+        "pathogen_list": "pathogens",
+        "resistance_gene_list": "resistance genes",
+        "patient_status": "patient status",
+        "viral_test_result": "viral test result",
+    }.get(slot_name, slot_name.replace("_", " "))
+
+
+def _protocol_slot_names(parsed):
+    names = set()
+    if parsed:
+        names.update((parsed.get("slot_schema") or {}).keys())
+        for block_name in ("input_slots", "required_information"):
+            block = parsed.get(block_name) or ""
+            for raw in str(block).splitlines():
+                line = raw.strip()
+                if not line.startswith("-"):
+                    continue
+                item = line.lstrip("-").strip().split()[0].strip(":,;")
+                if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", item):
+                    names.add(item.lower())
+    if not names:
+        names.update(_KNOWN_SLOT_ALIASES.keys())
+    return names
+
+
+def _slot_aliases(slot_name):
+    aliases = set(_KNOWN_SLOT_ALIASES.get(slot_name, []))
+    aliases.add(slot_name)
+    aliases.add(slot_name.replace("_", " "))
+    if slot_name.endswith("_kg"):
+        aliases.add(slot_name[:-3].replace("_", " "))
+    return sorted(aliases, key=len, reverse=True)
+
+
+def _text_mentions_slot(text, slot_name):
+    lower = (text or "").lower()
+    for alias in _slot_aliases(slot_name):
+        if re.search(r"\b" + re.escape(alias.lower()) + r"\b", lower):
+            return True
+    return False
+
+
+def _numeric_protocol_slots(parsed, existing):
+    schema = (parsed or {}).get("slot_schema") or {}
+    names = set()
+    for slot_name, spec in schema.items():
+        if str(spec.get("type", "")).lower() == "number":
+            names.add(slot_name)
+    for slot_name, value in (existing or {}).items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            names.add(slot_name)
+    return names
+
+
+def _number_tokens(text):
+    return [float(m.group(1)) for m in re.finditer(r"\b(\d+(?:\.\d+)?)\b", text or "")]
+
+
+def _numbers_before_change_marker(text):
+    marker = re.search(r"\b(?:but|hanem|instead|rather)\b", text or "", re.IGNORECASE)
+    left = (text or "")[:marker.start()] if marker else (text or "")
+    return _number_tokens(left)
+
+
+def _approximately_equal(a, b):
+    try:
+        return abs(float(a) - float(b)) < 0.0001
+    except (TypeError, ValueError):
+        return False
+
+
+def _correction_rhs_text(text):
+    match = re.search(r"\b(?:but|hanem|instead|rather)\b", text or "", re.IGNORECASE)
+    if match:
+        rhs = (text or "")[match.end():].strip(" ,.;:")
+        if rhs:
+            return rhs
+    return text or ""
+
+
+def _apply_slot_update_conflicts(slots, updates):
+    if "patient_status" in updates:
+        if updates.get("patient_status") == "intubated":
+            slots["intubated"] = True
+        else:
+            slots.pop("intubated", None)
+    if updates.get("crrt") is True:
+        slots.pop("ihd", None)
+    if updates.get("ihd") is True:
+        slots.pop("crrt", None)
+
+
+def _format_correction_clarification(parsed, existing):
+    candidates = []
+    protocol_slots = _protocol_slot_names(parsed)
+    for slot_name in sorted(protocol_slots):
+        if slot_name in existing or slot_name in (parsed.get("slot_schema") if parsed else {}):
+            candidates.append(_slot_display_name(slot_name))
+    if not candidates:
+        candidates = ["weight", "GFR", "pathogens", "indication"]
+    choices = ", ".join(dict.fromkeys(candidates))
+    return f"Which slot should I correct? Please specify one target, for example: {choices}."
+
+
+def _infer_numeric_correction_target(parsed, existing, text, new_value):
+    candidates = set()
+    numeric_slots = _numeric_protocol_slots(parsed, existing)
+    if re.search(r"\bkg\b", text or "", re.IGNORECASE):
+        candidates.add("body_weight_kg")
+    if re.search(r"\b(?:ml/min|gfr|egfr|crcl|renal|kidney)\b", text or "", re.IGNORECASE):
+        candidates.add("gfr")
+    for slot_name in numeric_slots:
+        if _text_mentions_slot(text, slot_name):
+            candidates.add(slot_name)
+    old_values = _numbers_before_change_marker(text)
+    if old_values:
+        for slot_name in numeric_slots:
+            if any(_approximately_equal(existing.get(slot_name), old) for old in old_values):
+                candidates.add(slot_name)
+    candidates = {slot for slot in candidates if slot in _protocol_slot_names(parsed) or slot in existing}
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    if len(candidates) > 1:
+        return None
+    if len(numeric_slots) == 1:
+        return next(iter(numeric_slots))
+    return None
+
+
+def _selection_trace_value(selection_result, key, default=None):
+    if isinstance(selection_result, dict):
+        return selection_result.get(key, default)
+    if selection_result is None:
+        return default
+    return getattr(selection_result, key, default)
+
+
+def _trace_retrieved_chunks(retrieved_chunks):
+    traced = []
+    for chunk in retrieved_chunks or []:
+        item = {
+            "source_label": chunk.get("source_label"),
+            "source": chunk.get("source"),
+        }
+        if "similarity" in chunk:
+            try:
+                item["similarity"] = round(float(chunk.get("similarity")), 4)
+            except (TypeError, ValueError):
+                item["similarity"] = chunk.get("similarity")
+        traced.append(item)
+    return traced
+
+
+def _turn_context_for_trace(turn_context):
+    if not turn_context:
+        return {}
+    return {
+        "raw_user_text": _safe_user_message_for_log(turn_context.raw_user_text),
+        "chat_id_hash": hashlib.md5(str(turn_context.chat_id).encode()).hexdigest()[:8],
+        "active_before": _recognized_protocol_summary(turn_context.active_before),
+        "fresh_recognized": _recognized_protocol_summary(turn_context.fresh_recognized),
+        "selected_recognized": _recognized_protocol_summary(turn_context.selected_recognized),
+        "unsupported_syndrome": turn_context.unsupported_syndrome,
+        "unsupported_key": turn_context.unsupported_syndrome,
+        "unsupported_matched_term": turn_context.unsupported_matched_term,
+        "unsupported_message": turn_context.unsupported_message,
+        "intent": turn_context.intent,
+        "correction_intent": bool(turn_context.correction_intent),
+        "clear_intent": bool(turn_context.clear_intent),
+        "normalized_question_present": bool(turn_context.normalized_question),
+        "protocol_slots_before": dict(turn_context.protocol_slots_before or {}),
+        "protocol_slots_after": dict(turn_context.protocol_slots_after or {}),
+        "confirmation_pending": bool(turn_context.confirmation_pending),
+        "confirmation_required": bool(turn_context.confirmation_required),
+    }
+
+
+def _new_turn_context(
+    *,
+    raw_user_text,
+    chat_id,
+    state,
+    active_before,
+    fresh_recognized=None,
+    selected_recognized=None,
+    unsupported_syndrome=None,
+    unsupported_matched_term=None,
+    unsupported_message=None,
+    intent=None,
+    normalized_question=None,
+    confirmation_pending=False,
+    confirmation_required=False,
+):
+    selected = selected_recognized or fresh_recognized
+    return TurnContext(
+        raw_user_text=raw_user_text,
+        chat_id=chat_id,
+        active_before=dict(active_before or {}),
+        fresh_recognized=fresh_recognized,
+        selected_recognized=selected,
+        unsupported_syndrome=unsupported_syndrome,
+        unsupported_matched_term=unsupported_matched_term,
+        unsupported_message=unsupported_message,
+        intent=intent or classify_intent(raw_user_text),
+        correction_intent=_is_correction_intent(raw_user_text),
+        clear_intent=_is_slot_clear_phrase(raw_user_text),
+        normalized_question=normalized_question or raw_user_text,
+        protocol_slots_before=_get_protocol_slots(state, selected) if selected else {},
+        protocol_slots_after=_get_protocol_slots(state, selected) if selected else {},
+        confirmation_pending=bool(confirmation_pending),
+        confirmation_required=bool(confirmation_required),
+    )
+
+
+def _update_turn_after_selection(turn_context, state, selected_recognized=None, confirmation_required=None):
+    if not turn_context:
+        return
+    if selected_recognized is not None:
+        turn_context.selected_recognized = selected_recognized
+    selected = turn_context.selected_recognized
+    turn_context.protocol_slots_after = _get_protocol_slots(state, selected) if selected else {}
+    if confirmation_required is not None:
+        turn_context.confirmation_required = bool(confirmation_required)
+
+
+def _make_answer_trace(
+    *,
+    state,
+    recognized=None,
+    active_before=None,
+    deterministic_or_llm="unknown",
+    llm_called=False,
+    selection_result=None,
+    slots=None,
+    unsupported_syndrome=None,
+    unsupported_matched_term=None,
+    unsupported_message=None,
+    unsupported_action=None,
+    blocked_reason=None,
+    confirmation_required=False,
+    turn_context=None,
+    final_body=None,
+    final_answer=None,
+    retrieved_chunks=None,
+):
+    active_after = state.get("active_recognized") if state else None
+    selected = recognized or active_after
+    meta = _protocol_meta_for_file((selected or {}).get("protocol_file", ""))
+    output_key = _selection_trace_value(selection_result, "output_key")
+    mode_used = _selection_trace_value(selection_result, "mode_used")
+    default_used = _selection_trace_value(selection_result, "default_used")
+    missing_slots = _selection_trace_value(selection_result, "missing_slots", []) or []
+    trace = {
+        "selected_protocol_id": meta.get("protocol_id") or (selected or {}).get("protocol_id") or (selected or {}).get("display"),
+        "selected_protocol_file": (selected or {}).get("protocol_file"),
+        "source_label": meta.get("source_label") or (selected or {}).get("source_label"),
+        "protocol_type": meta.get("protocol_type") or (selected or {}).get("protocol_type"),
+        "active_before": _recognized_protocol_summary(active_before),
+        "active_after": _recognized_protocol_summary(active_after),
+        "matched_alias": (recognized or {}).get("matched_alias"),
+        "confidence": (recognized or {}).get("confidence"),
+        "selection_output_key": output_key or ("default" if default_used else None),
+        "selection_mode": mode_used,
+        "missing_slots": missing_slots,
+        "slots": dict(slots or {}),
+        "deterministic_or_llm": deterministic_or_llm,
+        "llm_called": bool(llm_called),
+        "unsupported_syndrome": unsupported_syndrome,
+        "unsupported_key": unsupported_syndrome,
+        "unsupported_matched_term": unsupported_matched_term,
+        "unsupported_message": unsupported_message,
+        "unsupported_action": unsupported_action,
+        "blocked_reason": blocked_reason,
+        "confirmation_required": bool(confirmation_required),
+    }
+    if turn_context:
+        trace["turn_context"] = _turn_context_for_trace(turn_context)
+        trace["confirmation_pending"] = bool(turn_context.confirmation_pending)
+        trace["confirmation_required"] = bool(turn_context.confirmation_required or confirmation_required)
+    if final_body is not None:
+        trace["final_body"] = final_body
+    if final_answer is not None:
+        trace["final_answer"] = final_answer
+    if retrieved_chunks is not None:
+        trace["retrieved_chunks"] = _trace_retrieved_chunks(retrieved_chunks)
+    trace["selected_output_key"] = trace["selection_output_key"]
+    return trace
+
+
+def _make_answer_envelope(
+    *,
+    state,
+    turn_context=None,
+    recognized=None,
+    active_before=None,
+    final_body="",
+    final_answer="",
+    retrieved_chunks=None,
+    deterministic_or_llm="unknown",
+    llm_called=False,
+    selection_result=None,
+    slots=None,
+    unsupported_syndrome=None,
+    unsupported_matched_term=None,
+    unsupported_message=None,
+    unsupported_action=None,
+    blocked_reason=None,
+    confirmation_required=False,
+):
+    retrieved_chunks = list(retrieved_chunks or [])
+    selected = recognized or (state.get("active_recognized") if state else None)
+    meta = _protocol_meta_for_file((selected or {}).get("protocol_file", ""))
+    output_key = _selection_trace_value(selection_result, "output_key")
+    mode_used = _selection_trace_value(selection_result, "mode_used")
+    default_used = _selection_trace_value(selection_result, "default_used")
+    selected_output_key = output_key or ("default" if default_used else None)
+    if turn_context:
+        _update_turn_after_selection(turn_context, state, selected, confirmation_required)
+    trace = _make_answer_trace(
+        state=state,
+        recognized=selected,
+        active_before=active_before,
+        deterministic_or_llm=deterministic_or_llm,
+        llm_called=llm_called,
+        selection_result=selection_result,
+        slots=slots,
+        unsupported_syndrome=unsupported_syndrome,
+        unsupported_matched_term=unsupported_matched_term,
+        unsupported_message=unsupported_message,
+        unsupported_action=unsupported_action,
+        blocked_reason=blocked_reason,
+        confirmation_required=confirmation_required,
+        turn_context=turn_context,
+        final_body=final_body,
+        final_answer=final_answer,
+        retrieved_chunks=retrieved_chunks,
+    )
+    return AnswerEnvelope(
+        final_body=final_body,
+        final_answer=final_answer,
+        selected_protocol_id=trace.get("selected_protocol_id"),
+        selected_protocol_file=(selected or {}).get("protocol_file"),
+        selected_source=meta.get("source_label") or (selected or {}).get("source_label"),
+        selected_output_key=selected_output_key,
+        selection_mode=mode_used,
+        deterministic_or_llm=deterministic_or_llm,
+        llm_called=bool(llm_called),
+        retrieved_chunks=retrieved_chunks,
+        blocked_reason=blocked_reason,
+        unsupported_action=unsupported_action,
+        unsupported_syndrome=unsupported_syndrome,
+        unsupported_matched_term=unsupported_matched_term,
+        unsupported_message=unsupported_message,
+        trace=trace,
+    )
+
+
+def _remember_answer(state, question, answer):
+    history = state["history"] + [
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": answer},
+    ]
+    state["history"] = history[-(MAX_HISTORY_TURNS * 2):]
+
+
+def _log_answer_envelope(t_start, chat_id, question, recognized, envelope):
+    _log_query(
+        chat_id=chat_id,
+        user_message=question,
+        recognized=recognized,
+        retrieved_chunks=envelope.retrieved_chunks,
+        raw_llm=envelope.final_body,
+        final_response=envelope.final_answer,
+        duration_ms=round((time.monotonic() - t_start) * 1000),
+        trace=envelope.trace,
+    )
 
 
 def is_tree_idle_timeout(state):
-    """True if a tree is active and its last_node_at is older than the
-    TREE_IDLE_TIMEOUT_SECONDS threshold."""
-    import datetime as _dt
-    tree = state.get("tree")
-    if not tree:
-        return False
-    last = _parse_iso(tree.get("last_node_at"))
-    if not last:
-        return False
-    age = (_dt.datetime.now(_dt.timezone.utc) - last).total_seconds()
-    return age > TREE_IDLE_TIMEOUT_SECONDS
+    return state_helpers.is_tree_idle_timeout(state)
+
 
 
 def is_explicit_reset_phrase(text):
-    """True if the user's whole message is a reset phrase like 'új beteg'."""
-    return bool(EXPLICIT_RESET_RE.match(text or ""))
+    return state_helpers.is_explicit_reset_phrase(text)
+
 
 
 def maybe_auto_reset_tree(state):
-    """Apply silent reset triggers. Returns True if a reset happened.
+    return state_helpers.maybe_auto_reset_tree(state)
 
-    Currently only the idle-timeout trigger is silent. Explicit-phrase
-    resets are handled by the dispatcher so we can ack the user.
-    """
-    if is_tree_idle_timeout(state):
-        reset_tree_state(state)
-        return True
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -1830,6 +2014,53 @@ def _dosing_protocol_available(link_entry: dict) -> bool:
     return os.path.exists(tf)
 
 
+def _recognized_for_link_target(link_entry: dict) -> dict | None:
+    target_file = link_entry.get("target_file", "")
+    if not target_file:
+        return None
+    parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(target_file))
+    if not parsed:
+        return None
+    meta = parsed.get("metadata", {})
+    label = meta.get("source_label") or link_entry.get("when_selected_item") or link_entry.get("target_protocol_id")
+    return {
+        "protocol_id": meta.get("protocol_id") or link_entry.get("target_protocol_id"),
+        "protocol_file": target_file,
+        "protocol_type": meta.get("protocol_type"),
+        "source_label": label,
+        "display": label,
+        "canonical": meta.get("canonical_name") or label,
+        "confidence": "high",
+        "category": "drugs" if meta.get("protocol_type") == "drug_dosing_protocol" else "conditions",
+    }
+
+
+def _activate_new_schema_link_target(state: dict, source_recognized: dict, link_entry: dict) -> dict | None:
+    target_recognized = _recognized_for_link_target(link_entry)
+    if not target_recognized:
+        return None
+    target_file = target_recognized.get("protocol_file", "")
+    target_parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(target_file))
+    target_slots = _protocol_slot_names(target_parsed)
+    extra = {}
+    selected_item = link_entry.get("when_selected_item")
+    if selected_item:
+        extra["selected_antimicrobial"] = selected_item
+    _transfer_protocol_slots(
+        state,
+        source_recognized,
+        target_recognized,
+        link_entry.get("transfer_slots", []),
+        target_slot_names=target_slots,
+        extra_slots=extra,
+    )
+    state["active_recognized"] = target_recognized
+    state["last_recommended_antibiotics"] = []
+    _update_routing_state(state, target_recognized, "link_transfer")
+    _mirror_active_protocol_slots(state, target_recognized)
+    return target_recognized
+
+
 def _handle_dosing_shortcut(state: dict, question: str, recognized) -> str | None:
     """Handle a bare 'dose?' or dosing follow-up.
 
@@ -1878,6 +2109,13 @@ def _handle_dosing_shortcut(state: dict, question: str, recognized) -> str | Non
             else f"Dosing for {drug} is not covered by this protocol."
         )
 
+    if _dosing_protocol_available(matching_entry):
+        _activate_new_schema_link_target(
+            state,
+            state.get("active_recognized") or {},
+            matching_entry,
+        )
+        return None
     if _dosing_protocol_available(matching_entry):
         # Protocol file exists — fall through to standard flow
         # (which will carry the drug context and retrieve the right protocol)
@@ -2034,10 +2272,32 @@ def _try_deterministic_selection(state, recognized, question, lang):
     mode = meta.get("selection_mode", "none")
     if mode in ("none", "decision_tree", ""):
         return None
-    existing = dict(state.get("collected_slots", {}))
-    slots = extract_slots_from_query(question, parsed_protocol=parsed, existing_slots=existing)
-    state["collected_slots"] = slots
+    existing = _get_protocol_slots(state, recognized)
+    correction = _apply_generic_correction_or_clear(parsed, existing, question)
+    if correction.get("ambiguous"):
+        _set_protocol_slots(state, recognized, correction.get("slots", existing))
+        state["_last_selection_trace"] = {
+            "output_key": None,
+            "mode_used": "correction_intent",
+            "default_used": False,
+            "missing_slots": [],
+            "no_match": False,
+            "slots": dict(correction.get("slots", existing)),
+        }
+        return correction.get("message")
+    existing = correction.get("slots", existing)
+    question_for_extract = correction.get("question_for_extract", question)
+    slots = extract_slots_from_query(question_for_extract, parsed_protocol=parsed, existing_slots=existing)
+    _set_protocol_slots(state, recognized, slots)
     result = run_selection(parsed, slots, lang=lang)
+    state["_last_selection_trace"] = {
+        "output_key": result.output_key,
+        "mode_used": result.mode_used,
+        "default_used": result.default_used,
+        "missing_slots": list(result.missing_slots or []),
+        "no_match": result.no_match,
+        "slots": dict(slots),
+    }
     if result.no_match:
         return None
     if result.missing_slots and not result.default_used:
@@ -2071,6 +2331,117 @@ def _try_deterministic_selection(state, recognized, question, lang):
     return rendered
 
 
+_CLEAR_SLOT_RE = re.compile(
+    r"\b(?:delete|clear|remove|forget|reset)\s+(?:previous\s+)?"
+    r"(?:pathogens?|organisms?|genes?|results?|slots?|data|facts?|"
+    r"gfr|egfr|crcl|renal|kidney|weight|body\s+weight|indication|status)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_slot_clear_phrase(question):
+    return bool(_CLEAR_SLOT_RE.search(question or ""))
+
+
+def _clear_slots_for_protocol(parsed, slots, question):
+    cleared = dict(slots or {})
+    lower = (question or "").lower()
+    if any(word in lower for word in ["slot", "data", "fact"]):
+        return {}
+    targets = _clear_slot_targets(parsed, question)
+    for target in targets:
+        cleared.pop(target, None)
+    return cleared
+
+
+def _clear_slot_targets(parsed, question):
+    text = question or ""
+    lower = text.lower()
+    protocol_slots = _protocol_slot_names(parsed)
+    targets = set()
+    if any(word in lower for word in ["pathogen", "organism"]):
+        targets.add("pathogen_list")
+        if "resistance_gene_list" in protocol_slots:
+            targets.add("resistance_gene_list")
+    if any(word in lower for word in ["gene", "resistance", "marker"]):
+        targets.add("resistance_gene_list")
+    if "result" in lower:
+        if "pathogen_list" in protocol_slots or "resistance_gene_list" in protocol_slots:
+            targets.update(["pathogen_list", "resistance_gene_list"])
+        else:
+            return set(protocol_slots)
+    if any(word in lower for word in ["renal", "kidney", "gfr", "egfr", "crcl"]):
+        targets.update(["gfr", "egfr", "crrt", "ihd"])
+    if any(word in lower for word in ["weight", "suly", "súly", "kg"]):
+        targets.update(["body_weight_kg", "adjusted_body_weight"])
+    for slot_name in protocol_slots:
+        if _text_mentions_slot(text, slot_name):
+            targets.add(slot_name)
+    return {slot for slot in targets if slot in protocol_slots}
+
+
+def _apply_generic_correction_or_clear(parsed, existing, question):
+    slots = dict(existing or {})
+    if _is_slot_clear_phrase(question):
+        cleared = _clear_slots_for_protocol(parsed, slots, question)
+        return {"handled": True, "slots": cleared, "question_for_extract": ""}
+
+    if not _is_correction_intent(question):
+        return {"handled": False, "slots": slots, "question_for_extract": question}
+
+    fragment = _correction_rhs_text(question)
+    updates = extract_slots_from_query(fragment, parsed_protocol=parsed, existing_slots={})
+    if updates:
+        updated = dict(slots)
+        for key, value in updates.items():
+            updated[key] = value
+        _apply_slot_update_conflicts(updated, updates)
+        return {"handled": True, "slots": updated, "question_for_extract": ""}
+
+    numbers = _number_tokens(fragment)
+    if numbers:
+        new_value = numbers[-1]
+        target = _infer_numeric_correction_target(parsed, slots, question, new_value)
+        if target:
+            updated = dict(slots)
+            updated[target] = new_value
+            return {"handled": True, "slots": updated, "question_for_extract": ""}
+        return {
+            "handled": True,
+            "ambiguous": True,
+            "message": _format_correction_clarification(parsed, slots),
+            "slots": slots,
+            "question_for_extract": "",
+        }
+
+    return {
+        "handled": True,
+        "ambiguous": True,
+        "message": _format_correction_clarification(parsed, slots),
+        "slots": slots,
+        "question_for_extract": "",
+    }
+
+
+_YES_RE = re.compile(r"^\s*(?:yes|y|igen|ja|apply|use it)\s*[\.\?!]*\s*$", re.IGNORECASE)
+_NO_RE = re.compile(r"^\s*(?:no|n|nem|nope|cancel|do not)\s*[\.\?!]*\s*$", re.IGNORECASE)
+
+
+def _looks_like_active_protocol_followup(question, state):
+    if not state.get("active_recognized"):
+        return False
+    text = question or ""
+    if _is_slot_clear_phrase(text):
+        return True
+    if classify_intent(text) != "unknown":
+        return True
+    if extract_slots_from_query(text):
+        return True
+    if re.search(r"\b(?:actually|instead|rather|but|not|nem|hanem|helyett)\b", text, re.IGNORECASE):
+        return True
+    return False
+
+
 def _pick_default_answer_text(parsed, lang):
     """Return HU or EN section from DEFAULT_ANSWER panel."""
     da = parsed.get("default_answer", "")
@@ -2094,9 +2465,12 @@ def _pick_default_answer_text(parsed, lang):
 # AI answer generation (cont.)
 # ---------------------------------------------------------------------------
 
-def ask_ai(question, chat_id):
+def _ask_ai_impl(question, chat_id):
     t_start = time.monotonic()
     state   = get_chat_state(chat_id)
+    raw_user_text = question
+    active_before = dict(state.get("active_recognized") or {})
+    state.pop("_last_selection_trace", None)
 
     # Silent reset of trees that have been idle too long.
     if maybe_auto_reset_tree(state):
@@ -2104,49 +2478,230 @@ def ask_ai(question, chat_id):
 
     # Explicit reset phrase short-circuit ("új beteg" / "new case" / etc.).
     if is_explicit_reset_phrase(question):
-        reset_tree_state(state)
+        reset_patient_state(state)
         ack = ("OK, kitöröltem az aktuális folyamatot. Mit segítsek?"
                if _user_language(question) == "hu"
                else "OK, cleared the current flow. How can I help?")
-        history = state["history"] + [
-            {"role": "user",      "content": question},
-            {"role": "assistant", "content": ack},
-        ]
-        max_messages = MAX_HISTORY_TURNS * 2
-        if len(history) > max_messages:
-            history = history[-max_messages:]
-        state["history"] = history
-        _log_query(
-            chat_id=chat_id, user_message=question, recognized=None,
-            retrieved_chunks=[], raw_llm=ack, final_response=ack,
-            duration_ms=round((time.monotonic() - t_start) * 1000),
+        turn = _new_turn_context(
+            raw_user_text=raw_user_text, chat_id=chat_id, state=state,
+            active_before=active_before, selected_recognized=None,
+            intent="reset",
         )
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=None,
+            active_before=active_before, final_body=ack, final_answer=ack,
+            deterministic_or_llm="deterministic_reset", llm_called=False,
+            blocked_reason="explicit_reset",
+        )
+        _remember_answer(state, question, ack)
+        _log_answer_envelope(t_start, chat_id, question, None, envelope)
         return ack
 
+    if _is_admin_debug_note(question):
+        active = state.get("active_recognized")
+        body = "Admin/debug note ignored; no patient facts or protocol slots were changed."
+        turn = _new_turn_context(
+            raw_user_text=raw_user_text, chat_id=chat_id, state=state,
+            active_before=active_before, selected_recognized=active,
+            intent="debug_note",
+        )
+        answer = finalize_answer(body, None, (active or {}).get("source_label"))
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=active,
+            active_before=active_before, final_body=body, final_answer=answer,
+            deterministic_or_llm="deterministic_policy", llm_called=False,
+            blocked_reason="admin_debug_note",
+        )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, active, envelope)
+        return answer
+
+    pending_context = state.get("pending_context_confirmation")
+    forced_recognized = None
+    if pending_context:
+        if _YES_RE.match(question):
+            forced_recognized = pending_context.get("recognized")
+            if pending_context.get("type") == "fuzzy_alias" and forced_recognized:
+                forced_recognized = dict(forced_recognized)
+                forced_recognized["confirmed_from_confidence"] = forced_recognized.get("confidence")
+                forced_recognized["confidence"] = "high"
+                forced_recognized["confirmed_by_user"] = True
+            question = pending_context.get("question") or question
+            state["pending_context_confirmation"] = None
+        elif _NO_RE.match(question):
+            state["pending_context_confirmation"] = None
+            ack = (
+                "OK, I will not apply that message to the active protocol. "
+                "Please name the protocol or drug you want to use."
+            )
+            turn = _new_turn_context(
+                raw_user_text=raw_user_text, chat_id=chat_id, state=state,
+                active_before=active_before, selected_recognized=None,
+                confirmation_pending=True,
+            )
+            envelope = _make_answer_envelope(
+                state=state, turn_context=turn, recognized=None,
+                active_before=active_before, final_body=ack, final_answer=ack,
+                deterministic_or_llm="deterministic_confirmation", llm_called=False,
+                blocked_reason="context_confirmation_no",
+            )
+            _remember_answer(state, question, ack)
+            _log_answer_envelope(t_start, chat_id, question, None, envelope)
+            return ack
+        else:
+            state["pending_context_confirmation"] = None
+
+    unsupported_hit = _detect_unsupported_policy(question)
+    unsupported_syndrome = unsupported_hit.get("key") if unsupported_hit else None
+    unsupported_matched_term = unsupported_hit.get("matched_term") if unsupported_hit else None
+    unsupported_message = unsupported_hit.get("message") if unsupported_hit else None
     normalized_question, recognized = normalize_question(question)
+    if forced_recognized:
+        recognized = forced_recognized
+        normalized_question = (
+            question
+            + f"\n\n[Continuing context: {recognized.get('display', '')} / "
+            + f"{recognized.get('canonical', recognized.get('display', ''))}]"
+        )
 
     # -- Intent classification (Session 8) ---
     state["last_user_intent"] = classify_intent(question)
+    turn = _new_turn_context(
+        raw_user_text=raw_user_text,
+        chat_id=chat_id,
+        state=state,
+        active_before=active_before,
+        fresh_recognized=recognized,
+        selected_recognized=recognized or state.get("active_recognized"),
+        unsupported_syndrome=unsupported_syndrome,
+        unsupported_matched_term=unsupported_matched_term,
+        unsupported_message=unsupported_message,
+        intent=state["last_user_intent"],
+        normalized_question=normalized_question,
+        confirmation_pending=bool(pending_context),
+    )
 
-    # -- Context source tracking ---
-    if recognized:
+    explicit_drug_allowed = (
+        recognized
+        and recognized.get("category") == "drugs"
+        and (not unsupported_hit or unsupported_hit.get("allowed_if_explicit_drug", True))
+    )
+    if unsupported_hit and not explicit_drug_allowed:
+        recognized = None
+        normalized_question = question
+        body = unsupported_message
+        answer = finalize_answer(body, None, None)
+        _update_turn_after_selection(turn, state, None)
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=None,
+            active_before=active_before, final_body=body, final_answer=answer,
+            deterministic_or_llm="deterministic_policy", llm_called=False,
+            unsupported_syndrome=unsupported_syndrome,
+            unsupported_matched_term=unsupported_matched_term,
+            unsupported_message=unsupported_message,
+            unsupported_action="blocked",
+            blocked_reason="unsupported_syndrome",
+        )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, None, envelope)
+        return answer
+
+    if recognized and recognized.get("confidence") == "medium":
+        label = recognized.get("display") or recognized.get("source_label") or "that protocol"
+        matched = recognized.get("matched_alias") or label
+        body = (
+            f"Did you mean {label} when you wrote '{matched}'? "
+            "Reply yes to use that protocol, or no and name the supported drug/protocol you want."
+        )
+        state["pending_context_confirmation"] = {
+            "type": "fuzzy_alias",
+            "question": question,
+            "recognized": recognized,
+        }
+        turn.selected_recognized = None
+        turn.confirmation_required = True
+        answer = finalize_answer(body, None, None)
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=None,
+            active_before=active_before, final_body=body, final_answer=answer,
+            deterministic_or_llm="deterministic_confirmation", llm_called=False,
+            blocked_reason="fuzzy_alias_confirmation",
+            confirmation_required=True,
+        )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, None, envelope)
+        return answer
+
+    if (not recognized
+            and not state.get("active_recognized")
+            and _is_obvious_nonclinical_message(question)):
+        body = (
+            "No active clinical protocol is selected, and this message does not match an uploaded "
+            "clinical protocol. Please name a supported drug, protocol, or result if you want "
+            "protocol-based guidance."
+        )
+        answer = finalize_answer(body, None, None)
+        _update_turn_after_selection(turn, state, None)
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=None,
+            active_before=active_before, final_body=body, final_answer=answer,
+            deterministic_or_llm="deterministic_policy", llm_called=False,
+            blocked_reason="out_of_scope_no_protocol",
+        )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, None, envelope)
+        return answer
+
+    # -- Context source tracking / early activation ---
+    if recognized and recognized.get("confidence") in ("exact", "high"):
+        previous = state.get("active_recognized")
+        if (previous and previous.get("protocol_file")
+                and previous.get("protocol_file") != recognized.get("protocol_file")):
+            state["last_recommended_antibiotics"] = []
+        state["active_recognized"] = recognized
         _update_routing_state(state, recognized, "fresh_alias")
+        state["collected_slots"] = _get_protocol_slots(state, recognized)
+
+    if (not recognized
+            and state.get("active_recognized")
+            and not _looks_like_active_protocol_followup(question, state)):
+        active = state.get("active_recognized")
+        label = active.get("display") or active.get("source_label") or _label_for_protocol(active.get("protocol_file", ""))
+        body = (
+            f"I still have {label} as the active protocol, but I am not sure this message belongs to it. "
+            f"Reply yes to apply it to {label}, no to leave the protocol unchanged, or name a different supported protocol."
+        )
+        state["pending_context_confirmation"] = {
+            "question": question,
+            "recognized": active,
+        }
+        answer = finalize_answer(body, None, active.get("source_label"))
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=active,
+            active_before=active_before, final_body=body, final_answer=answer,
+            deterministic_or_llm="deterministic_confirmation", llm_called=False,
+            blocked_reason="unclear_followup",
+            confirmation_required=True,
+        )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, active, envelope)
+        return answer
 
     # -- Organism-only disambiguation ---
     organism_prompt = _handle_organism_disambiguation(state, question, recognized)
     if organism_prompt is not None:
         source_label = recognized.get("source_label") if recognized else None
         answer = finalize_answer(organism_prompt, None, source_label)
-        history = state["history"] + [
-            {"role": "user",      "content": question},
-            {"role": "assistant", "content": answer},
-        ]
-        state["history"] = history[-MAX_HISTORY_TURNS * 2:]
-        _log_query(
-            chat_id=chat_id, user_message=question, recognized=recognized,
-            retrieved_chunks=[], raw_llm=organism_prompt, final_response=answer,
-            duration_ms=round((time.monotonic() - t_start) * 1000),
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=recognized,
+            active_before=active_before, final_body=organism_prompt,
+            final_answer=answer,
+            deterministic_or_llm="deterministic_disambiguation",
+            llm_called=False,
+            blocked_reason="organism_disambiguation",
         )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, recognized, envelope)
         return answer
 
     # -- Bare dosing shortcut ("dose?" after a recommendation) ---
@@ -2158,16 +2713,16 @@ def ask_ai(question, chat_id):
         _parsed_ds = PROTOCOL_PARSED_BY_FILE.get(normalize_path(_pf)) if _pf else None
         _footer_ds = _parsed_ds.get("default_footer") if _parsed_ds else None
         answer = finalize_answer(dosing_shortcut, _footer_ds, source_label)
-        history = state["history"] + [
-            {"role": "user",      "content": question},
-            {"role": "assistant", "content": answer},
-        ]
-        state["history"] = history[-MAX_HISTORY_TURNS * 2:]
-        _log_query(
-            chat_id=chat_id, user_message=question, recognized=recognized,
-            retrieved_chunks=[], raw_llm=dosing_shortcut, final_response=answer,
-            duration_ms=round((time.monotonic() - t_start) * 1000),
+        selected = recognized or active
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=selected,
+            active_before=active_before, final_body=dosing_shortcut,
+            final_answer=answer,
+            deterministic_or_llm="deterministic_shortcut", llm_called=False,
+            blocked_reason="dosing_shortcut",
         )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, recognized, envelope)
         return answer
 
     # -- Non-tree fresh-alias protocol switch ---
@@ -2197,19 +2752,15 @@ def ask_ai(question, chat_id):
         _parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(_pf)) if _pf else None
         _footer = _parsed.get("default_footer") if _parsed else None
         answer = finalize_answer(dispatch_body, _footer, source_label)
-        history = state["history"] + [
-            {"role": "user",      "content": question},
-            {"role": "assistant", "content": answer},
-        ]
-        max_messages = MAX_HISTORY_TURNS * 2
-        if len(history) > max_messages:
-            history = history[-max_messages:]
-        state["history"] = history
-        _log_query(
-            chat_id=chat_id, user_message=question, recognized=recognized,
-            retrieved_chunks=[], raw_llm=dispatch_body, final_response=answer,
-            duration_ms=round((time.monotonic() - t_start) * 1000),
+        selected = recognized or active
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=selected,
+            active_before=active_before, final_body=dispatch_body,
+            final_answer=answer,
+            deterministic_or_llm="deterministic_tree", llm_called=False,
         )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, recognized, envelope)
         return answer
 
     # ----- Deterministic selection engine (Session 9) -----
@@ -2218,20 +2769,29 @@ def ask_ai(question, chat_id):
     det_body = _try_deterministic_selection(state, _active_for_det, question, lang)
     if det_body is not None:
         active = state.get("active_recognized")
+        selection_trace = state.get("_last_selection_trace") or {}
         source_label = (active or recognized or {}).get("source_label")
         _pf = (active or recognized or {}).get("protocol_file")
         _parsed_det = PROTOCOL_PARSED_BY_FILE.get(normalize_path(_pf)) if _pf else None
         _footer_det = _parsed_det.get("default_footer") if _parsed_det else None
         answer = finalize_answer(det_body, _footer_det, source_label)
-        history = state["history"] + [
-            {"role": "user",      "content": question},
-            {"role": "assistant", "content": answer},
-        ]
-        state["history"] = history[-(MAX_HISTORY_TURNS * 2):]
-        _log_query(chat_id=chat_id, user_message=question,
-                   recognized=recognized or state.get("active_recognized"),
-                   retrieved_chunks=[], raw_llm=det_body, final_response=answer,
-                   duration_ms=round((time.monotonic() - t_start) * 1000))
+        selected = recognized or state.get("active_recognized")
+        slots = selection_trace.get("slots") or state.get("collected_slots")
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=selected,
+            active_before=active_before, final_body=det_body,
+            final_answer=answer,
+            deterministic_or_llm="deterministic_selection",
+            llm_called=False,
+            selection_result=selection_trace,
+            slots=slots,
+            unsupported_syndrome=unsupported_syndrome,
+            unsupported_matched_term=unsupported_matched_term,
+            unsupported_message=unsupported_message,
+            unsupported_action="ignored_explicit_drug" if unsupported_syndrome else None,
+        )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, selected, envelope)
         return answer
 
     # ----- Standard flow (carry-forward + RAG + LLM, unchanged from today) -----
@@ -2298,27 +2858,32 @@ def ask_ai(question, chat_id):
     _update_recommended_antibiotics(state, answer, recognized)
 
     # Update conversation history, trim to MAX_HISTORY_TURNS pairs
-    history = history + [
-        {"role": "user",      "content": question},
-        {"role": "assistant", "content": answer},
-    ]
-    max_messages = MAX_HISTORY_TURNS * 2
-    if len(history) > max_messages:
-        history = history[-max_messages:]
-    state["history"] = history
+    _remember_answer(state, question, answer)
 
     # Structured audit log — written after response is ready
-    _log_query(
-        chat_id       = chat_id,
-        user_message  = question,
-        recognized    = recognized,
-        retrieved_chunks = retrieved_chunks,
-        raw_llm       = raw_answer,
-        final_response = answer,
-        duration_ms   = round((time.monotonic() - t_start) * 1000),
+    envelope = _make_answer_envelope(
+        state=state, turn_context=turn, recognized=recognized,
+        active_before=active_before, final_body=raw_answer,
+        final_answer=answer, retrieved_chunks=retrieved_chunks,
+        deterministic_or_llm="llm_rag", llm_called=True,
+        slots=_get_protocol_slots(state, recognized) if recognized else {},
+        unsupported_syndrome=unsupported_syndrome,
+        unsupported_matched_term=unsupported_matched_term,
+        unsupported_message=unsupported_message,
+        unsupported_action="ignored_explicit_drug" if unsupported_syndrome and explicit_drug_allowed else None,
     )
+    _log_answer_envelope(t_start, chat_id, question, recognized, envelope)
 
     return answer
+
+
+def ask_ai(question, chat_id):
+    t_start = time.monotonic()
+    try:
+        return _ask_ai_impl(question, chat_id)
+    except Exception as exc:
+        _log_safe_runtime_failure(t_start, chat_id, question, exc, "ask_ai")
+        return SAFE_RUNTIME_FAILURE_MESSAGE
 
 
 # ---------------------------------------------------------------------------
@@ -2507,13 +3072,13 @@ def _inspect_deterministic_path(question, recognized, state):
     meta = parsed.get("metadata", {})
     mode = meta.get("selection_mode", "none").lower()
     if mode == "decision_tree":
-        return None, dict(state.get("collected_slots", {})), "deterministic decision-tree dispatcher"
+        return None, _get_protocol_slots(state, recognized), "deterministic decision-tree dispatcher"
     if mode in ("", "none"):
-        return None, dict(state.get("collected_slots", {})), "LLM-generated RAG path"
+        return None, _get_protocol_slots(state, recognized), "LLM-generated RAG path"
     slots = extract_slots_from_query(
         question,
         parsed_protocol=parsed,
-        existing_slots=dict(state.get("collected_slots", {})),
+        existing_slots=_get_protocol_slots(state, recognized),
     )
     result = run_selection(parsed, slots, lang=_user_language(question))
     if result.no_match:
@@ -2522,14 +3087,35 @@ def _inspect_deterministic_path(question, recognized, state):
 
 
 def build_debug_trace(debug_question, chat_id):
+    unsupported_hit = _detect_unsupported_policy(debug_question)
+    unsupported_syndrome = unsupported_hit.get("key") if unsupported_hit else None
+    unsupported_matched_term = unsupported_hit.get("matched_term") if unsupported_hit else None
+    unsupported_message = unsupported_hit.get("message") if unsupported_hit else None
     normalized_question, fresh_recognized = normalize_question(debug_question)
     state = get_chat_state(chat_id)
     state_before = _format_state_snapshot(state)
     active = state.get("active_recognized")
     recognized = fresh_recognized
+    unsupported_action = "none"
 
-    if fresh_recognized:
+    explicit_drug_allowed = (
+        fresh_recognized
+        and fresh_recognized.get("category") == "drugs"
+        and (not unsupported_hit or unsupported_hit.get("allowed_if_explicit_drug", True))
+    )
+    if unsupported_hit and not explicit_drug_allowed:
+        recognized = None
+        active = None
+        context_source = "unsupported_syndrome"
+        unsupported_action = "blocked"
+        reason = (
+            f"unsupported syndrome '{unsupported_syndrome}' matched term "
+            f"'{unsupported_matched_term}'; no supported explicit drug alias"
+        )
+    elif fresh_recognized:
         context_source = "fresh_alias"
+        if unsupported_syndrome and fresh_recognized.get("category") == "drugs":
+            unsupported_action = "ignored_explicit_drug"
         reason = (
             f"fresh alias '{fresh_recognized.get('matched_alias', 'n/a')}' "
             f"matched with {fresh_recognized.get('confidence', 'n/a')} confidence"
@@ -2556,8 +3142,40 @@ def build_debug_trace(debug_question, chat_id):
     selection_result, slots, output_source = _inspect_deterministic_path(
         debug_question, recognized, state
     )
+    if unsupported_action == "blocked":
+        output_source = "deterministic policy block (unsupported_syndrome)"
     selected_key = getattr(selection_result, "output_key", None) if selection_result else None
     default_used = getattr(selection_result, "default_used", None) if selection_result else None
+    turn = _new_turn_context(
+        raw_user_text=debug_question,
+        chat_id=chat_id,
+        state=state,
+        active_before=active,
+        fresh_recognized=fresh_recognized,
+        selected_recognized=recognized,
+        unsupported_syndrome=unsupported_syndrome,
+        unsupported_matched_term=unsupported_matched_term,
+        unsupported_message=unsupported_message,
+        intent=classify_intent(debug_question),
+        normalized_question=normalized_question,
+    )
+    turn.protocol_slots_after = dict(slots or {})
+    trace = _make_answer_trace(
+        state=state,
+        recognized=recognized,
+        active_before=active,
+        deterministic_or_llm=output_source,
+        llm_called=output_source.startswith("LLM-generated"),
+        selection_result=selection_result,
+        slots=slots,
+        unsupported_syndrome=unsupported_syndrome,
+        unsupported_matched_term=unsupported_matched_term,
+        unsupported_message=unsupported_message,
+        unsupported_action=unsupported_action,
+        blocked_reason="unsupported_syndrome" if unsupported_action == "blocked" else None,
+        turn_context=turn,
+        retrieved_chunks=retrieved_chunks,
+    )
 
     lines = [
         "DEBUG - routing trace",
@@ -2571,8 +3189,14 @@ def build_debug_trace(debug_question, chat_id):
         f"Active state after: {_format_state_snapshot(state)}",
         _format_selected_protocol(recognized, reason),
         f"Deterministic/LLM source: {output_source}",
+        f"LLM called: {str(trace.get('llm_called')).lower()}",
         f"Selection output: {selected_key or ('default' if default_used else 'n/a')}",
         "Collected slots: " + (json.dumps(slots, ensure_ascii=False, sort_keys=True) if slots else "none"),
+        f"Unsupported syndrome: {unsupported_syndrome or 'none'}",
+        f"Unsupported key: {unsupported_syndrome or 'none'}",
+        f"Unsupported matched term: {unsupported_matched_term or 'none'}",
+        f"Unsupported action: {unsupported_action}",
+        "Answer trace: " + json.dumps(trace, ensure_ascii=False, sort_keys=True),
         _format_missing_fields(selection_result, parsed),
         "Blocked output: no authorization block",
         _format_tree_node(state, parsed),
@@ -2605,13 +3229,42 @@ def split_message(text, max_length=4000):
 # Telegram handlers
 # ---------------------------------------------------------------------------
 
+async def _safe_reply_text(update, text):
+    try:
+        await update.message.reply_text(text)
+        return True
+    except Exception as exc:
+        chat_id = update.effective_chat.id if getattr(update, "effective_chat", None) else None
+        _log_runtime_error("telegram_reply_text", exc, chat_id, text)
+        return False
+
+
+async def _safe_send_action(update, action):
+    try:
+        await update.message.chat.send_action(action=action)
+        return True
+    except Exception as exc:
+        chat_id = update.effective_chat.id if getattr(update, "effective_chat", None) else None
+        _log_runtime_error("telegram_send_action", exc, chat_id)
+        return False
+
+
+async def _safe_reply_chunks(update, text):
+    ok = True
+    for chunk in split_message(text):
+        if not await _safe_reply_text(update, chunk):
+            ok = False
+            break
+    return ok
+
+
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(START_MESSAGE)
+    await _safe_reply_text(update, START_MESSAGE)
 
 
 async def handle_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id if update.effective_user else None
-    await update.message.reply_text(f"Telegram user id: {user_id}")
+    await _safe_reply_text(update, f"Telegram user id: {user_id}")
 
 
 async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2619,35 +3272,34 @@ async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     chat_id = update.effective_chat.id
     CONVERSATION_STATE.pop(chat_id, None)
-    await update.message.reply_text("Conversation history cleared.")
+    await _safe_reply_text(update, "Conversation history cleared.")
 
 
 async def handle_protocols(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update.effective_user.id):
-        await update.message.reply_text(
+        await _safe_reply_text(update,
             "Ez a bot kórházi dolgozók számára érhető el. "
             "Ha jogosult vagy a hozzáférésre, kérj meghívót."
         )
         return
-    for chunk in split_message(format_protocols_output()):
-        await update.message.reply_text(chunk)
+    await _safe_reply_chunks(update, format_protocols_output())
 
 
 async def handle_version(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update.effective_user.id):
-        await update.message.reply_text(
+        await _safe_reply_text(update,
             "Ez a bot kórházi dolgozók számára érhető el. "
             "Ha jogosult vagy a hozzáférésre, kérj meghívót."
         )
         return
-    await update.message.reply_text(format_version_output())
+    await _safe_reply_text(update, format_version_output())
 
 
 async def handle_reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update.effective_user.id) or not _is_admin(update.effective_user.id):
-        await update.message.reply_text("Authorization: blocked for admin command.")
+        await _safe_reply_text(update, "Authorization: blocked for admin command.")
         return
-    await update.message.reply_text(
+    await _safe_reply_text(update,
         "Reload deferred. TODO: implement an atomic admin-only reload that rebuilds "
         "aliases, parsed protocols, chunks, and embeddings without serving a half-loaded state."
     )
@@ -2655,7 +3307,7 @@ async def handle_reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update.effective_user.id):
-        await update.message.reply_text(
+        await _safe_reply_text(update,
             "DEBUG - routing trace\n"
             "Authorization: blocked\n"
             "Blocked output: user is not authorized to run debug commands."
@@ -2666,15 +3318,14 @@ async def handle_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
     debug_question = " ".join(context.args).strip() if context.args else ""
 
     if not debug_question:
-        await update.message.reply_text(
+        await _safe_reply_text(update,
             "Please provide a question after /debug\nExample: /debug meropenem septic shock"
         )
         return
 
     answer = build_debug_trace(debug_question, chat_id)
 
-    for chunk in split_message(answer):
-        await update.message.reply_text(chunk)
+    await _safe_reply_chunks(update, answer)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2687,19 +3338,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
     if not _is_allowed(user_id):
-        await update.message.reply_text(
+        await _safe_reply_text(update,
             "Ez a bot kórházi dolgozók számára érhető el. "
             "Ha jogosult vagy a hozzáférésre, kérj meghívót."
         )
         return
 
     chat_id = update.effective_chat.id
-    await update.message.chat.send_action(action="typing")
+    await _safe_send_action(update, "typing")
 
     answer = ask_ai(question, chat_id)
 
-    for chunk in split_message(answer):
-        await update.message.reply_text(chunk)
+    await _safe_reply_chunks(update, answer)
 
 
 # ---------------------------------------------------------------------------
@@ -2720,9 +3370,7 @@ def main():
     print("Loading rule files...")
     load_rule_files()
 
-    if ALIAS_SYNC_AVAILABLE:
-        print("Syncing aliases...")
-        _alias_sync()
+    _maybe_run_alias_sync_on_startup()
     print("Loading aliases...")
     load_aliases("protocols/aliases.json")
 

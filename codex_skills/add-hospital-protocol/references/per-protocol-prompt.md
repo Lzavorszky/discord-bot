@@ -12,6 +12,7 @@ Known local context, if any:
 - desired protocol_id:
 - desired source_label:
 - known aliases/local names:
+- terms that may currently be in unsupported_syndromes or blocked_aliases:
 - linked protocols that already exist:
 - linked protocols that are expected but missing:
 - exact footer, if required:
@@ -21,14 +22,15 @@ First, do not draft the final protocol. Inspect the source and produce a short d
 2. answer_mode
 3. selection_mode
 4. aliases and alias categories
-5. required input slots
-6. whether default answer is allowed
-7. deterministic outputs Python may select
-8. modifiers that affect selection
-9. modifiers that belong only in footer/safety notes
-10. INFO_BLOCKS topics
-11. needed LINKS and target_missing_behavior
-12. exact DEFAULT_FOOTER
+5. whether any alias is currently in protocols/aliases.json unsupported_syndromes or blocked_aliases
+6. required input slots
+7. whether default answer is allowed
+8. deterministic outputs Python may select
+9. modifiers that affect selection
+10. modifiers that belong only in footer/safety notes
+11. INFO_BLOCKS topics
+12. needed LINKS and target_missing_behavior
+13. exact DEFAULT_FOOTER
 
 Ask concise questions for anything needed to avoid guessing. Do not invent doses, antibiotic choices, tiers, required inputs, target protocols, or footer text.
 
@@ -60,6 +62,8 @@ Before accepting the draft, run the contradiction check:
 - metadata flags match content
 - selected outputs are listed and reachable
 - aliases are not overbroad or collision-prone
+- supported aliases do not collide with unsupported_syndromes or legacy blocked_aliases
+- if this protocol newly supports VAP/HAP/JI PCR/immunosuppressed pneumonia or another previously unsupported item, protocols/aliases.json removes or narrows that unsupported policy
 - footer is exact
 ```
 

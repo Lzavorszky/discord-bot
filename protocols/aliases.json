@@ -157,6 +157,50 @@
       ]
     }
   },
+  "unsupported_syndromes": {
+    "vap": {
+      "terms": [
+        "vap",
+        "ventilator associated pneumonia",
+        "ventilator-associated pneumonia"
+      ],
+      "message": "No uploaded protocol supports VAP antibiotic selection. I cannot recommend antibiotics for that unsupported syndrome from the uploaded protocols. Please provide an explicit supported drug/protocol, or use local ID/pharmacy review.",
+      "allowed_if_explicit_drug": true
+    },
+    "hap": {
+      "terms": [
+        "hap",
+        "hospital acquired pneumonia",
+        "hospital-acquired pneumonia",
+        "nosocomial pneumonia",
+        "nozokomiÃ¡lis pneumonia",
+        "nozokomialis pneumonia"
+      ],
+      "message": "No uploaded protocol supports HAP antibiotic selection. I cannot recommend antibiotics for that unsupported syndrome from the uploaded protocols. Please provide an explicit supported drug/protocol, or use local ID/pharmacy review.",
+      "allowed_if_explicit_drug": true
+    },
+    "immunosuppressed pneumonia": {
+      "terms": [
+        "immunosuppressed pneumonia",
+        "immunocompromised pneumonia",
+        "pneumonia in immunosuppressed",
+        "pneumonia in immunocompromised"
+      ],
+      "message": "No uploaded protocol supports IMMUNOSUPPRESSED PNEUMONIA antibiotic selection. I cannot recommend antibiotics for that unsupported syndrome from the uploaded protocols. Please provide an explicit supported drug/protocol, or use local ID/pharmacy review.",
+      "allowed_if_explicit_drug": true
+    },
+    "joint_infection_panel": {
+      "terms": [
+        "ji panel",
+        "joint infection panel",
+        "biofire joint infection",
+        "filmarray ji",
+        "biofire ji"
+      ],
+      "message": "No uploaded protocol supports joint infection panel interpretation. I cannot interpret that unsupported syndrome from the uploaded protocols. Please provide an explicit supported drug/protocol, or use local ID/pharmacy review.",
+      "allowed_if_explicit_drug": true
+    }
+  },
   "blocked_aliases": [
     "hap",
     "vap",
@@ -165,6 +209,10 @@
     "ventilator associated pneumonia",
     "ventilator-associated pneumonia",
     "nosocomial pneumonia",
+    "immunosuppressed pneumonia",
+    "immunocompromised pneumonia",
+    "pneumonia in immunosuppressed",
+    "pneumonia in immunocompromised",
     "nozokomiális pneumonia",
     "nozokomialis pneumonia",
     "ji panel",

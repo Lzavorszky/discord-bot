@@ -28,6 +28,21 @@ class SelectionResult:
 
 
 _OUTPUT_SECTION_RE = re.compile(r"^###\s+(\S+)\s*$", re.MULTILINE)
+_TABLE_AXIS_SLOT_RE = re.compile(
+    r"^\s*(?:WEIGHT_SLOT|NUMERIC_AXIS|TABLE_AXIS|AXIS_SLOT):\s*([A-Za-z_][A-Za-z0-9_]*)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_TABLE_KEY_RE = re.compile(r"^\s*TABLE_KEY:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
+_IF_MISSING_RE = re.compile(r"^\s*IF_MISSING:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$", re.IGNORECASE | re.MULTILINE)
+_EXTRAPOLATION_ALLOWED_RE = re.compile(
+    r"\b(?:extrapolation_allowed|allow_extrapolation)\s*:\s*(?:true|yes)\b",
+    re.IGNORECASE,
+)
+_EXTRAPOLATION_METHOD_RE = re.compile(
+    r"\b(?:extrapolation_method|extrapolation_policy)\s*:\s*\S+",
+    re.IGNORECASE,
+)
+_SAFETY_NOTE_RE = re.compile(r"\b(?:safety_note|extrapolation_safety_note)\s*:\s*\S+", re.IGNORECASE)
 
 
 def _parse_selected_outputs_panel(text):
@@ -270,6 +285,60 @@ def _numeric_table_row_value(row, preferred_keyword=None):
     return float(m.group(1)) if m else None
 
 
+def _normalize_axis_text(value):
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").lower()).strip("_")
+
+
+def _axis_tokens(value):
+    return [t for t in _normalize_axis_text(value).split("_") if t]
+
+
+def _slot_axis_labels(slot_name, spec=None):
+    spec = spec or {}
+    labels = {slot_name}
+    for key in ("table_header", "axis_header", "header", "label", "display_name"):
+        if spec.get(key):
+            labels.add(str(spec.get(key)))
+    tokens = _axis_tokens(slot_name)
+    if tokens:
+        labels.add(" ".join(tokens))
+    if tokens and tokens[-1] in {"kg", "mg", "ml", "min", "day", "hr", "h"}:
+        labels.add(" ".join(tokens[:-1]))
+    if "weight" in tokens and "adjusted" not in tokens:
+        labels.update({"weight", "body weight"})
+    return {_normalize_axis_text(label) for label in labels if _normalize_axis_text(label)}
+
+
+def _table_header_matches_slot(header, slot_name, spec=None):
+    header_norm = _normalize_axis_text(header)
+    if not header_norm:
+        return False
+    slot_tokens = set(_axis_tokens(slot_name))
+    if header_norm == "weight" and "adjusted" in slot_tokens:
+        return False
+    labels = _slot_axis_labels(slot_name, spec)
+    if header_norm in labels:
+        return True
+    header_tokens = set(_axis_tokens(header_norm))
+    for label in labels:
+        label_tokens = set(_axis_tokens(label))
+        if label_tokens and label_tokens.issubset(header_tokens):
+            return True
+        if header_tokens and header_tokens.issubset(label_tokens):
+            return True
+    return False
+
+
+def _numeric_table_row_value_for_slot(row, slot_name, spec=None):
+    if not row:
+        return None
+    for key, value in row.items():
+        if _table_header_matches_slot(key, slot_name, spec):
+            m = re.search(r"[-+]?\d+(?:\.\d+)?", str(value or ""))
+            return float(m.group(0)) if m else None
+    return None
+
+
 def _table_numeric_bounds(table_rows, preferred_keyword=None):
     values = [
         v for v in (
@@ -281,6 +350,87 @@ def _table_numeric_bounds(table_rows, preferred_keyword=None):
     if not values:
         return None, None
     return min(values), max(values)
+
+
+def _table_numeric_bounds_for_slot(table_rows, slot_name, spec=None):
+    values = [
+        v for v in (
+            _numeric_table_row_value_for_slot(row, slot_name, spec)
+            for row in table_rows or []
+        )
+        if v is not None
+    ]
+    if not values:
+        return None, None
+    return min(values), max(values)
+
+
+def _table_axis_slots_from_rules(selection_rules):
+    return {
+        match.group(1).lower()
+        for match in _TABLE_AXIS_SLOT_RE.finditer(selection_rules or "")
+    }
+
+
+def _detect_table_axis_slots_from_outputs(parsed, outputs=None, selected_output=None):
+    schema = parsed.get("slot_schema") or {}
+    numeric_slots = {
+        name: spec for name, spec in schema.items()
+        if isinstance(spec, dict) and str(spec.get("type", "")).lower() == "number"
+    }
+    if not numeric_slots:
+        return set()
+    entries = [selected_output] if selected_output else list((outputs or {}).values())
+    axes = set()
+    for entry in entries:
+        if not entry:
+            continue
+        rows = entry.get("_table_rows") or []
+        if not rows:
+            continue
+        headers = list(rows[0].keys())
+        for slot_name, spec in numeric_slots.items():
+            if any(_table_header_matches_slot(header, slot_name, spec) for header in headers):
+                axes.add(slot_name)
+    return axes
+
+
+def _table_lookup_axis_slots(parsed, outputs=None, selected_output=None):
+    return (
+        _table_axis_slots_from_rules(parsed.get("selection_rules", ""))
+        | _detect_table_axis_slots_from_outputs(parsed, outputs=outputs, selected_output=selected_output)
+    )
+
+
+def _truthy(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"true", "yes", "1"}
+
+
+def _explicit_extrapolation_policy(parsed, output_data, slot_name, spec):
+    raw_parts = [
+        parsed.get("selection_rules", ""),
+        parsed.get("safety_rules", ""),
+        output_data.get("_raw", "") if output_data else "",
+    ]
+    raw = "\n".join(raw_parts)
+    allowed = (
+        _truthy((spec or {}).get("extrapolation_allowed"))
+        or _truthy((spec or {}).get("allow_extrapolation"))
+        or bool(_EXTRAPOLATION_ALLOWED_RE.search(raw))
+    )
+    method = (
+        bool((spec or {}).get("extrapolation_method"))
+        or bool((spec or {}).get("extrapolation_policy"))
+        or bool(_EXTRAPOLATION_METHOD_RE.search(raw))
+    )
+    safety_note = (
+        bool((spec or {}).get("safety_note"))
+        or bool((spec or {}).get("extrapolation_safety_note"))
+        or bool(_SAFETY_NOTE_RE.search(raw))
+    )
+    return allowed and method and safety_note
 
 
 def _explicit_extrapolation_allowed(parsed, output_data):
@@ -298,6 +448,88 @@ def _explicit_extrapolation_allowed(parsed, output_data):
     return False
 
 
+def _slot_supported_bounds(spec):
+    if not isinstance(spec, dict):
+        return None, None
+    try:
+        if spec.get("supported_min") is None or spec.get("supported_max") is None:
+            return None, None
+        return float(spec.get("supported_min")), float(spec.get("supported_max"))
+    except (TypeError, ValueError):
+        return None, None
+
+
+def _find_nearest_axis_row(table_rows, slot_name, value, spec=None):
+    best_row, best_delta, best_value = None, float("inf"), None
+    for row in table_rows or []:
+        row_value = _numeric_table_row_value_for_slot(row, slot_name, spec)
+        if row_value is None:
+            continue
+        delta = abs(row_value - value)
+        if delta < best_delta:
+            best_row, best_delta, best_value = row, delta, row_value
+    return best_row, best_value
+
+
+def _out_of_supported_message(spec, output_data, direction):
+    keys = []
+    if direction == "low":
+        keys.extend(("out_of_supported_low_message", "out_of_supported_lower_message", "below_supported_message"))
+    elif direction == "high":
+        keys.extend(("out_of_supported_high_message", "out_of_supported_upper_message", "above_supported_message"))
+    keys.append("out_of_supported_message")
+    for source in (output_data or {}, spec or {}):
+        for key in keys:
+            value = source.get(key)
+            if value:
+                return str(value)
+    return None
+
+
+def _apply_table_axis_range_guard(parsed, slots, output_data, render_vars, axis_slots=None):
+    schema = parsed.get("slot_schema") or {}
+    table_rows = output_data.get("_table_rows", []) if output_data else []
+    axis_slots = axis_slots or _table_lookup_axis_slots(parsed, selected_output=output_data)
+    for slot_name in sorted(axis_slots):
+        spec = schema.get(slot_name) if isinstance(schema.get(slot_name), dict) else {}
+        if slot_name not in slots or slots.get(slot_name) is None:
+            continue
+        try:
+            entered = float(str(slots.get(slot_name)).replace(str(spec.get("unit", "")), "").strip())
+        except (TypeError, ValueError):
+            continue
+
+        supported_min, supported_max = _slot_supported_bounds(spec)
+        explicit_min, explicit_max = _table_numeric_bounds_for_slot(table_rows, slot_name, spec)
+        min_bound = supported_min if supported_min is not None else explicit_min
+        max_bound = supported_max if supported_max is not None else explicit_max
+        if min_bound is None or max_bound is None:
+            continue
+        if min_bound <= entered <= max_bound:
+            continue
+        if _explicit_extrapolation_policy(parsed, output_data, slot_name, spec):
+            continue
+
+        row, row_value = _find_nearest_axis_row(table_rows, slot_name, entered, spec)
+        nearest_row_data = {k.lower().replace(" ", "_"): v for k, v in (row or {}).items()}
+        direction = "low" if entered < min_bound else "high"
+        render_vars.update({
+            "table_bound_slot": spec.get("display_name") or spec.get("label") or _slot_display_name(slot_name),
+            "table_bound_unit": spec.get("unit", ""),
+            "entered_bound_value": entered,
+            "table_min_value": min_bound,
+            "table_max_value": max_bound,
+            "nearest_row_value": row_value,
+            "nearest_row_data": nearest_row_data,
+            "out_of_table_range": True,
+            "review_required": True,
+            "out_of_supported_direction": direction,
+            "out_of_supported_message": _out_of_supported_message(spec, output_data, direction),
+        })
+        return render_vars
+    return render_vars
+
+
 def _pick_col(row, keyword):
     for k, v in row.items():
         if keyword.lower() in k.lower():
@@ -305,8 +537,130 @@ def _pick_col(row, keyword):
     return None
 
 
+def _slot_display_name(slot_name):
+    return str(slot_name).replace("_", " ")
+
+
+def _slot_schema_number_bounds(parsed, slots):
+    schema = parsed.get("slot_schema") or {}
+    for slot_name, spec in schema.items():
+        if not isinstance(spec, dict):
+            continue
+        if str(spec.get("type", "")).lower() != "number":
+            continue
+        if slot_name not in slots or slots.get(slot_name) is None:
+            continue
+        try:
+            value = float(slots.get(slot_name))
+        except (TypeError, ValueError):
+            continue
+        unit = spec.get("unit", "")
+        unit_suffix = f" {unit}" if unit else ""
+
+        clinical_min = spec.get("clinical_min")
+        clinical_max = spec.get("clinical_max")
+        if ((clinical_min is not None and value < float(clinical_min))
+                or (clinical_max is not None and value > float(clinical_max))):
+            low = _fmt_number(clinical_min) if clinical_min is not None else "-infinity"
+            high = _fmt_number(clinical_max) if clinical_max is not None else "infinity"
+            rendered = (
+                f"The supplied {_slot_display_name(slot_name)} ({_fmt_number(value)}{unit_suffix}) "
+                f"is outside the expected clinical bounds for this protocol ({low}-{high}{unit_suffix}).\n"
+                "Please confirm or correct this value before dosing."
+            )
+            return SelectionResult(
+                output_key="SLOT_OUT_OF_CLINICAL_BOUNDS",
+                output_data={"type": "slot_bounds", "slot": slot_name},
+                mode_used="slot_bounds",
+                rendered=rendered,
+                render_vars={**slots, "out_of_bounds_slot": slot_name},
+            )
+    return None
+
+
+def _parse_table_key_template(selection_rules):
+    m = _TABLE_KEY_RE.search(selection_rules or "")
+    return m.group(1).strip() if m else ""
+
+
+def _render_table_key(template, render_vars):
+    key = template
+    for name, value in render_vars.items():
+        key = key.replace("{" + name + "}", str(value))
+    return key if "{" not in key and "}" not in key else ""
+
+
+def _single_table_output_key(outputs):
+    table_keys = [
+        key for key, data in outputs.items()
+        if data.get("_table_rows")
+    ]
+    return table_keys[0] if len(table_keys) == 1 else ""
+
+
+def _generic_table_lookup_missing_slots(parsed, slots, outputs):
+    required = {
+        m.group(1).lower()
+        for m in _IF_MISSING_RE.finditer(parsed.get("selection_rules", "") or "")
+    }
+    required |= _table_lookup_axis_slots(parsed, outputs=outputs)
+    return [slot for slot in sorted(required) if slots.get(slot) is None]
+
+
+def _row_render_vars_for_axes(parsed, output_data, slots, axis_slots):
+    schema = parsed.get("slot_schema") or {}
+    table_rows = output_data.get("_table_rows", []) if output_data else []
+    best_row = None
+    for slot_name in sorted(axis_slots):
+        if slots.get(slot_name) is None:
+            continue
+        spec = schema.get(slot_name) if isinstance(schema.get(slot_name), dict) else {}
+        try:
+            entered = float(str(slots.get(slot_name)).replace(str(spec.get("unit", "")), "").strip())
+        except (TypeError, ValueError):
+            continue
+        best_row, _ = _find_nearest_axis_row(table_rows, slot_name, entered, spec)
+        if best_row:
+            break
+    if not best_row:
+        return {}
+    return {k.lower().replace(" ", "_"): v for k, v in best_row.items()}
+
+
+def _run_generic_table_lookup(parsed, slots, outputs):
+    missing = _generic_table_lookup_missing_slots(parsed, slots, outputs)
+    if missing:
+        return SelectionResult(missing_slots=missing, default_used=True, mode_used="table_lookup")
+
+    table_key_template = _parse_table_key_template(parsed.get("selection_rules", ""))
+    table_key = _render_table_key(table_key_template, slots) if table_key_template else ""
+    if not table_key:
+        table_key = _single_table_output_key(outputs)
+    output_data = outputs.get(table_key, {}) if table_key else {}
+    if not output_data:
+        return SelectionResult(default_used=True, mode_used="table_lookup", render_vars=dict(slots))
+
+    axis_slots = _table_lookup_axis_slots(parsed, outputs=outputs, selected_output=output_data)
+    row_vars = _row_render_vars_for_axes(parsed, output_data, slots, axis_slots)
+    rvars = {**slots, **output_data, **row_vars, "selected_output": table_key}
+    _apply_table_axis_range_guard(parsed, slots, output_data, rvars, axis_slots=axis_slots)
+    return SelectionResult(output_key=table_key, output_data=output_data, mode_used="table_lookup", render_vars=rvars)
+
+
+def _uses_builtin_tmpsmx_table_lookup(parsed):
+    rules = parsed.get("selection_rules", "")
+    return (
+        "USE_RULE_SET: INDICATION_RULES" in rules
+        or "USE_RULE_SET: RENAL_RULES" in rules
+        or "{indication_tier}_{renal_category}" in rules
+    )
+
+
 def _run_table_lookup(parsed, slots):
     outputs = _parse_selected_outputs_panel(parsed.get("selected_outputs", ""))
+    if not _uses_builtin_tmpsmx_table_lookup(parsed):
+        return _run_generic_table_lookup(parsed, slots, outputs)
+
     indication_raw = slots.get("indication") or slots.get("indication_text") or ""
     body_weight_kg = slots.get("body_weight_kg")
     has_renal = (slots.get("gfr") is not None or slots.get("crrt") is not None or slots.get("ihd") is not None)
@@ -339,22 +693,12 @@ def _run_table_lookup(parsed, slots):
         return SelectionResult(default_used=True, mode_used="table_lookup",
             render_vars={**slots, "indication_tier": indication_tier, "renal_category": renal_category})
     weight_row = {}
-    bounds = (None, None)
-    out_of_bounds = False
-    reference_row_value = None
     try:
         wf = float(str(body_weight_kg).replace("kg","").strip())
         table_rows = output_data.get("_table_rows", [])
         row = _find_weight_row(table_rows, wf)
         if row:
             weight_row = {k.lower().replace(" ","_"): v for k, v in row.items()}
-            reference_row_value = _numeric_table_row_value(row, "weight")
-        bounds = _table_numeric_bounds(table_rows, "weight")
-        min_bound, max_bound = bounds
-        if (min_bound is not None and max_bound is not None
-                and (wf < min_bound or wf > max_bound)
-                and not _explicit_extrapolation_allowed(parsed, output_data)):
-            out_of_bounds = True
     except (ValueError, TypeError):
         pass
     practical_dose = (_pick_col(weight_row, "practical") or weight_row.get("practical_dose") or "see table")
@@ -362,20 +706,7 @@ def _run_table_lookup(parsed, slots):
     renal_display = {"GFR_GT_30_OR_CRRT": "GFR >30 or CRRT", "GFR_15_TO_30": "GFR 15-30"}.get(renal_category, renal_category)
     rvars = {**slots, **output_data, "indication_tier": indication_tier, "renal_category": renal_display,
              "body_weight_kg": str(body_weight_kg), "practical_dose": practical_dose, "total_daily_tmp_smx": total_daily}
-    if out_of_bounds:
-        min_bound, max_bound = bounds
-        entered_weight = float(str(body_weight_kg).replace("kg","").strip())
-        rvars.update({
-            "table_bound_slot": "body weight",
-            "table_bound_unit": "kg",
-            "entered_bound_value": entered_weight,
-            "table_min_value": min_bound,
-            "table_max_value": max_bound,
-            "nearest_row_value": reference_row_value,
-            "nearest_row_data": weight_row,
-            "out_of_table_range": True,
-            "review_required": True,
-        })
+    _apply_table_axis_range_guard(parsed, slots, output_data, rvars, axis_slots={"body_weight_kg"})
     return SelectionResult(output_key=table_key, output_data=output_data, mode_used="table_lookup", render_vars=rvars)
 
 
@@ -536,7 +867,11 @@ def _run_organism_mapping(parsed, slots):
     return SelectionResult(output_key=output_key, output_data=od, mode_used="organism_mapping", render_vars=rvars)
 
 
-_GFR_RE    = re.compile(r"\b(?:GFR|eGFR|CrCl)\s*[=:~]?\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
+_GFR_RE    = re.compile(
+    r"\b(?:GFR|eGFR|CrCl)\s*[=:~]?\s*(\d+(?:\.\d+)?)"
+    r"|(\d+(?:\.\d+)?)\s*(?:ml/min|mL/min)\b",
+    re.IGNORECASE,
+)
 _WEIGHT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*kg\b", re.IGNORECASE)
 _VANCOMYCIN_LEVEL_RE = re.compile(
     r"\b(?:vancomycin|vanco|vankomicin)?\s*(?:level|szint|concentration|conc|tdm)\s*(?:is|at|=|:|~)?\s*(\d+(?:\.\d+)?)"
@@ -567,7 +902,7 @@ def extract_slots_from_query(question, parsed_protocol=None, existing_slots=None
     text = question
     gfr_matches = list(_GFR_RE.finditer(text))
     if gfr_matches:
-        slots["gfr"] = float(gfr_matches[-1].group(1))
+        slots["gfr"] = float(gfr_matches[-1].group(1) or gfr_matches[-1].group(2))
     weight_matches = list(_WEIGHT_RE.finditer(text))
     if weight_matches:
         slots["body_weight_kg"] = float(weight_matches[-1].group(1))
@@ -668,37 +1003,54 @@ def _render_out_of_bounds_reference(parsed, result, lang="en"):
     max_value = _fmt_number(rv.get("table_max_value"))
     nearest = _fmt_number(rv.get("nearest_row_value"))
     unit_suffix = f" {unit}" if unit else ""
+    custom_message = rv.get("out_of_supported_message")
 
     if lang == "hu":
         lines = [
             f"A megadott {slot} ({entered}{unit_suffix}) az explicit protokolltablazat tartomanyan kivul van "
             f"({min_value}-{max_value}{unit_suffix}).",
-            "Automatikus dozisemeles nem tamogatott, es ennel az erteknel veszelyes lehet.",
-            f"Legkozelebbi explicit protokollsor, csak tajekoztatasra: {nearest}{unit_suffix} sor.",
-            f"Ez nem {entered}{unit_suffix}-ra adott dozisjavaslat.",
-            "Ehhez a beteghez individualizalt ID/gyogyszereszeti felulvizsgalat szukseges.",
-            "",
-            "Referencia protokolladat:",
+            custom_message or "Automatikus dozisemeles nem tamogatott, es ennel az erteknel veszelyes lehet.",
         ]
     else:
         lines = [
             f"Patient {slot} {entered}{unit_suffix} is outside the explicit protocol table range "
             f"({min_value}-{max_value}{unit_suffix}).",
-            "Automatic dose escalation is not supported and may be unsafe at this value.",
-            f"Closest explicit protocol row for reference only: {nearest}{unit_suffix} row.",
-            f"This is not a {entered}{unit_suffix} dosing recommendation.",
-            "Use individualized ID/pharmacy review for this patient.",
-            "",
-            "Reference protocol data:",
+            custom_message or "Automatic dose escalation is not supported and may be unsafe at this value.",
         ]
 
     nearest_row = rv.get("nearest_row_data") or {}
-    for key, value in nearest_row.items():
-        if value:
-            lines.append(f"- {key.replace('_', ' ')}: {value}")
+    if nearest_row and rv.get("nearest_row_value") is not None:
+        if lang == "hu":
+            lines.extend([
+                f"Legkozelebbi explicit protokollsor, csak tajekoztatasra: {nearest}{unit_suffix} sor.",
+                f"Ez nem {entered}{unit_suffix}-ra adott dozisjavaslat.",
+                "Ehhez a beteghez individualizalt ID/gyogyszereszeti felulvizsgalat szukseges.",
+                "",
+                "Referencia protokolladat:",
+            ])
+        else:
+            lines.extend([
+                f"Closest explicit protocol row for reference only: {nearest}{unit_suffix} row.",
+                f"This is not a {entered}{unit_suffix} dosing recommendation.",
+                "Use individualized ID/pharmacy review for this patient.",
+                "",
+                "Reference protocol data:",
+            ])
+        for key, value in nearest_row.items():
+            if value:
+                lines.append(f"- {key.replace('_', ' ')}: {value}")
+    else:
+        lines.append(
+            "Use individualized ID/pharmacy review for this patient."
+            if lang != "hu"
+            else "Ehhez a beteghez individualizalt ID/gyogyszereszeti felulvizsgalat szukseges."
+        )
 
     context_rows = []
-    for key in ("target", "renal_adjustment", "renal_category", "indication_tier"):
+    for key in (
+        "target", "target_range", "target_mg_kg", "target_mg_kg_day",
+        "target_tmp_mg_kg_day", "renal_adjustment", "renal_category", "indication_tier"
+    ):
         value = rv.get(key)
         if value:
             context_rows.append((key, value))
@@ -712,6 +1064,8 @@ def _render_out_of_bounds_reference(parsed, result, lang="en"):
 
 
 def render_selected_output(parsed, result, lang="en"):
+    if result.rendered:
+        return result.rendered
     if result.default_used:
         da = parsed.get("default_answer", "")
         if da:
@@ -764,6 +1118,9 @@ def _plain_render(key, data, lang):
 def run_selection(parsed, slots, lang="en"):
     meta = parsed.get("metadata", {})
     mode = meta.get("selection_mode", "none").lower()
+    bounds_result = _slot_schema_number_bounds(parsed, slots)
+    if bounds_result:
+        return bounds_result
     if mode == "priority_rules":
         outputs = _parse_selected_outputs_panel(parsed.get("selected_outputs", ""))
         return _run_priority_rules(parsed.get("selection_rules", ""), outputs, slots)

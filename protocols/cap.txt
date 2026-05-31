@@ -228,7 +228,7 @@ selected_items:
 - ceftriaxone
 recommendation_hu:
 - Küldj trachea/BAL mintát Biofire Pneumonia PCE panelre. Telefonon értesítsd a mikrobiológiát és futárral küld direkt hozzájuk (ne a körponti laborba). Az eredmény 2-3 órán belül elérhető!
-- Eredmenyek alapjan celzott terapia; ha megirod az eredmenyt, segitek valasztani. Eredményig 2g ceftriaxont adhatsz.
+- Eredmenyek alapjan celzott terapia; ha megirod az eredmenyt, segitek valasztani. Eredményig ceftriaxont adhatsz.
 recommendation_en:
 - Send BAL, trahceal sample for Biofire Pneumonia PCR panel. Notify Micro and request direct transfer.
 - Use targeted therapy based on results; send the result and I can help choose.Until result can give ceftriaxone.

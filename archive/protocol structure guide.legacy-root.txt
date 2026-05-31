@@ -253,18 +253,7 @@ selection_mode:
 allows_dosing:
 dosing_requires_link:
 default_dose_allowed:
-version:
-last_reviewed:
-owner:
-status:
 ```
-
-Governance keys (`version`, `last_reviewed`, `owner`, `status`) are required.
-Use placeholder values if real values are unknown:
-- version: 0.1
-- last_reviewed: unknown
-- owner: ID team
-- status: draft   (valid values: draft | internal | approved)
 
 Suggested `protocol_type` values:
 - `drug_dosing_protocol`
