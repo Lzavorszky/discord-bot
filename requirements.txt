@@ -1,5 +1,4 @@
--c constraints.txt
-python-telegram-bot>=20.8
-openai>=1.30
-numpy>=1.26
-rapidfuzz>=3.6
+python-telegram-bot>=20.8,<22
+openai>=1.30,<3
+numpy>=1.26,<3
+rapidfuzz>=3.6,<4
