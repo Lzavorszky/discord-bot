@@ -1,0 +1,600 @@
+# PERIOPERATÍV GYÓGYSZEREK
+
+## METADATA
+
+protocol_id: periop_gyogyszerek
+protocol_name: Perioperatív gyógyszerek — Folytatni vagy elhagyni
+source_label: Perioperatív gyógyszerek
+canonical_name: perioperatív gyógyszerek
+protocol_type: general_rules
+answer_mode: info_only
+selection_mode: none
+allows_dosing: no
+dosing_requires_link: no
+default_dose_allowed: no
+version: 0.1
+last_reviewed: 2023 Q1
+owner: MH EK – KAITO
+status: draft
+
+## ALIASES
+
+- perioperatív gyógyszerek
+- periop gyógyszerek
+- perioperatív gyógyszer
+- periop gyógyszer
+- műtét előtti gyógyszerek
+- műtét napján gyógyszer
+- perioperative medications
+- perioperative drugs
+- surgery medications
+- műtéti gyógyszerek
+- preoperatív gyógyszerek
+- preoperative medications
+- gyógyszer műtét előtt
+- gyógyszer műtét napján
+- antidiabetikum periop
+- antidiabetikumok periop
+- inzulin periop
+- perioperatív inzulin
+- perioperatív diabétesz
+- perioperatív vércukor
+
+## INTENTS
+
+info_request:
+- perioperatív
+- műtét előtt
+- műtét napján
+- continue periop
+- omit periop
+- kihagyni
+- folytatni
+- adható-e
+- adható
+- bevehető
+- elhagyni
+- perioperative
+- preoperative
+- surgery day
+- adandó-e
+- adható műtét előtt
+- adható műtét napján
+
+## INPUT_SLOTS
+
+required_for_selection:
+(none)
+
+required_for_dosing:
+(none)
+
+optional_modifiers:
+- drug_name
+- drug_class
+- indication
+- surgery_type
+
+forwardable_slots:
+(none)
+
+## DEFAULT_ANSWER
+
+### HU
+
+Perioperatív gyógyszerek protokoll — kérdezz egy gyógyszerről vagy gyógyszercsoportról.
+
+Elérhető kategóriák:
+- Kardiovaszkuláris
+- Légzőrendszer
+- Endokrin (szteroidok jelenleg külön protokollban, nem elérhető)
+- KIR / fájdalomcsillapítás
+- Urológia
+- Immunmodulánsok
+- GI rendszer
+- Antidiabetikumok
+- Perioperatív inzulin
+
+### EN
+
+Perioperative medications protocol — ask about a specific drug or drug class.
+
+Available categories:
+- Cardiovascular
+- Respiratory
+- Endocrine (steroids in separate protocol, currently unavailable)
+- CNS / analgesia
+- Urology
+- Immunomodulators
+- GI system
+- Antidiabetics
+- Perioperative insulin
+
+## SELECTION_RULES
+
+(none)
+
+## SELECTED_OUTPUTS
+
+(none)
+
+## LINKS
+
+(none)
+
+## INFO_BLOCKS
+
+### kardiovaszkularis
+
+**Béta-blokkolók** (metoprolol, bisoprolol, atenolol, carvedilol stb.)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Nem javasolt abbahagyni. Perioperatív adása csökkenti a perioperatív myocardialis ischaemiát. Elkezdeni perioperatívan kérdéses.
+
+**Ca-csatorna-blokkolók** (DHP: amlodipin stb.; verapamil; diltiazem)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Verapamil: kardioprotektív hatás is kimutatható.
+
+**ACE-gátlók és ARB-k**
+Adható a műtét napján / Take on surgery day: FELTÉTELEKTŐL FÜGG / CONDITIONAL
+Intraoperatív hypotensio esélye nőhet, de nincs különbség a kimenetelben.
+▶ FOLYTATNI: stabil szívelégtelenségben; monoterápiában; nehezen kontrollált vérnyomásnál.
+▶ ELHAGYNI: nem szívelégtelenségben vagy kombinációban kapja (IIC, ESC 2022).
+
+**α2-agonisták** (moxonidin/Cynt, clonidin, dexmedetomidin)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Analgetikus hatás, stresszválasz csökkentése, perioperatív kardiális események csökkentése.
+
+**α1-blokkolók** (prazosin/Minipress, doxazosin/Cardura)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Kivétel: cataracta műtét — sebésszel egyeztetés szükséges.
+
+**Nitrátok**
+Adható a műtét napján / Take on surgery day: MAGAS RIZIKÓJÚ MŰTÉTNÉL ELHAGYNI / OMIT at high-risk surgery.
+
+**Diuretikumok**
+Adható a műtét napján / Take on surgery day: TÖBBSÉGÉBEN NEM / MOSTLY NO
+▶ ELHAGYNI: hypokalaemia, hypovolaemia veszélye miatt.
+▶ MARADJON: nem kompenzált szívelégtelenségben, ha eddig is kapta.
+
+**Amiodaron**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Ritmuszavar megelőzés miatt adandó.
+
+**Digoxin**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Toxicitás gyanúja esetén szintellenőrzés javasolt.
+
+**Trimetazidin**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Nem pontosan ismert hatásmechanizmus, de inkább adandó.
+
+**Sztatinok**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Plakkstabilizáló hatása miatt csökkenti a CV rizikót.
+
+---
+
+### legzorendszer
+
+**Antikolinergek (inhalációs)** (ipratropium/Berodual, tiotropium/Spiriva, aclidinium/Duaklir/Bretaris, umeclidinium/Laventair, revefenacin/Yupelri, glycopyrrolate/Seebri/Ultibro)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Fibrózisgátló gyógyszerek** (nintedanib/Ofev, pirfenidone/Esbriet)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Arylalkilamin orrcseppek** (phenylephrine, pseudoephedrine)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**β2-agonisták (inhalációs)** (albuterol/Laventair, levalbuterol/Xopenex, salmeterol/Seretide, formoterol/Trimbow/Duaklir, indacaterol/Onbrez, olodaterol, vilanterol/Laventair/Trelegy)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Kortikoszteroidok (inhalációs)** (fluticason/Trelegy, budesonid/Pulmicort/Symbicort, mometazon, beclometazon)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Endothelin-R-antagonisták** (bosentan/Stayveer/Tracleer, macitentan/Opsumit, ambrisentan/Volibris)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Megszakítás rebound pulmonalis hypertoniát okozhat! Sok gyógyszerinterakció. Mellékhatás: oedema, anaemia.
+Preop. vesefunkció és májfunkció szükséges.
+
+**H1-antihisztaminok** (hydroxyzin/Atarax, dimenhidrinát/Daedalon, cetirizin, difenhidramin, loratadin, levocetirizin, fexofenadin, desloratadin)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Leukotrién-gátlók** (montelukast, zafirlukast, zileuton)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Toxicitás esélye: amiodaron, clarithromycin, fluconazol együttes alkalmazásakor.
+
+**N-Acetilcisztein**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Nitroglicerin együttes alkalmazásakor hypotensio és fejfájás esélye.
+
+**Teofillin**
+Adható a műtét napján / Take on surgery day: IGEN, de figyelni / YES, with caution
+BZD-k és pancuronium hatását csökkenti. Gyógyszerinterakciók és mellékhatások miatt kiemelt figyelmet igényel.
+
+**Selexipag**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Vérzéses rizikó.
+
+**PDE4-gátlók** (roflumilast/Daliresp)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Toxicitás esélye: erythromycin, clarithromycin, fluconazol, cimetidin együttes alkalmazásakor.
+
+**PDE5-gátlók** (sildenafil, tadalafil — légzőrendszeri indikáció)
+Adható a műtét napján / Take on surgery day: FELTÉTELEKTŐL FÜGG / CONDITIONAL
+▶ Ha urológiai indikáció miatt szedi: 3 nappal a műtét előtt elhagyandó.
+▶ Ha pulmonalis hypertonia miatt szedi: FOLYTATNI.
+Erythromycin, azithromycin, ciprofloxacin, azolok együttes alkalmazásakor hypotensio, fejfájás, látászavar kockázata.
+
+**Prosztaciklin-analógok** (epoprostenol/Veletri, treprostinil, iloprost)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Megszakítás rebound pulmonalis hypertoniát okozhat! Vérzéses rizikó (thrombocyta-gátló hatás).
+
+**Riociguat (Adempas)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Nitrát együttes alkalmazása TILOS (hypotensio)!
+Clarithromycin, itraconazol együttes alkalmazásakor hypotensio és vérzéses rizikó.
+
+---
+
+### endokrin
+
+Szteroid perioperatív kezelés (stresszdózis, egyenértékűség): jelenleg külön protokollban — NEM ELÉRHETŐ EZEN A BOTON.
+
+**Biszfoszfonátok**
+Adható a műtét napján / Take on surgery day: FELTÉTELEKTŐL FÜGG / CONDITIONAL
+▶ Csontot érintő műtétek előtt 3 hónappal elhagyandó (csontnecrosisveszély, csontgyógyulás rontása).
+▶ Egyéb műtéteknél: folytasd.
+
+**L-Thyroxin**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+6 hónapon belül pajzsmirigy panel (TSH, T4) szükséges.
+
+**Thiamazol (Metothyrin)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+---
+
+### kir_fajdalom
+
+**Antikonvulzívumok**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Parkinson-gyógyszerek** (biperiden/Akineton, procyclidine/Kemadrin, rasagilin/Azilect, pramipexol/Mirapexin, entacapon/Comtan, apomorfin/Decpton, levodopa, carbidopa, benserazid, amantadin/PK-Merz, ropinirol/Requip, safinamid)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Alzheimer-gyógyszerek** (donepezil/Aricept, ginkgo biloba/Bilobil, rivastigmin/Exelon, memantin/Ebixa)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Barbiturátok** (phenobarbital, butalbital)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Triptánok** (almotriptan, eletriptan, frovatriptan, naratriptan, rizatriptan, sumatriptan, zolmitriptan)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Más szerotonerg gyógyszerekkel együtt: szerotonin-szindróma rizikó!
+
+**CGRP-R monoklonális antitestek** (erenumab/Aimovig, fremanezumab/Ajovy, galcanezumab, rimegepant/Vydura)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Spazmolitikumok** (baclofen, gablofen, tizanidin/Sirdalud)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Elhagyás megvonási szindrómát okozhat!
+
+**Centrális izomlazítók** (methocarbamol/Carbafen, orphenadrine, tolperizon/Mydeton)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Szedatívumokat és anesztetikumokat potencírozza. Orphenadrine: antikolinerg mellékhatás.
+
+**Anxiolitikumok**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Additív CNS-depressziós hatás.
+
+**Antidepresszánsok** (kivételek vannak)
+Adható a műtét napján / Take on surgery day: IGEN, kivételek vannak / YES, with exceptions
+QT-megnyúlás, szerotonin-szindróma veszély, emelkedett vérnyomás, additív CNS-depresszió kockázata.
+
+**MAO-gátlók** (moclobemid/Aurorix, szelegilin, phenelzin, rasagilin/Azilect, safinamid)
+Adható a műtét napján / Take on surgery day: IGEN — KRITIKUS FIGYELMEZTETÉS / YES — CRITICAL WARNING
+ABSZOLÚT KONTRAINDIKÁCIÓ anesztézia alatt: ephedrin, meperidin, metadon, tramadol együttes alkalmazása!
+
+**Lítium**
+Adható a műtét napján / Take on surgery day: FELTÉTELEKTŐL FÜGG / CONDITIONAL
+▶ Nagy folyadékeltolódással járó műtéteknél: 72 h-val a műtét előtt elhagyása felmerül (lítiumtoxicitás rizikó).
+▶ Egyéb műtéteknél: általában folytatható.
+Sok gyógyszerinterakció. Preop.: vesefunkció, ionok, TSH, EKG szükséges.
+
+**Antipszichotikumok**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+QT-megnyúlás, additív CNS-depressziós hatás.
+
+**ADHD-gyógyszerek** (methylphenidat/Ritalin, atomoxetin/Strattera)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Paracetamol (Acetaminophen)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Döntsd el, hogy premedikációban adható-e.
+
+**NSAID-ok**
+Adható a műtét napján / Take on surgery day: IGEN — döntés alapján / YES — decision required
+Vesefunkció szükséges preoperatívan.
+▶ Nem szelektív NSAID-ok: vérzésrizikó (preferáld, ha thromboemboliás rizikó > vérzéses rizikó).
+▶ COX-2-gátlók (coxibok): magasabb thromboembóliás rizikó (preferáld, ha TE rizikó > vérzéses rizikó).
+
+**Opioid-agonisták** (codein, fentanyl, hydrokodon, hydromorph, levorfanol, metadon, morfin, oxykodon, sufentanil, tramadol, meperidin)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Kontraindikált, ha eGFR <30: morfin, meperidin, tramadol.
+
+**Opioid-antagonisták** (alvimopan, methylnaltrexon, naldemedine, naloxegol, naloxon, naltrexon)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Opioid vegyes agonista/antagonisták** (buprenorfin, butorfanol, nalbufin, pentazocin)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Több opioidra lehet szükség intraoperatívan! QT-megnyúlás.
+
+**Ergotamin**
+Adható a műtét napján / Take on surgery day: NEM / NO
+2 nappal a műtét előtt elhagyandó.
+
+---
+
+### urologia
+
+**5α-reduktáz-gátlók** (dutasterid/Tamsudil Duo, finasterid)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**α1-antagonisták** (alfuzosin/Alfetim, silodosin, tamsulosin/Omnic, terazosin/Setegis, doxazosin, prazosin)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+CAVE: cataracta műtétnél sebésszel egyeztetés szükséges!
+
+**Antikolinergek (hólyag)** (darifenacin/Emselex, fesoterodin/Toviaz, oxybutinin/Kentera, solifenacin/Vesicare, tolterodine/Detrusitol, trospium/Descalon)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Daganatellenes szerek (urológiai)** (abirateronacetát, apalutamid, bicalutamid, degarelix, enzalutamid, goserelinum, leuprolidum, nilutamid)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Bethanechol (Myocholine)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Mirabegron (Betmiga)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**PDE5-gátlók (urológiai indikáció)** (avanafil, sildenafil, tadalafil, vardenafil)
+Adható a műtét napján / Take on surgery day: FELTÉTELEKTŐL FÜGG / CONDITIONAL
+▶ Urológiai indikáció: 3 nappal a műtét előtt elhagyandó.
+▶ Pulmonalis hypertonia indikáció: FOLYTATNI.
+
+---
+
+### immunmodulanso
+
+**Glukokortikoidok** (prednison, metilprednizolon, dexametazon stb.)
+Adható a műtét napján / Take on surgery day: IGEN / YES (szokásos dózis)
+Nem depolarizáló izomlazítókkal rezisztencia hatás lehetséges.
+Magas dózisnál stresszdózis mérlegelése szükséges — stresszdózis protokoll jelenleg NEM ELÉRHETŐ EZEN A BOTON.
+
+**Interferonok** (IFN béta-1a/Avonex, béta-1b/Betaferon, alfa, peginterferon alfa-2a/Pegasys, ropeginterferon/Besremi)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Preop. kiterjesztett labor szükséges: vérkép, TSH, máj, EKG. Thrombocytopenia, leukopenia rizikó.
+
+**Glatiramer (Remurel)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Majfunkció szükséges preoperatívan.
+
+**Monoklonális antitestek** (natalizumab, alemtuzumab, ocrelizumab, rituximab, ofatumumab, eculizumab, tofacitinib, ustekinumab, ozanimod, vedolizumab)
+Adható a műtét napján / Take on surgery day: FELTÉTELEKTŐL FÜGG / CONDITIONAL
+1 nappal a műtét előtt kihagyandó. Infekciós rizikó.
+
+**Fumarátok** (mono/dimetil-fumarát, diroximel-fumarát)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Vérkép és majfunkció szükséges preoperatívan. Leukopenia rizikó.
+
+**Dalfamperidin (Fampyra)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Vesefunkció szükséges preoperatívan.
+
+**Teriflunomid**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Vérkép és majfunkció szükséges preoperatívan. Thrombocytopenia, leukopenia rizikó.
+
+**S1P-receptor-modulátorok** (fingolimod, siponimod, ozanimod, ponesimod)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+QT-megnyúlás. β-blokkolókkal és Ca-csatorna-blokkolókkal magas fokú AV-blokk rizikó!
+Vérkép, máj, EKG szükséges preoperatívan.
+
+**Kladribin (Mavenclad)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Myocarditis, opportunista infekciók rizikó. Vérkép, máj, EKG szükséges.
+
+**Mitoxantron (Novantrone)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Kardiotoxicitás, leukopenia, infekciós rizikó. Vérkép, vese, máj, EKG szükséges.
+
+**Acetilkolineszteráz-gátlók** (neostigmin, pyridostigmin/Mestinon)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Izomlazítóknál nem bemérhető hatóidő. Bradycardia hajlam.
+
+**Azathioprin (Imuran)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Vérkép és majfunkció szükséges.
+
+**Mikofenolát (Cellcept)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Vérkép szükséges.
+
+**Ciklosporin (Sandimmun)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Opioidokkal, BZD-vel, izomlazítókkal interakció. Vérkép, vesefunkció, majfunkció, ionok szükséges.
+
+**Tacrolimus (Prograf)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Hyperkalaemia, QT-megnyúlás. Vérkép, vesefunkció, majfunkció, EKG szükséges.
+
+**Metothrexát**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Csontvelő-depresszió. Infekciós rizikó. Vérkép, majfunkció szükséges.
+
+**TNF-gátlók** (infliximab, adalimumab, golimumab, certolizumab)
+Adható a műtét napján / Take on surgery day: FELTÉTELEKTŐL FÜGG / CONDITIONAL
+Preoperatív 1 dózis kihagyandó.
+
+---
+
+### gi
+
+**5-Aminoszalicilsav** (mesalazin/Pentasa/Salofalk, olsalazin/Dipentum, sulfasalazin)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Vérkép, vesefunkció szükséges.
+
+**5-HT3-antagonisták** (ondansetron, granisetron, dolazsetron, palonosetron)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+QT-megnyúlás. Szerotonerg gyógyszerekkel szerotonin-szindróma rizikó.
+
+**Antacidok** (Na-citrát, Mg-citrát, Al/Mg-hidroxid/Gastracid, hydrotalcit/Talcid, Ca/Mg-karbonát/Rennie, sucralfát)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Antikolinergek (GI)** (hyoscin/Buscopan)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Anti-HBV reverz transzkriptáz-gátlók** (entekavir, tenofovir, lamivudin, adefovir)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Vesefunkció és majfunkció szükséges.
+
+**Aprepitant (Emend)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Opioidokkal, BZD-vel együtt légzésdepresszió-toxicitás rizikó.
+
+**Bupropion/naltrexon (Mysimba)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Hepatitis C kezelés** (dasabuvir, ombitasvir, paritaprevir, ritonavir, ledipasvir, voxilaprevir, velpatasvir, sofosbuvir, ribavirin, elbasvir, grazoprevir, glecaprevir, pibrentasvir)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Dopaminantagonisták** (promethazin, prochlorperazin, droperidol, metoklopramid)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+QT-megnyúlás. Kerülendő COPD/OSAS és Parkinson-kór esetén.
+
+**Epekő-oldó anyagok** (urzodesoxikolsav/Ursofalk, dehydrokólsav/Bilagit, chenodeoxikolsav, obetikolsav/Oxlavia)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Guanilát-cikláz-C-agonisták** (linaclotid/Constella, plecanatid/Trulance)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**H2-antagonisták** (ranitidin, famotidin)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Idős betegekben delírium rizikó. Famotidin QT-megnyúlást okoz, EKG szükséges.
+
+**Laxatívumok** (szennozid, PEG 3350, bisacodyl, MgOH/citrát, lactulose, docusát-nátrium)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Amiodaronnal együtt bradycardia rizikó.
+
+**Lisdexamfetamin (Elvasne)**
+Adható a műtét napján / Take on surgery day: NEM / NO
+3 nappal a műtét előtt elhagyandó! Szerotonin-szindróma veszélye!
+
+**Lubiproston (Amitiza)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Orlistat (Alli, Xenical)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Pankreász-enzimek** (Kreon, Dipankrin, Pangrol)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Phentermin/topiramát (Qsiva)**
+Adható a műtét napján / Take on surgery day: IGEN / YES
+Preop. HCO3⁻, K+, kreatinin, glükóz szükséges.
+
+**PPI** (pantoprazol, omeprazol, lansoprazol, esomeprazol)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Szerotonerg neuroenterális modulátorok** (tegaserod/Zelnorm, alosetron, prucaloprid/Resolor)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+**Székletkötők** (loperamid, difenoxilát)
+Adható a műtét napján / Take on surgery day: IGEN / YES
+
+---
+
+### antidiabetikumok
+
+PERIOPERATÍV ANTIDIABETIKUMOK / PERIOPERATIVE ANTIDIABETICS
+
+**Kihagyandók — hypoglycaemia veszélye miatt** (SKIP — hypoglycemia risk):
+Mind a műtét előtti napon, mind a műtét napján kihagyandó.
+▶ Szulfonilureák: glibenklamid/Gilemal, gliclazid/Diaprel/Gliclada, glimepirid/Amaryl/Dialosa/Gliprex
+▶ Meglitinidek: repaglinid/Novonorm, nateglinid/Starlix
+▶ Akarbóz (Glucobay)
+
+**Kihagyandók 2 nappal a műtét előtt — ketoacidózis veszélye miatt** (SKIP 2 days before — ketoacidosis risk):
+▶ SGLT-2-gátlók: dapagliflozin (Forxiga, Xigduo), empagliflozin (Jardiance, Synjardy), ertugliflozin (Segluromet, Steglatro, Steglujan)
+Euglikémiás ketoacidózis alakulhat ki! Rizikótényezők: folyadékeltolódás, csökkent energiabevitel, kritikus állapot.
+Diagnózis: ketonuria + magas anion gap acidózis.
+Ha nem hagyták el: szoros követés, vénás vérgáz-kontroll, mielőbbi evés-ivás szükséges.
+
+**Adhatóak** (CAN GIVE on surgery day):
+▶ DPP-4-gátlók (sitagliptin/Januvia/Janumet, vildagliptin/Galvus/Eucreas, saxagliptin/Onglyza, alogliptin/Vipidia, linagliptin/Trajenta)
+▶ GLP-1-analógok (exenatid/Bydureon/Byetta, liraglutid/Saxenda, lixisenatid/Lyxuma/Suliqua)
+▶ Pioglitazon (Actos, Competact, Incresync)
+▶ Metformin — FELTÉTELLEL / CONDITIONAL:
+  Laktát-acidózis rizikó nincs alapvetően, DE elhagyandó, ha bármelyik teljesül:
+  GFR <60 / jódos kontrasztanyag adása tervezett / magas rizikójú műtét / kritikus állapot / szervelégtelenség.
+
+---
+
+### insulin_periop
+
+PERIOPERATÍV INZULIN / PERIOPERATIVE INSULIN
+
+Cél vércukor a perioperatív időszakban: 6–12 mmol/L
+HbA1c preop cél: <8,5% (<69 mmol/mol)
+HbA1c szűrés: 3 hónapon belül ajánlott minden cukorbetegnél.
+Ha HbA1c >8,5%: diabetológiai kivizsgálás javasolt.
+
+A perioperatív hyperglycaemia — akár ismert, akár stressz-indukálta — növeli a szövődmények számát, hosszabb kórházi tartózkodáshoz és megnövekedett halálozáshoz vezet. A legrosszabb kimenetel korábban nem diagnosztizált cukorbetegség esetén várható.
+
+**Hosszú hatású inzulin** (glargine/Lantus/Toujeo, detemir/Levemir, degludec/Xultophy+liraglutid/Tresiba)
+Hatáskezdet: 3–4 óra | Hatástartam: 24+ óra
+▶ Műtét előtti nap: 20%-kal csökkentett dózis
+▶ Műtét napján: 20%-kal csökkentett dózis
+
+**Kevert inzulin** (lispro Mix/Humalog Mix 25–50, isophane/Humulin M3/Insuman Comb, aspart Mix/Novomix 30)
+▶ Műtét előtti nap: reggel fél dózis; délben kihagyni; este étkezéstől függően
+▶ Műtét napján: reggel fél dózis; délben kihagyni; este étkezéstől függően
+
+**Közepes hatású inzulin** (isophane/NPH: Humulin N, Insulotard, Insuman Basal)
+Hatáskezdet: 1–2 óra | Hatástartam: 14–24 óra
+▶ Műtét előtti nap: reggel fél dózis; délben kihagyni; este étkezéstől függően
+▶ Műtét napján: reggel fél dózis; délben kihagyni; este étkezéstől függően
+
+**Gyors hatású inzulin** (ultrarövid: glulizin/Apidra, aspart/Fiasp/Novorapid, lispro/Humalog/Liprolog; rövid: Actrapid)
+▶ Műtét napján: CSAK ÉTKEZÉSHEZ adható — éhező betegnél kihagyni!
+
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- Az INFO_BLOCKS-ban nem szereplő döntések, alternatívák, dózisok
+- Antidiabetikum-dozírozás (ez tájékoztató referencia, nem dosing protokoll)
+
+## SAFETY_RULES
+
+- Ez a protokoll tájékoztató jellegű referencia. Egyéni betegdöntéseket nem helyettesít.
+- MAO-gátlók esetén ABSZOLÚT KONTRAINDIKÁCIÓ anesztézia alatt: ephedrin, meperidin, metadon, tramadol!
+- SGLT-2-gátlókat 2 nappal a műtét előtt el kell hagyni — euglikémiás ketoacidózis kockázata.
+- Pulmonalis hypertonia gyógyszerek (endothelin-R-ant., prosztaciklin-analógok, PDE5-gátlók PH indikációban): megszakítás TILOS.
+- Szteroid stresszdózis NEM ebből a protokollból adandó.
+- Az INFO_BLOCKS tartalmazza a döntési információt; a bot nem léphet az itt leírtakon túl.
+
+## OUTPUT_TEMPLATES
+
+### INFO_ANSWER
+
+Az INFO_BLOCKS releváns részéből válaszolj.
+Ne adj az INFO_BLOCKS-on kívüli döntéseket, dózisokat, alternatívákat.
+Ha a gyógyszercsoport nem szerepel a protokollban, jelezd, hogy ez a protokoll nem tartalmazza.
+
+### DEFAULT_ANSWER_TEMPLATE
+
+Ha a kérdés nem irányul konkrét gyógyszercsoportra: add meg az elérhető kategóriák listáját és kérj pontosítást.
+
+## DEFAULT_FOOTER
+
+Forrás: MH EK – KAITO Kisokos 2023.Q1 | Tájékoztató jellegű referencia — egyéni döntést nem helyettesít.
+Source: MH EK – KAITO Kisokos 2023.Q1 | Reference only — does not replace individual clinical judgment.

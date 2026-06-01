@@ -6,6 +6,8 @@ Run: python test_bot.py
 import sys
 import os
 import io
+import json
+import tempfile
 import unittest
 import importlib.util
 import types
@@ -144,6 +146,18 @@ class TestFooterPlacement(unittest.TestCase):
 class TestProductionStartupHardening(unittest.TestCase):
     """Production startup must fail closed and avoid mutating protocol sources."""
 
+    def setUp(self):
+        self._old_runtime_options = dict(bot.RUNTIME_OPTIONS)
+        self._old_access_mode = bot.ACCESS_MODE
+        self._old_full_conversation_log = bot.FULL_CONVERSATION_LOG
+        self._old_allowed_user_ids = set(bot.ALLOWED_USER_IDS)
+
+    def tearDown(self):
+        bot.RUNTIME_OPTIONS = self._old_runtime_options
+        bot.ACCESS_MODE = self._old_access_mode
+        bot.FULL_CONVERSATION_LOG = self._old_full_conversation_log
+        bot.ALLOWED_USER_IDS = self._old_allowed_user_ids
+
     def test_warning_text_present_in_source(self):
         """Verify the exact warning string is in run_startup_checks source code."""
         import inspect
@@ -203,6 +217,94 @@ class TestProductionStartupHardening(unittest.TestCase):
                 os.environ["LOCAL_DEBUG"] = saved_debug
             else:
                 os.environ.pop("LOCAL_DEBUG", None)
+
+    def test_runtime_options_file_can_open_access_and_enable_user_message_logs(self):
+        saved_runtime_file = os.environ.get("RUNTIME_OPTIONS_FILE")
+        saved_access = os.environ.pop("ACCESS_MODE", None)
+        saved_bot_access = os.environ.pop("BOT_ACCESS_MODE", None)
+        saved_log = os.environ.pop("LOG_USER_MESSAGES", None)
+        old_options = dict(bot.RUNTIME_OPTIONS)
+        old_access_mode = bot.ACCESS_MODE
+        old_full_log = bot.FULL_CONVERSATION_LOG
+        tmp = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
+        try:
+            json.dump({
+                "access_mode": "open",
+                "log_user_messages": True,
+                "allowed_user_ids": [],
+                "admin_user_ids": [],
+            }, tmp)
+            tmp.close()
+            os.environ["RUNTIME_OPTIONS_FILE"] = tmp.name
+            bot._refresh_runtime_settings()
+
+            self.assertEqual(bot.ACCESS_MODE, "open")
+            self.assertTrue(bot.FULL_CONVERSATION_LOG)
+            self.assertTrue(bot._is_allowed(None))
+            self.assertEqual(bot._safe_user_message_for_log("John Doe fever"), "John Doe fever")
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+            if saved_runtime_file is not None:
+                os.environ["RUNTIME_OPTIONS_FILE"] = saved_runtime_file
+            else:
+                os.environ.pop("RUNTIME_OPTIONS_FILE", None)
+            if saved_access is not None:
+                os.environ["ACCESS_MODE"] = saved_access
+            if saved_bot_access is not None:
+                os.environ["BOT_ACCESS_MODE"] = saved_bot_access
+            if saved_log is not None:
+                os.environ["LOG_USER_MESSAGES"] = saved_log
+            bot.RUNTIME_OPTIONS = old_options
+            bot.ACCESS_MODE = old_access_mode
+            bot.FULL_CONVERSATION_LOG = old_full_log
+
+    def test_runtime_options_file_closed_access_overrides_local_debug_open_fallback(self):
+        saved_runtime_file = os.environ.get("RUNTIME_OPTIONS_FILE")
+        saved_access = os.environ.pop("ACCESS_MODE", None)
+        saved_bot_access = os.environ.pop("BOT_ACCESS_MODE", None)
+        saved_debug = os.environ.get("LOCAL_DEBUG")
+        old_options = dict(bot.RUNTIME_OPTIONS)
+        old_access_mode = bot.ACCESS_MODE
+        old_allowed = set(bot.ALLOWED_USER_IDS)
+        tmp = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
+        try:
+            json.dump({
+                "access_mode": "closed",
+                "log_user_messages": False,
+                "allowed_user_ids": [],
+                "admin_user_ids": [],
+            }, tmp)
+            tmp.close()
+            os.environ["RUNTIME_OPTIONS_FILE"] = tmp.name
+            os.environ["LOCAL_DEBUG"] = "1"
+            bot.ALLOWED_USER_IDS = set()
+            bot._refresh_runtime_settings()
+
+            self.assertEqual(bot.ACCESS_MODE, "closed")
+            self.assertFalse(bot._is_allowed(None))
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+            if saved_runtime_file is not None:
+                os.environ["RUNTIME_OPTIONS_FILE"] = saved_runtime_file
+            else:
+                os.environ.pop("RUNTIME_OPTIONS_FILE", None)
+            if saved_access is not None:
+                os.environ["ACCESS_MODE"] = saved_access
+            if saved_bot_access is not None:
+                os.environ["BOT_ACCESS_MODE"] = saved_bot_access
+            if saved_debug is not None:
+                os.environ["LOCAL_DEBUG"] = saved_debug
+            else:
+                os.environ.pop("LOCAL_DEBUG", None)
+            bot.RUNTIME_OPTIONS = old_options
+            bot.ACCESS_MODE = old_access_mode
+            bot.ALLOWED_USER_IDS = old_allowed
 
     def test_alias_sync_not_called_in_production_startup(self):
         saved_debug = os.environ.pop("LOCAL_DEBUG", None)
@@ -2728,6 +2830,66 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
             self.b.get_chat_state(yes_chat_id).get("pending_context_confirmation")
         )
 
+    def test_debug_note_variants_do_not_mutate_protocol_state(self):
+        chat_id = self._chat_id("debug_note_no_state_mutation")
+        self._ask_without_rag_or_llm("Biofire pneumococcus", chat_id)
+        state = self.b.get_chat_state(chat_id)
+        before_active = dict(state.get("active_recognized") or {})
+        before_slots = dict(state.get("collected_slots") or {})
+        before_history_len = len(state.get("history", []))
+        self.mock_log.reset_mock()
+
+        answer = self._ask_without_rag_or_llm(
+            "debug note: this should not go to biofire",
+            chat_id,
+        )
+
+        state = self.b.get_chat_state(chat_id)
+        self.assertIn("Admin/debug note ignored", answer)
+        self.assertEqual(state.get("active_recognized"), before_active)
+        self.assertEqual(state.get("collected_slots"), before_slots)
+        self.assertEqual(len(state.get("history", [])), before_history_len)
+        logged = self._last_logged()
+        self.assertIsNone(logged["recognized"])
+        self.assertEqual(logged["trace"]["blocked_reason"], "admin_debug_note")
+
+    def test_out_of_bounds_confirmation_yes_is_intentional_and_safe(self):
+        chat_id = self._chat_id("out_of_bounds_yes")
+        first = self._ask_without_rag_or_llm("TMP/SMX Steno BSI 60kg GFR 289", chat_id)
+        self.assertIn("Please confirm or correct", first)
+        self.assertIsNotNone(
+            self.b.get_chat_state(chat_id).get("pending_out_of_bounds_confirmation")
+        )
+        self.mock_log.reset_mock()
+
+        answer = self._ask_without_rag_or_llm("yes it is 289", chat_id)
+        trace = self._last_trace()
+
+        self.assertIn("Confirmed GFR 289", answer)
+        self.assertIn("cannot provide automatic dosing", answer)
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_confirmation")
+        self.assertEqual(trace["blocked_reason"], "out_of_bounds_confirmed")
+        self.assertTrue(trace["confirmation_pending"])
+        self.assertIsNone(
+            self.b.get_chat_state(chat_id).get("pending_out_of_bounds_confirmation")
+        )
+
+    def test_out_of_bounds_confirmation_corrected_value_resumes_selection(self):
+        chat_id = self._chat_id("out_of_bounds_corrected")
+        self._ask_without_rag_or_llm("TMP/SMX Steno BSI 60kg GFR 289", chat_id)
+        self.mock_log.reset_mock()
+
+        answer = self._ask_without_rag_or_llm("no, GFR 60", chat_id)
+        trace = self._last_trace()
+
+        self.assertIn("TMP/SMX - HIGH_DOSE", answer)
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_selection")
+        self.assertEqual(trace["selection_output_key"], "HIGH_DOSE_GFR_GT_30_OR_CRRT")
+        self.assertEqual(trace["slots"]["gfr"], 60.0)
+        self.assertIsNone(
+            self.b.get_chat_state(chat_id).get("pending_out_of_bounds_confirmation")
+        )
+
     def test_no_match_out_of_scope_does_not_claim_selected_protocol(self):
         chat_id = self._chat_id("out_of_scope")
         fake_chunks = [{
@@ -3045,6 +3207,7 @@ class TestSession11ModuleSplit(unittest.TestCase):
 
         old_cwd = os.getcwd()
         old_cache_db = b.CACHE_DB
+        old_cache_disabled = b._CACHE_DISABLED
         old_chunks = list(b.PROTOCOL_CHUNKS)
         old_policy = dict(b.PROTOCOL_POLICY_BY_FILE)
         old_parsed = dict(b.PROTOCOL_PARSED_BY_FILE)
@@ -3066,6 +3229,7 @@ class TestSession11ModuleSplit(unittest.TestCase):
             try:
                 os.chdir(tmp)
                 b.CACHE_DB = os.path.join(tmp, "embeddings_cache.db")
+                b._CACHE_DISABLED = True
                 b.PROTOCOL_CHUNKS.clear()
                 b.PROTOCOL_POLICY_BY_FILE.clear()
                 b.PROTOCOL_PARSED_BY_FILE.clear()
@@ -3083,6 +3247,7 @@ class TestSession11ModuleSplit(unittest.TestCase):
             finally:
                 os.chdir(old_cwd)
                 b.CACHE_DB = old_cache_db
+                b._CACHE_DISABLED = old_cache_disabled
                 b.PROTOCOL_CHUNKS[:] = old_chunks
                 b.PROTOCOL_POLICY_BY_FILE.clear()
                 b.PROTOCOL_POLICY_BY_FILE.update(old_policy)
@@ -3111,12 +3276,16 @@ class TestRuntimeFailureBoundaries(unittest.IsolatedAsyncioTestCase):
         self.b = b
         self._old_state = dict(b.CONVERSATION_STATE)
         self._old_allowed = set(b.ALLOWED_USER_IDS)
+        self._old_runtime_options = dict(b.RUNTIME_OPTIONS)
+        self._old_access_mode = b.ACCESS_MODE
 
     def tearDown(self):
         b = self.b
         b.CONVERSATION_STATE.clear()
         b.CONVERSATION_STATE.update(self._old_state)
         b.ALLOWED_USER_IDS = self._old_allowed
+        b.RUNTIME_OPTIONS = self._old_runtime_options
+        b.ACCESS_MODE = self._old_access_mode
 
     def test_openai_chat_failure_returns_safe_error_and_logs(self):
         fake_chunk = {
@@ -3164,6 +3333,50 @@ class TestRuntimeFailureBoundaries(unittest.IsolatedAsyncioTestCase):
 
         message.reply_text.assert_awaited()
         log_mock.assert_called()
+
+    async def test_missing_user_id_allowed_in_open_mode(self):
+        b = self.b
+        b.RUNTIME_OPTIONS = {"access_mode": "open", "log_user_messages": False}
+        b.ACCESS_MODE = "open"
+        b.ALLOWED_USER_IDS = set()
+        message = types.SimpleNamespace(
+            text="clinical question",
+            chat=types.SimpleNamespace(id=456, send_action=AsyncMock()),
+            reply_text=AsyncMock(),
+        )
+        update = types.SimpleNamespace(
+            message=message,
+            effective_user=None,
+            effective_chat=types.SimpleNamespace(id=456),
+        )
+
+        with patch.object(b, "ask_ai", return_value="safe answer") as ask_mock:
+            await b.handle_message(update, types.SimpleNamespace())
+
+        ask_mock.assert_called_once_with("clinical question", 456)
+        message.reply_text.assert_awaited()
+
+    async def test_missing_user_id_denied_in_closed_mode_without_crash(self):
+        b = self.b
+        b.RUNTIME_OPTIONS = {"access_mode": "closed", "log_user_messages": False}
+        b.ACCESS_MODE = "closed"
+        b.ALLOWED_USER_IDS = {123}
+        message = types.SimpleNamespace(
+            text="clinical question",
+            chat=types.SimpleNamespace(id=456, send_action=AsyncMock()),
+            reply_text=AsyncMock(),
+        )
+        update = types.SimpleNamespace(
+            message=message,
+            effective_user=None,
+            effective_chat=types.SimpleNamespace(id=456),
+        )
+
+        with patch.object(b, "ask_ai", return_value="safe answer") as ask_mock:
+            await b.handle_message(update, types.SimpleNamespace())
+
+        ask_mock.assert_not_called()
+        message.reply_text.assert_awaited()
 
 
 if __name__ == "__main__":

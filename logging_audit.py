@@ -7,6 +7,23 @@ import hashlib
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+import re
+
+
+_TELEGRAM_TOKEN_RE = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+
+
+class _TelegramTokenRedactionFilter(logging.Filter):
+    def filter(self, record):
+        if isinstance(record.msg, str):
+            record.msg = _TELEGRAM_TOKEN_RE.sub("bot<redacted>", record.msg)
+        if record.args:
+            record.args = tuple(
+                _TELEGRAM_TOKEN_RE.sub("bot<redacted>", arg)
+                if isinstance(arg, str) else arg
+                for arg in record.args
+            )
+        return True
 
 
 def setup_logging(log_file):
@@ -17,6 +34,11 @@ def setup_logging(log_file):
         format="%(asctime)s %(levelname)s %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(_TelegramTokenRedactionFilter())
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("telegram").setLevel(logging.WARNING)
+    logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
     query_logger = logging.getLogger("query")
     query_logger.setLevel(logging.INFO)

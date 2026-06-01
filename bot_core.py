@@ -80,6 +80,7 @@ from config import (
     MAX_HISTORY_TURNS as _CFG_MAX_HISTORY_TURNS,
     CACHE_DB,
     LOG_FILE,
+    get_runtime_options,
 )
 
 # Kept as module-level names for backward compatibility
@@ -88,10 +89,9 @@ CHAT_MODEL        = _CFG_CHAT_MODEL
 MAX_HISTORY_TURNS = _CFG_MAX_HISTORY_TURNS
 BOT_VERSION       = os.getenv("BOT_VERSION", "session-10")
 LOCAL_DEBUG_MODE  = os.getenv("LOCAL_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
-FULL_CONVERSATION_LOG = (
-    LOCAL_DEBUG_MODE
-    or os.getenv("FULL_CONVERSATION_LOG", "").strip().lower() in {"1", "true", "yes", "on"}
-)
+RUNTIME_OPTIONS   = get_runtime_options()
+ACCESS_MODE       = RUNTIME_OPTIONS.get("access_mode", "closed")
+FULL_CONVERSATION_LOG = False
 SAFE_RUNTIME_FAILURE_MESSAGE = (
     "I could not safely complete that request because an external service failed. "
     "Please retry in a moment, and use local clinical review if the decision is urgent."
@@ -105,6 +105,37 @@ def _env_flag(name):
 
 def _local_debug_enabled():
     return _env_flag("LOCAL_DEBUG")
+
+
+def _runtime_log_user_messages_enabled():
+    return bool(RUNTIME_OPTIONS.get("log_user_messages"))
+
+
+def _full_conversation_log_enabled():
+    return (
+        _local_debug_enabled()
+        or _env_flag("FULL_CONVERSATION_LOG")
+        or _runtime_log_user_messages_enabled()
+    )
+
+
+def _effective_access_mode():
+    if _local_debug_enabled() and not (
+        RUNTIME_OPTIONS.get("_access_mode_explicit")
+    ):
+        return "open"
+    return str(RUNTIME_OPTIONS.get("access_mode") or "closed").strip().lower()
+
+
+def _refresh_runtime_settings():
+    global RUNTIME_OPTIONS, ACCESS_MODE, FULL_CONVERSATION_LOG
+    RUNTIME_OPTIONS = get_runtime_options()
+    ACCESS_MODE = _effective_access_mode()
+    FULL_CONVERSATION_LOG = _full_conversation_log_enabled()
+    return RUNTIME_OPTIONS
+
+
+_refresh_runtime_settings()
 
 # ---------------------------------------------------------------------------
 # Global state
@@ -150,11 +181,11 @@ state_helpers.bind_state(CONVERSATION_STATE)
 # ---------------------------------------------------------------------------
 
 def _load_allowlist():
-    return authorization_helpers._load_allowlist()
+    return authorization_helpers._load_allowlist(RUNTIME_OPTIONS)
 
 
 def _load_admin_ids():
-    return authorization_helpers._load_admin_ids()
+    return authorization_helpers._load_admin_ids(RUNTIME_OPTIONS)
 
 
 ALLOWED_USER_IDS: set = set()  # populated at startup
@@ -162,6 +193,10 @@ ADMIN_USER_IDS: set = set()    # populated at startup
 
 
 def _is_allowed(user_id: int) -> bool:
+    if _effective_access_mode() == "open":
+        return True
+    if not ALLOWED_USER_IDS:
+        return False
     return authorization_helpers.is_allowed(user_id, ALLOWED_USER_IDS)
 
 
@@ -192,8 +227,15 @@ def _maybe_run_alias_sync_on_startup():
 
 def run_startup_checks():
     import sys
+    _refresh_runtime_settings()
     errors = []
     warnings = []
+    runtime_allowed = set(RUNTIME_OPTIONS.get("allowed_user_ids") or [])
+    access_mode = _effective_access_mode()
+    if access_mode not in {"open", "closed"}:
+        errors.append(
+            f"Invalid access_mode {access_mode!r}. Use 'open' for testing or 'closed' for production."
+        )
 
     # 1. Required environment variables
     if not os.getenv("TELEGRAM_TOKEN"):
@@ -240,8 +282,11 @@ def run_startup_checks():
             glob.glob("protocols/*.txt") +
             glob.glob("protocols/**/*.txt", recursive=True)
         )
-        real_files = [f for f in txt_files
-                      if Path(f).name not in EXCLUDED_FROM_PROTOCOLS]
+        real_files = list({
+            normalize_path(os.path.abspath(f)): f
+            for f in txt_files
+            if Path(f).name not in EXCLUDED_FROM_PROTOCOLS
+        }.values())
         if not real_files:
             errors.append("protocols/ folder contains no .txt protocol files.")
         else:
@@ -266,15 +311,17 @@ def run_startup_checks():
         except Exception as exc:
             errors.append(f"Protocol linter failed during startup validation: {exc}")
 
-    # 6. Production must fail closed. Local debug may run unrestricted.
-    if not os.getenv("ALLOWED_USER_IDS", "").strip():
+    # 6. Production must fail closed. Local debug/open mode may run unrestricted.
+    if access_mode == "closed" and not runtime_allowed:
         if _local_debug_enabled():
             warnings.append("!! ALLOWED USERS NOT DEFINED !!")
         else:
             errors.append(
                 "ALLOWED_USER_IDS environment variable is not set. "
-                "Set it before running outside LOCAL_DEBUG."
+                "Set it before running outside LOCAL_DEBUG, or set access_mode=open for local testing."
             )
+    elif access_mode == "open" and not runtime_allowed:
+        warnings.append("!! ALLOWED USERS NOT DEFINED !!")
 
     # Report
     for w in warnings:
@@ -842,7 +889,12 @@ def _is_correction_intent(question):
 
 
 _ADMIN_DEBUG_NOTE_RE = re.compile(
-    r"^\s*(?:/debug\b|debug\s*:|admin\s*:|note\s+to\s+self\s*:|audit\s*:|log\s*:|todo\s*:)",
+    r"^\s*(?:"
+    r"/debug\b|"
+    r"debug\s*:|debug\s+(?:note|not)\s*:|"
+    r"dedebug\s+(?:note|not)\s*:|deubg\s*:|"
+    r"admin\s*:|note\s+to\s+self\s*:|audit\s*:|log\s*:|todo\s*:)"
+    ,
     re.IGNORECASE,
 )
 
@@ -2290,6 +2342,9 @@ def _try_deterministic_selection(state, recognized, question, lang):
     slots = extract_slots_from_query(question_for_extract, parsed_protocol=parsed, existing_slots=existing)
     _set_protocol_slots(state, recognized, slots)
     result = run_selection(parsed, slots, lang=lang)
+    pending_bounds = _pending_bounds_from_selection(recognized, slots, result, question)
+    if pending_bounds:
+        state["pending_out_of_bounds_confirmation"] = pending_bounds
     state["_last_selection_trace"] = {
         "output_key": result.output_key,
         "mode_used": result.mode_used,
@@ -2425,6 +2480,99 @@ def _apply_generic_correction_or_clear(parsed, existing, question):
 
 _YES_RE = re.compile(r"^\s*(?:yes|y|igen|ja|apply|use it)\s*[\.\?!]*\s*$", re.IGNORECASE)
 _NO_RE = re.compile(r"^\s*(?:no|n|nem|nope|cancel|do not)\s*[\.\?!]*\s*$", re.IGNORECASE)
+_YES_PREFIX_RE = re.compile(r"^\s*(?:yes|y|igen|ja)\b", re.IGNORECASE)
+_NO_PREFIX_RE = re.compile(r"^\s*(?:no|n|nem|nope)\b", re.IGNORECASE)
+
+
+def _pending_bounds_from_selection(recognized, slots, result, question):
+    if _selection_trace_value(result, "output_key") != "SLOT_OUT_OF_CLINICAL_BOUNDS":
+        return None
+    render_vars = _selection_trace_value(result, "render_vars", {}) or {}
+    slot_name = render_vars.get("out_of_bounds_slot")
+    if not slot_name:
+        output_data = _selection_trace_value(result, "output_data", {}) or {}
+        slot_name = output_data.get("slot")
+    if not slot_name:
+        return None
+    return {
+        "type": "slot_out_of_bounds",
+        "recognized": dict(recognized or {}),
+        "slot": slot_name,
+        "value": slots.get(slot_name),
+        "slots": dict(slots or {}),
+        "question": question,
+    }
+
+
+def _extract_pending_bounds_correction_question(pending, question, parsed):
+    updates = extract_slots_from_query(question, parsed_protocol=parsed, existing_slots={})
+    slot_name = pending.get("slot")
+    if slot_name in updates:
+        return question
+    numbers = _number_tokens(question)
+    if len(numbers) == 1 and slot_name:
+        return f"{slot_name} {numbers[0]}"
+    return None
+
+
+def _resolve_pending_out_of_bounds_confirmation(state, question):
+    pending = state.get("pending_out_of_bounds_confirmation")
+    if not pending:
+        return None
+    recognized = pending.get("recognized") or state.get("active_recognized")
+    parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path((recognized or {}).get("protocol_file", "")))
+    correction_question = _extract_pending_bounds_correction_question(pending, question, parsed)
+    pending_value = pending.get("value")
+    slot_name = pending.get("slot")
+    numbers = _number_tokens(question)
+    numeric_differs = bool(
+        numbers
+        and pending_value is not None
+        and not _approximately_equal(numbers[-1], pending_value)
+    )
+
+    if _YES_PREFIX_RE.match(question) and not numeric_differs:
+        state["pending_out_of_bounds_confirmation"] = None
+        _set_protocol_slots(state, recognized, pending.get("slots", {}))
+        slot_label = _slot_display_name(slot_name)
+        body = (
+            f"Confirmed {slot_label} {_fmt_number_for_message(pending_value)} is outside the expected "
+            "clinical bounds for this protocol. I still cannot provide automatic dosing from this value. "
+            "Please correct the value or use individualized ID/pharmacy review."
+        )
+        return {
+            "answer_body": body,
+            "recognized": recognized,
+            "blocked_reason": "out_of_bounds_confirmed",
+            "slots": dict(pending.get("slots", {})),
+        }
+
+    if _NO_PREFIX_RE.match(question) and not correction_question:
+        state["pending_out_of_bounds_confirmation"] = None
+        body = f"OK. Please send the corrected {_slot_display_name(slot_name)} before dosing."
+        return {
+            "answer_body": body,
+            "recognized": recognized,
+            "blocked_reason": "out_of_bounds_correction_requested",
+            "slots": dict(pending.get("slots", {})),
+        }
+
+    if correction_question:
+        state["pending_out_of_bounds_confirmation"] = None
+        return {
+            "question": correction_question,
+            "recognized": recognized,
+        }
+
+    return None
+
+
+def _fmt_number_for_message(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return str(int(number)) if number.is_integer() else str(number)
 
 
 def _looks_like_active_protocol_followup(question, state):
@@ -2498,26 +2646,59 @@ def _ask_ai_impl(question, chat_id):
         return ack
 
     if _is_admin_debug_note(question):
-        active = state.get("active_recognized")
         body = "Admin/debug note ignored; no patient facts or protocol slots were changed."
         turn = _new_turn_context(
             raw_user_text=raw_user_text, chat_id=chat_id, state=state,
-            active_before=active_before, selected_recognized=active,
+            active_before=active_before, selected_recognized=None,
             intent="debug_note",
         )
-        answer = finalize_answer(body, None, (active or {}).get("source_label"))
+        answer = finalize_answer(body, None, None)
         envelope = _make_answer_envelope(
-            state=state, turn_context=turn, recognized=active,
+            state=state, turn_context=turn, recognized=None,
             active_before=active_before, final_body=body, final_answer=answer,
             deterministic_or_llm="deterministic_policy", llm_called=False,
             blocked_reason="admin_debug_note",
         )
-        _remember_answer(state, question, answer)
-        _log_answer_envelope(t_start, chat_id, question, active, envelope)
+        _log_answer_envelope(t_start, chat_id, question, None, envelope)
         return answer
 
-    pending_context = state.get("pending_context_confirmation")
     forced_recognized = None
+    pending_bounds_action = _resolve_pending_out_of_bounds_confirmation(state, question)
+    if pending_bounds_action:
+        if pending_bounds_action.get("answer_body") is not None:
+            body = pending_bounds_action["answer_body"]
+            selected = pending_bounds_action.get("recognized")
+            source_label = (selected or {}).get("source_label")
+            answer = finalize_answer(body, None, source_label)
+            turn = _new_turn_context(
+                raw_user_text=raw_user_text,
+                chat_id=chat_id,
+                state=state,
+                active_before=active_before,
+                selected_recognized=selected,
+                confirmation_pending=True,
+                confirmation_required=False,
+                intent="out_of_bounds_confirmation",
+            )
+            envelope = _make_answer_envelope(
+                state=state,
+                turn_context=turn,
+                recognized=selected,
+                active_before=active_before,
+                final_body=body,
+                final_answer=answer,
+                deterministic_or_llm="deterministic_confirmation",
+                llm_called=False,
+                slots=pending_bounds_action.get("slots", {}),
+                blocked_reason=pending_bounds_action.get("blocked_reason"),
+            )
+            _remember_answer(state, raw_user_text, answer)
+            _log_answer_envelope(t_start, chat_id, raw_user_text, selected, envelope)
+            return answer
+        question = pending_bounds_action.get("question", question)
+        forced_recognized = pending_bounds_action.get("recognized")
+
+    pending_context = state.get("pending_context_confirmation")
     if pending_context:
         if _YES_RE.match(question):
             forced_recognized = pending_context.get("recognized")
@@ -3234,7 +3415,7 @@ async def _safe_reply_text(update, text):
         await update.message.reply_text(text)
         return True
     except Exception as exc:
-        chat_id = update.effective_chat.id if getattr(update, "effective_chat", None) else None
+        chat_id = _effective_chat_id(update)
         _log_runtime_error("telegram_reply_text", exc, chat_id, text)
         return False
 
@@ -3244,7 +3425,7 @@ async def _safe_send_action(update, action):
         await update.message.chat.send_action(action=action)
         return True
     except Exception as exc:
-        chat_id = update.effective_chat.id if getattr(update, "effective_chat", None) else None
+        chat_id = _effective_chat_id(update)
         _log_runtime_error("telegram_send_action", exc, chat_id)
         return False
 
@@ -3258,25 +3439,52 @@ async def _safe_reply_chunks(update, text):
     return ok
 
 
+UNAUTHORIZED_MESSAGE = (
+    "Ez a bot kÃ³rhÃ¡zi dolgozÃ³k szÃ¡mÃ¡ra Ã©rhetÅ‘ el. "
+    "Ha jogosult vagy a hozzÃ¡fÃ©rÃ©sre, kÃ©rj meghÃ­vÃ³t."
+)
+
+
+def _effective_user_id(update):
+    user = getattr(update, "effective_user", None)
+    return getattr(user, "id", None)
+
+
+def _effective_chat_id(update):
+    chat = getattr(update, "effective_chat", None)
+    if chat is not None and getattr(chat, "id", None) is not None:
+        return chat.id
+    message = getattr(update, "message", None)
+    message_chat = getattr(message, "chat", None)
+    if message_chat is not None and getattr(message_chat, "id", None) is not None:
+        return message_chat.id
+    user_id = _effective_user_id(update)
+    return f"user:{user_id}" if user_id is not None else "unknown-chat"
+
+
+async def _reply_unauthorized(update):
+    await _safe_reply_text(update, UNAUTHORIZED_MESSAGE)
+
+
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _safe_reply_text(update, START_MESSAGE)
 
 
 async def handle_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id if update.effective_user else None
+    user_id = _effective_user_id(update)
     await _safe_reply_text(update, f"Telegram user id: {user_id}")
 
 
 async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not _is_allowed(update.effective_user.id):
+    if not _is_allowed(_effective_user_id(update)):
         return
-    chat_id = update.effective_chat.id
+    chat_id = _effective_chat_id(update)
     CONVERSATION_STATE.pop(chat_id, None)
     await _safe_reply_text(update, "Conversation history cleared.")
 
 
 async def handle_protocols(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not _is_allowed(update.effective_user.id):
+    if not _is_allowed(_effective_user_id(update)):
         await _safe_reply_text(update,
             "Ez a bot kórházi dolgozók számára érhető el. "
             "Ha jogosult vagy a hozzáférésre, kérj meghívót."
@@ -3286,7 +3494,7 @@ async def handle_protocols(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_version(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not _is_allowed(update.effective_user.id):
+    if not _is_allowed(_effective_user_id(update)):
         await _safe_reply_text(update,
             "Ez a bot kórházi dolgozók számára érhető el. "
             "Ha jogosult vagy a hozzáférésre, kérj meghívót."
@@ -3296,7 +3504,8 @@ async def handle_version(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not _is_allowed(update.effective_user.id) or not _is_admin(update.effective_user.id):
+    user_id = _effective_user_id(update)
+    if not _is_allowed(user_id) or not _is_admin(user_id):
         await _safe_reply_text(update, "Authorization: blocked for admin command.")
         return
     await _safe_reply_text(update,
@@ -3306,14 +3515,14 @@ async def handle_reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not _is_allowed(update.effective_user.id):
+    if not _is_allowed(_effective_user_id(update)):
         await _safe_reply_text(update,
             "DEBUG - routing trace\n"
             "Authorization: blocked\n"
             "Blocked output: user is not authorized to run debug commands."
         )
         return
-    chat_id = update.effective_chat.id
+    chat_id = _effective_chat_id(update)
     # context.args contains words after /debug
     debug_question = " ".join(context.args).strip() if context.args else ""
 
@@ -3336,7 +3545,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not question:
         return
 
-    user_id = update.effective_user.id
+    user_id = _effective_user_id(update)
     if not _is_allowed(user_id):
         await _safe_reply_text(update,
             "Ez a bot kórházi dolgozók számára érhető el. "
@@ -3344,7 +3553,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    chat_id = update.effective_chat.id
+    chat_id = _effective_chat_id(update)
     await _safe_send_action(update, "typing")
 
     answer = ask_ai(question, chat_id)
@@ -3359,6 +3568,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     run_startup_checks()
     global _query_log, ALLOWED_USER_IDS, ADMIN_USER_IDS
+    _refresh_runtime_settings()
     ALLOWED_USER_IDS = _load_allowlist()
     ADMIN_USER_IDS = _load_admin_ids()
     if ALLOWED_USER_IDS:

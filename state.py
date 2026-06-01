@@ -51,6 +51,7 @@ def get_chat_state(chat_id):
             "tree": None,
             "pending_topic_switch": None,
             "pending_context_confirmation": None,
+            "pending_out_of_bounds_confirmation": None,
             "pending_links": None,
             "active_protocol_id": None,
             "protocol_type": None,
@@ -67,6 +68,7 @@ def get_chat_state(chat_id):
     state.setdefault("tree", None)
     state.setdefault("pending_topic_switch", None)
     state.setdefault("pending_context_confirmation", None)
+    state.setdefault("pending_out_of_bounds_confirmation", None)
     state.setdefault("pending_links", None)
     state.setdefault("active_protocol_id", None)
     state.setdefault("protocol_type", None)
@@ -108,6 +110,7 @@ def reset_tree_state(state):
     state["tree"] = None
     state["pending_topic_switch"] = None
     state["pending_context_confirmation"] = None
+    state["pending_out_of_bounds_confirmation"] = None
     state["last_user_intent"] = None
     state["collected_slots"] = {}
     state["slots_by_protocol"] = {}

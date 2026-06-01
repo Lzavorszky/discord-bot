@@ -6,6 +6,7 @@ live here. Import from this module rather than reading os.getenv()
 scattered across the codebase.
 """
 
+import json
 import os
 
 
@@ -70,3 +71,85 @@ CACHE_DB = os.getenv(
     "/tmp/id_bot_embeddings_cache.db" if _ON_RAILWAY else "embeddings_cache.db",
 )
 LOG_FILE = os.getenv("LOG_FILE", "bot_queries.log")
+
+
+# ---------------------------------------------------------------------------
+# Runtime options
+# ---------------------------------------------------------------------------
+
+DEFAULT_RUNTIME_OPTIONS = {
+    "access_mode": "closed",
+    "log_user_messages": False,
+    "allowed_user_ids": [],
+    "admin_user_ids": [],
+}
+
+
+def _parse_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on", "open"}
+
+
+def _parse_id_list(value):
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw_items = value
+    else:
+        raw_items = str(value).split(",")
+    ids = []
+    for item in raw_items:
+        text = str(item).strip()
+        if not text:
+            continue
+        if text.isdigit():
+            ids.append(int(text))
+    return ids
+
+
+def _load_runtime_options_file(path):
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[startup] WARNING: runtime options file could not be read ({path}): {exc}")
+        return {}
+    if not isinstance(data, dict):
+        print(f"[startup] WARNING: runtime options file must contain a JSON object ({path}).")
+        return {}
+    return data
+
+
+def get_runtime_options():
+    """Load runtime options from runtime_options.json, then apply env overrides."""
+    path = os.getenv("RUNTIME_OPTIONS_FILE", "runtime_options.json")
+    file_options = _load_runtime_options_file(path)
+    options = dict(DEFAULT_RUNTIME_OPTIONS)
+    options.update(file_options)
+
+    env_access_mode = os.getenv("ACCESS_MODE") or os.getenv("BOT_ACCESS_MODE")
+    options["_access_mode_explicit"] = "access_mode" in file_options or bool(env_access_mode)
+    if env_access_mode:
+        options["access_mode"] = env_access_mode
+
+    if os.getenv("LOG_USER_MESSAGES") is not None:
+        options["log_user_messages"] = _parse_bool(os.getenv("LOG_USER_MESSAGES"))
+
+    if os.getenv("ALLOWED_USER_IDS") is not None:
+        options["allowed_user_ids"] = _parse_id_list(os.getenv("ALLOWED_USER_IDS"))
+    else:
+        options["allowed_user_ids"] = _parse_id_list(options.get("allowed_user_ids"))
+
+    if os.getenv("ADMIN_USER_IDS") is not None:
+        options["admin_user_ids"] = _parse_id_list(os.getenv("ADMIN_USER_IDS"))
+    else:
+        options["admin_user_ids"] = _parse_id_list(options.get("admin_user_ids"))
+
+    options["access_mode"] = str(options.get("access_mode") or "closed").strip().lower()
+    options["log_user_messages"] = _parse_bool(options.get("log_user_messages"), False)
+    return options

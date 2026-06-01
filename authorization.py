@@ -13,10 +13,14 @@ ALLOWED_USER_IDS: set[int] = set()
 ADMIN_USER_IDS: set[int] = set()
 
 
-def _parse_user_id_set(raw: str, label: str) -> set[int]:
+def _parse_user_id_set(raw, label: str) -> set[int]:
     ids = set()
-    for part in (raw or "").split(","):
-        part = part.strip()
+    if isinstance(raw, (list, tuple, set)):
+        parts = raw
+    else:
+        parts = (raw or "").split(",")
+    for part in parts:
+        part = str(part).strip()
         if not part:
             continue
         if part.isdigit():
@@ -26,13 +30,17 @@ def _parse_user_id_set(raw: str, label: str) -> set[int]:
     return ids
 
 
-def _load_allowlist():
+def _load_allowlist(runtime_options=None):
     """Return allowed Telegram user IDs, or an empty set for unrestricted use."""
+    if runtime_options and "allowed_user_ids" in runtime_options:
+        return _parse_user_id_set(runtime_options.get("allowed_user_ids"), "allowlist")
     return _parse_user_id_set(os.getenv("ALLOWED_USER_IDS", "").strip(), "allowlist")
 
 
-def _load_admin_ids():
+def _load_admin_ids(runtime_options=None):
     """Return Telegram user IDs allowed to run admin-only commands."""
+    if runtime_options and "admin_user_ids" in runtime_options:
+        return _parse_user_id_set(runtime_options.get("admin_user_ids"), "admin")
     return _parse_user_id_set(os.getenv("ADMIN_USER_IDS", "").strip(), "admin")
 
 

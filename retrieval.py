@@ -90,18 +90,17 @@ def init_cache_db(cache_db=DEFAULT_CACHE_DB, cache_disabled=False):
         cache_parent = os.path.dirname(os.path.abspath(cache_db))
         if cache_parent:
             os.makedirs(cache_parent, exist_ok=True)
-        con = sqlite3.connect(cache_db)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS embedding_cache (
-                file_hash    TEXT PRIMARY KEY,
-                source       TEXT NOT NULL,
-                source_label TEXT NOT NULL,
-                chunks_json  TEXT NOT NULL,
-                created_at   TEXT DEFAULT (datetime('now'))
-            )
-        """)
-        con.commit()
-        con.close()
+        with sqlite3.connect(cache_db) as con:
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS embedding_cache (
+                    file_hash    TEXT PRIMARY KEY,
+                    source       TEXT NOT NULL,
+                    source_label TEXT NOT NULL,
+                    chunks_json  TEXT NOT NULL,
+                    created_at   TEXT DEFAULT (datetime('now'))
+                )
+            """)
+            con.commit()
         return True, False
     except (OSError, sqlite3.Error) as exc:
         print(f"[startup] WARNING: embedding cache disabled ({cache_db}): {exc}")
@@ -118,12 +117,11 @@ def load_from_cache(file_hash, cache_db=DEFAULT_CACHE_DB, cache_disabled=False):
     if cache_disabled:
         return None
     try:
-        con = sqlite3.connect(cache_db)
-        row = con.execute(
-            "SELECT chunks_json FROM embedding_cache WHERE file_hash = ?",
-            (file_hash,),
-        ).fetchone()
-        con.close()
+        with sqlite3.connect(cache_db) as con:
+            row = con.execute(
+                "SELECT chunks_json FROM embedding_cache WHERE file_hash = ?",
+                (file_hash,),
+            ).fetchone()
     except (json.JSONDecodeError, sqlite3.Error, OSError) as exc:
         print(f"[cache] WARNING: cache read skipped: {exc}")
         return None
@@ -155,20 +153,19 @@ def save_to_cache(file_hash, chunks, cache_db=DEFAULT_CACHE_DB, cache_disabled=F
             "embedding": chunk["embedding"].tolist(),
         })
     try:
-        con = sqlite3.connect(cache_db)
-        con.execute(
-            """INSERT OR REPLACE INTO embedding_cache
-               (file_hash, source, source_label, chunks_json)
-               VALUES (?, ?, ?, ?)""",
-            (
-                file_hash,
-                chunks[0]["source"],
-                chunks[0]["source_label"],
-                json.dumps(serialisable),
-            ),
-        )
-        con.commit()
-        con.close()
+        with sqlite3.connect(cache_db) as con:
+            con.execute(
+                """INSERT OR REPLACE INTO embedding_cache
+                   (file_hash, source, source_label, chunks_json)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    file_hash,
+                    chunks[0]["source"],
+                    chunks[0]["source_label"],
+                    json.dumps(serialisable),
+                ),
+            )
+            con.commit()
     except (sqlite3.Error, OSError) as exc:
         print(f"[cache] WARNING: cache write skipped: {exc}")
 
