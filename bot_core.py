@@ -25,6 +25,7 @@ import hashlib
 import sqlite3
 import logging
 import time
+import unicodedata
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -2599,6 +2600,116 @@ def _active_protocol_id(state):
     return meta.get("protocol_id") or active.get("protocol_id") or active.get("key")
 
 
+_PERIOP_ENTRY_RE = re.compile(
+    r"^([^\n:#][^:\n]{2,120}):\n"
+    r"(.*?)(?=\n\n[^\n:#][^:\n]{2,120}:\n|\n\n###|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+
+_PERIOP_SKIP_TERMS = {
+    "periooperative_context_required",
+    "perioperative_context_required",
+    "target glucose in the perioperative period",
+    "other endocrine medications",
+}
+
+_PERIOP_MODIFIER_FOLLOWUP_RE = re.compile(
+    r"\b(?:epidural|spinal|neuraxial|regional\s+an(?:a|e)esth|catheter|"
+    r"puncture|kateter|kanul|spinalis|gerinc|regionalis|hasi|abdominal)\b",
+    re.IGNORECASE,
+)
+
+
+def _ascii_fold(text):
+    folded = unicodedata.normalize("NFKD", text or "")
+    return "".join(ch for ch in folded if not unicodedata.combining(ch)).lower()
+
+
+def _periop_query_tokens(question):
+    return re.findall(r"[a-z0-9]+", _ascii_fold(question))
+
+
+def _periop_entry_terms(header):
+    terms = []
+    for raw in re.split(r";|,", header or ""):
+        term = raw.strip()
+        if not term:
+            continue
+        folded = _ascii_fold(term)
+        compact = re.sub(r"[^a-z0-9]+", " ", folded).strip()
+        if len(re.sub(r"[^a-z0-9]+", "", compact)) < 4:
+            continue
+        if compact in _PERIOP_SKIP_TERMS:
+            continue
+        terms.append((term, compact))
+    return terms
+
+
+def _periop_term_matches(question, term):
+    folded_question = _ascii_fold(question)
+    if " " in term:
+        return term in folded_question
+    return any(token.startswith(term) for token in _periop_query_tokens(question))
+
+
+def _parse_periop_entries(parsed):
+    info = parsed.get("info_blocks", "") if parsed else ""
+    entries = []
+    current_section = ""
+    for line in info.splitlines():
+        if line.startswith("### "):
+            current_section = line[4:].strip()
+        # The regex below handles complete entries from the whole INFO_BLOCKS
+        # panel; section is used only to mark antithrombotic entries after match.
+    for match in _PERIOP_ENTRY_RE.finditer(info):
+        header = match.group(1).strip()
+        body = match.group(2).strip()
+        if not header or not body:
+            continue
+        if header.lower().startswith("perioperative_context_required"):
+            continue
+        section_start = info.rfind("\n### ", 0, match.start())
+        if section_start >= 0:
+            section_end = info.find("\n", section_start + 1)
+            if section_end < 0:
+                section_end = len(info)
+            section_line = info[section_start + 5: section_end]
+            current_section = section_line.strip()
+        else:
+            current_section = ""
+        entries.append({"header": header, "body": body, "section": current_section})
+    return entries
+
+
+def _render_periop_entry(entry):
+    return f"{entry['header']}:\n{entry['body']}"
+
+
+def _try_periop_info_shortcut(state, recognized, question):
+    selected = recognized or state.get("active_recognized")
+    if not selected:
+        return None
+    protocol_file = selected.get("protocol_file", "")
+    parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(protocol_file)) if protocol_file else None
+    meta = parsed.get("metadata", {}) if parsed else {}
+    protocol_id = meta.get("protocol_id") or selected.get("protocol_id") or selected.get("key")
+    if protocol_id != "periop_gyogyszerek":
+        return None
+
+    entries = _parse_periop_entries(parsed)
+    for entry in entries:
+        for _display, term in _periop_entry_terms(entry["header"]):
+            if _periop_term_matches(question, term):
+                state["last_periop_entry"] = dict(entry)
+                return _render_periop_entry(entry)
+
+    last_entry = state.get("last_periop_entry")
+    if last_entry and _PERIOP_MODIFIER_FOLLOWUP_RE.search(question or ""):
+        return _render_periop_entry(last_entry)
+
+    return None
+
+
 def _looks_like_active_protocol_followup(question, state):
     if not state.get("active_recognized"):
         return False
@@ -2968,6 +3079,26 @@ def _ask_ai_impl(question, chat_id):
         )
         _remember_answer(state, question, answer)
         _log_answer_envelope(t_start, chat_id, question, recognized, envelope)
+        return answer
+
+    # -- Perioperative medication exact-entry shortcut ---
+    periop_body = _try_periop_info_shortcut(state, recognized or state.get("active_recognized"), question)
+    if periop_body is not None:
+        active = state.get("active_recognized") or recognized
+        source_label = (active or {}).get("source_label")
+        _pf = (active or {}).get("protocol_file")
+        _parsed_periop = PROTOCOL_PARSED_BY_FILE.get(normalize_path(_pf)) if _pf else None
+        _footer_periop = _parsed_periop.get("default_footer") if _parsed_periop else None
+        answer = finalize_answer(periop_body, _footer_periop, source_label)
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=active,
+            active_before=active_before, final_body=periop_body,
+            final_answer=answer,
+            deterministic_or_llm="deterministic_periop_info",
+            llm_called=False,
+        )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, active, envelope)
         return answer
 
     # ----- Deterministic selection engine (Session 9) -----

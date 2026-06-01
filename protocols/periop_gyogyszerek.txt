@@ -128,6 +128,8 @@ If the question asks generally "when to stop" an antithrombotic before surgery a
 
 If a follow-up asks about epidural, spinal, neuraxial, regional anesthesia, catheter, or puncture after an antithrombotic drug was just discussed, answer from the same antithrombotic entry and include the complete regional-anesthesia/catheter timing from that entry.
 
+Do not ask the user to classify the operation, name the surgery type, or decide low versus high bleeding risk before returning an antithrombotic entry. The clinician will read the complete entry and apply the appropriate row.
+
 Do not provide bridging recommendations, thromboembolic risk stratification, or calculations.
 
 ## REQUIRED_INFORMATION
@@ -554,7 +556,7 @@ For low bleeding risk procedures, the source states not to omit the antithrombot
 
 For regional anesthesia: the source states high bleeding risk regional anesthesia requires antithrombotic omission; procedures not listed as high risk are low risk and can be punctured while anticoagulated.
 
-Do not calculate CHA2DS2-VASc, thromboembolic risk, bleeding risk, renal categories, or bridging. If timing depends on bleeding risk, neuraxial anesthesia, or renal function and the user did not provide it, return the available table choices briefly.
+Do not calculate CHA2DS2-VASc, thromboembolic risk, bleeding risk, renal categories, or bridging. If timing depends on bleeding risk, neuraxial anesthesia, or renal function and the user did not provide it, return all available table choices for the named drug; do not ask for surgery type or bleeding-risk classification.
 
 ### antiplatelet_perioperative
 
@@ -661,8 +663,9 @@ Never provide:
 - If the user asks only for a drug in a non-perioperative context, say no non-perioperative protocol is available for that drug.
 - If the requested drug/class is not listed, say it is not specified in the uploaded perioperative protocol.
 - For antithrombotic drugs/classes, return the whole matching entry, not a shortened summary. This includes low-risk surgery, high-risk/spinal/epidural timing, epidural catheter status, and timing after puncture/catheter removal when present.
+- Do not ask for planned surgery type, abdominal surgery details, low/high bleeding risk, or neuraxial status before returning an antithrombotic entry.
 - If a row is conditional, return the stated condition only; do not invent missing clinical decision logic.
-- If antithrombotic timing depends on bleeding risk, neuraxial anesthesia, or renal function, return the relevant listed options and ask for the missing detail if a single answer is needed.
+- If antithrombotic timing depends on bleeding risk, neuraxial anesthesia, or renal function, return all relevant listed options.
 - Bridging content from the antithrombotic source is intentionally omitted and must not be reconstructed.
 - Steroid perioperative supplementation content is intentionally omitted and must not be reconstructed.
 
