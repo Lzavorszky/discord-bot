@@ -116,6 +116,39 @@ If the user does not name a drug or drug class, ask for the medication or medica
 
 If the user only names a drug without a perioperative/surgery context, do not answer from this protocol.
 
+## ANSWER_POLICY
+
+This protocol is active only for perioperative, preoperative, operation/procedure, surgery-day, neuraxial, spinal, epidural, or regional anesthesia medication-management questions.
+
+When a medication or medication class is identified, answer only that medication/class entry.
+
+For antithrombotic entries in antiplatelet_perioperative and anticoagulants_perioperative, return the complete entry under the matching heading. Do not summarize it into one timing. Include all available timing categories in the entry: low bleeding risk, high bleeding risk or spinal/epidural timing, epidural catheter rule, and post-puncture/catheter-removal restart timing when present.
+
+If the question asks generally "when to stop" an antithrombotic before surgery and the entry has different low-risk and high-risk/neuraxial timings, return both listed options rather than choosing one.
+
+If a follow-up asks about epidural, spinal, neuraxial, regional anesthesia, catheter, or puncture after an antithrombotic drug was just discussed, answer from the same antithrombotic entry and include the complete regional-anesthesia/catheter timing from that entry.
+
+Do not provide bridging recommendations, thromboembolic risk stratification, or calculations.
+
+## REQUIRED_INFORMATION
+
+Required before answering:
+- perioperative/surgery/procedure/neuraxial context, or active perioperative context from the preceding turn
+- named medication or medication class, or a clear follow-up modifier such as epidural/spinal/catheter after a named antithrombotic was just discussed
+
+## DEFAULT_QUESTION
+
+Which medication or medication class are you asking about perioperatively?
+
+## PATHWAY_PRIORITY
+
+1. If the question is not perioperative and there is no active perioperative context, do not answer from this protocol.
+2. If the question is about steroid stress-dose or chronic perioperative steroid supplementation, say this is intentionally not included.
+3. If the question is about bridging, say bridging is intentionally not included.
+4. If a named antithrombotic is matched, return the complete entry under that heading.
+5. If a named non-antithrombotic medication/class is matched, return only the short entry for that medication/class.
+6. If no medication/class is named, ask DEFAULT_QUESTION.
+
 ## SELECTION_RULES
 
 selection_mode: none
@@ -627,6 +660,7 @@ Never provide:
 - The user must provide perioperative context and a specific medication or medication class before the bot answers from this protocol.
 - If the user asks only for a drug in a non-perioperative context, say no non-perioperative protocol is available for that drug.
 - If the requested drug/class is not listed, say it is not specified in the uploaded perioperative protocol.
+- For antithrombotic drugs/classes, return the whole matching entry, not a shortened summary. This includes low-risk surgery, high-risk/spinal/epidural timing, epidural catheter status, and timing after puncture/catheter removal when present.
 - If a row is conditional, return the stated condition only; do not invent missing clinical decision logic.
 - If antithrombotic timing depends on bleeding risk, neuraxial anesthesia, or renal function, return the relevant listed options and ask for the missing detail if a single answer is needed.
 - Bridging content from the antithrombotic source is intentionally omitted and must not be reconstructed.
@@ -639,6 +673,8 @@ Never provide:
 Answer with the named drug/class only:
 {drug_or_class}: {short perioperative instruction}
 {source note or condition if present}
+
+For antithrombotics, replace the short format with the full matching entry from antiplatelet_perioperative or anticoagulants_perioperative. Include every sentence in that entry.
 
 ### MISSING_DRUG
 

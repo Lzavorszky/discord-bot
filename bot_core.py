@@ -2575,10 +2575,36 @@ def _fmt_number_for_message(value):
     return str(int(number)) if number.is_integer() else str(number)
 
 
+_PERIOP_FOLLOWUP_RE = re.compile(
+    r"\b(?:"
+    r"dabigatran\w*|pradaxa|apixaban\w*|eliquis|edoxaban\w*|lixiana|"
+    r"rivaroxaban\w*|xarelto|fondaparinux|arixtra|warfarin|marfarin|"
+    r"acenocoumarol|syncumar|heparin|lmwh|enoxaparin|clexane|dalteparin|"
+    r"fragmin|nadroparin|fraxiparin|clopidogrel|prasugrel|ticagrelor|"
+    r"aspirin|asa|acetylsalicylic|ticlopidine|cangrelor|abciximab|"
+    r"tirofiban|eptifibatide|triflusal|cilostazol|dipyridamole|"
+    r"metformin|insulin|sglt-?2|glp-?1|dpp-?4|sulfonylurea|"
+    r"epidural|spinal|neuraxial|regional\s+an(?:a|e)esth|catheter|"
+    r"kateter|kanul|spinalis|gerinc|regionalis"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _active_protocol_id(state):
+    active = state.get("active_recognized") or {}
+    protocol_file = active.get("protocol_file", "")
+    parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(protocol_file)) if protocol_file else None
+    meta = parsed.get("metadata", {}) if parsed else {}
+    return meta.get("protocol_id") or active.get("protocol_id") or active.get("key")
+
+
 def _looks_like_active_protocol_followup(question, state):
     if not state.get("active_recognized"):
         return False
     text = question or ""
+    if _active_protocol_id(state) == "periop_gyogyszerek" and _PERIOP_FOLLOWUP_RE.search(text):
+        return True
     if _is_slot_clear_phrase(text):
         return True
     if classify_intent(text) != "unknown":
