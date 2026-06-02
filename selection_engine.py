@@ -10,6 +10,7 @@ Supported selection_mode values (from protocol METADATA):
 """
 
 import re
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -878,6 +879,40 @@ _VANCOMYCIN_LEVEL_RE = re.compile(
     r"|(\d+(?:\.\d+)?)\s*(?:ug/l|ug/ml|mcg/l|mcg/ml)\b",
     re.IGNORECASE,
 )
+_CM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*cm\b", re.IGNORECASE)
+_UNIT_VALUE_RE = r"([-+]?\d+(?:\.\d+)?)\s*(mm|cm)\b"
+_VELOCITY_VALUE_RE = r"([-+]?\d+(?:\.\d+)?)\s*(m/s|cm/s|mps|cmps)\b"
+_LVOT_VTI_RE = re.compile(r"\blvot\s+vti\s*[:=]?\s*" + _UNIT_VALUE_RE, re.IGNORECASE)
+_LVOT_DIAMETER_RE = re.compile(
+    r"\blvot\s+(?:diam(?:eter)?|d)\s*[:=]?\s*" + _UNIT_VALUE_RE,
+    re.IGNORECASE,
+)
+_AV_VTI_RE = re.compile(r"\b(?:av|aortic(?:\s+valve)?)\s+vti\s*[:=]?\s*" + _UNIT_VALUE_RE, re.IGNORECASE)
+_LVOT_CSA_RE = re.compile(r"\blvot\s+(?:csa|area)\s*[:=]?\s*([-+]?\d+(?:\.\d+)?)\s*(?:cm2|cm\^2|cm²)\b", re.IGNORECASE)
+_BSA_RE = re.compile(r"\bbsa\s*[:=]?\s*([-+]?\d+(?:\.\d+)?)\s*(?:m2|m\^2|m²)?\b", re.IGNORECASE)
+_LVOT_VMAX_RE = re.compile(r"\blvot\s+v(?:max|el(?:ocity)?)\s*[:=]?\s*" + _VELOCITY_VALUE_RE, re.IGNORECASE)
+_AV_VMAX_RE = re.compile(r"\b(?:av|aortic(?:\s+valve)?)\s+v(?:max|el(?:ocity)?)\s*[:=]?\s*" + _VELOCITY_VALUE_RE, re.IGNORECASE)
+_HR_RE = re.compile(r"\b(?:hr|heart\s*rate)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:bpm)?\b", re.IGNORECASE)
+_PISA_RADIUS_RE = re.compile(r"\b(?:pisa\s+)?radius\s*[:=]?\s*" + _UNIT_VALUE_RE, re.IGNORECASE)
+_ALIASING_VELOCITY_RE = re.compile(
+    r"\b(?:aliasing(?:\s+velocity)?|nyquist|va)\s*[:=]?\s*" + _VELOCITY_VALUE_RE,
+    re.IGNORECASE,
+)
+_PEAK_REGURGITANT_VELOCITY_RE = re.compile(
+    r"\b(?:peak\s+)?(?:regurg(?:itant)?\s+)?(?:velocity|vmax|v)\s*[:=]?\s*" + _VELOCITY_VALUE_RE,
+    re.IGNORECASE,
+)
+_REGURGITANT_VTI_RE = re.compile(r"\b(?:regurg(?:itant)?|mr|ar|tr|pr)\s+vti\s*[:=]?\s*" + _UNIT_VALUE_RE, re.IGNORECASE)
+_EROA_RE = re.compile(r"\b(?:eroa?|effective\s+regurgitant\s+orifice(?:\s+area)?)\s*[:=]?\s*([-+]?\d+(?:\.\d+)?)\s*(?:cm2|cm\^2|cm²)?\b", re.IGNORECASE)
+_RVOL_RE = re.compile(r"\b(?:rvol|regurgitant\s+volume|rv)\s*[:=]?\s*([-+]?\d+(?:\.\d+)?)\s*(?:ml|mL)?\b", re.IGNORECASE)
+_ANGLE_RE = re.compile(r"\b(?:angle|flow\s+convergence\s+angle)\s*[:=]?\s*([-+]?\d+(?:\.\d+)?)\s*(?:deg|degrees?)?\b", re.IGNORECASE)
+_LV_VOLUME_RE = re.compile(r"\blv\s*(edv|esv)\s*[:=]?\s*([-+]?\d+(?:\.\d+)?)\s*(?:ml|mL)?\b", re.IGNORECASE)
+_FORWARD_SV_RE = re.compile(r"\bforward\s+(?:sv|stroke\s+volume)\s*[:=]?\s*([-+]?\d+(?:\.\d+)?)\s*(?:ml|mL)?\b", re.IGNORECASE)
+_STROKE_VOLUME_PAIR_RE = re.compile(
+    r"\b(?:regurgitant\s+valve\s+sv|svreg)\s*[:=]?\s*([-+]?\d+(?:\.\d+)?)\s*(?:ml|mL)?\b.*?"
+    r"\b(?:competent\s+valve\s+sv|svcomp)\s*[:=]?\s*([-+]?\d+(?:\.\d+)?)\s*(?:ml|mL)?\b",
+    re.IGNORECASE | re.DOTALL,
+)
 _BOOL_SLOTS = {
     "intubated":       re.compile(r"\b(intubat(?:ed|alt)|mechanically.vent(?:ilated)?)\b", re.IGNORECASE),
     "crrt":            re.compile(r"\bCRRT\b", re.IGNORECASE),
@@ -900,12 +935,23 @@ _VIRAL_NEG_RE = re.compile(r"\b(viral.negative|viral.test.negative)\b", re.IGNOR
 def extract_slots_from_query(question, parsed_protocol=None, existing_slots=None):
     slots = dict(existing_slots or {})
     text = question
+    protocol_id = ""
+    if parsed_protocol:
+        protocol_id = (parsed_protocol.get("metadata", {}) or {}).get("protocol_id", "")
     gfr_matches = list(_GFR_RE.finditer(text))
     if gfr_matches:
         slots["gfr"] = float(gfr_matches[-1].group(1) or gfr_matches[-1].group(2))
     weight_matches = list(_WEIGHT_RE.finditer(text))
     if weight_matches:
         slots["body_weight_kg"] = float(weight_matches[-1].group(1))
+    if protocol_id == "body_size_calculators":
+        if weight_matches:
+            slots["actual_weight_kg"] = float(weight_matches[-1].group(1))
+        cm_matches = list(_CM_RE.finditer(text))
+        if cm_matches:
+            slots["height_cm"] = float(cm_matches[-1].group(1))
+    if protocol_id in {"echo_cardiac_output", "echo_ava", "echo_ero_rvol"}:
+        _extract_echo_calculator_slots(text, slots, protocol_id)
     for sn, pat in _BOOL_SLOTS.items():
         if pat.search(text):
             slots[sn] = True
@@ -939,6 +985,60 @@ def extract_slots_from_query(question, parsed_protocol=None, existing_slots=None
             if vm:
                 slots["vancomycin_level"] = float(vm.group(1) or vm.group(2))
     return slots
+
+
+def _set_unit_slot(slots, name, match):
+    if not match:
+        return
+    slots[name] = float(match.group(1))
+    slots[f"{name}_unit"] = match.group(2).lower()
+
+
+def _set_velocity_slot(slots, name, match):
+    if not match:
+        return
+    slots[name] = float(match.group(1))
+    slots[f"{name}_unit"] = match.group(2).lower()
+
+
+def _extract_echo_calculator_slots(text, slots, protocol_id):
+    _set_unit_slot(slots, "lvot_vti", _LVOT_VTI_RE.search(text))
+    _set_unit_slot(slots, "lvot_diameter", _LVOT_DIAMETER_RE.search(text))
+    hm = _HR_RE.search(text)
+    if hm:
+        slots["heart_rate_bpm"] = float(hm.group(1))
+
+    if protocol_id == "echo_ava":
+        _set_unit_slot(slots, "av_vti", _AV_VTI_RE.search(text))
+        _set_velocity_slot(slots, "lvot_vmax", _LVOT_VMAX_RE.search(text))
+        _set_velocity_slot(slots, "av_vmax", _AV_VMAX_RE.search(text))
+        for name, pat in (("lvot_csa", _LVOT_CSA_RE), ("bsa_m2", _BSA_RE)):
+            m = pat.search(text)
+            if m:
+                slots[name] = float(m.group(1))
+
+    if protocol_id == "echo_ero_rvol":
+        _set_unit_slot(slots, "pisa_radius", _PISA_RADIUS_RE.search(text))
+        _set_velocity_slot(slots, "aliasing_velocity", _ALIASING_VELOCITY_RE.search(text))
+        _set_velocity_slot(slots, "peak_regurgitant_velocity", _PEAK_REGURGITANT_VELOCITY_RE.search(text))
+        _set_unit_slot(slots, "regurgitant_vti", _REGURGITANT_VTI_RE.search(text))
+        _set_unit_slot(slots, "annulus_diameter", re.search(r"\bannulus\s+diam(?:eter)?\s*[:=]?\s*" + _UNIT_VALUE_RE, text, re.IGNORECASE))
+        _set_unit_slot(slots, "annulus_vti", re.search(r"\bannulus\s+vti\s*[:=]?\s*" + _UNIT_VALUE_RE, text, re.IGNORECASE))
+        for name, pat in (
+            ("eroa_cm2", _EROA_RE),
+            ("regurgitant_volume_ml", _RVOL_RE),
+            ("flow_convergence_angle_degrees", _ANGLE_RE),
+            ("forward_stroke_volume", _FORWARD_SV_RE),
+        ):
+            m = pat.search(text)
+            if m:
+                slots[name] = float(m.group(1))
+        for m in _LV_VOLUME_RE.finditer(text):
+            slots[f"lv_{m.group(1).lower()}"] = float(m.group(2))
+        pair = _STROKE_VOLUME_PAIR_RE.search(text)
+        if pair:
+            slots["stroke_volume_regurgitant_valve_ml"] = float(pair.group(1))
+            slots["stroke_volume_competent_valve_ml"] = float(pair.group(2))
 
 
 def _extract_indication_text(text, slots):
@@ -1115,9 +1215,300 @@ def _plain_render(key, data, lang):
     return "\n".join(lines)
 
 
+_CALCULATOR_PROTOCOL_IDS = {
+    "body_size_calculators",
+    "echo_cardiac_output",
+    "echo_ava",
+    "echo_ero_rvol",
+}
+
+
+def _round(value, digits=2):
+    try:
+        return round(float(value), digits)
+    except (TypeError, ValueError):
+        return value
+
+
+def _display(value, digits=2):
+    return _fmt_number(_round(value, digits))
+
+
+def _to_cm(value, unit):
+    if value is None:
+        return None
+    unit = (unit or "").lower()
+    if unit == "mm":
+        return float(value) / 10
+    if unit == "cm":
+        return float(value)
+    return None
+
+
+def _to_cm_s(value, unit):
+    if value is None:
+        return None
+    unit = (unit or "").lower()
+    if unit in {"m/s", "mps"}:
+        return float(value) * 100
+    if unit in {"cm/s", "cmps"}:
+        return float(value)
+    return None
+
+
+def _calculator_result(output_key, rendered, slots, **render_vars):
+    return SelectionResult(
+        output_key=output_key,
+        output_data={"type": "calculator"},
+        mode_used="calculator",
+        rendered=rendered.strip(),
+        render_vars={**slots, **render_vars, "selected_output": output_key},
+    )
+
+
+def _run_body_size_calculator(slots):
+    missing = []
+    if slots.get("height_cm") is None:
+        missing.append("height_cm")
+    if slots.get("actual_weight_kg") is None:
+        missing.append("actual_weight_kg")
+    if missing:
+        return SelectionResult(
+            output_key="missing_input",
+            missing_slots=missing,
+            mode_used="calculator",
+            ask_missing="Please provide height in cm and actual body weight in kg.",
+            render_vars=dict(slots),
+        )
+
+    height_cm = float(slots["height_cm"])
+    actual_weight_kg = float(slots["actual_weight_kg"])
+    height_m = height_cm / 100
+    bmi = actual_weight_kg / (height_m * height_m)
+    bsa = math.sqrt((height_cm * actual_weight_kg) / 3600)
+    ibw_male = 50 + 0.91 * (height_cm - 152.4)
+    ibw_female = 45.5 + 0.91 * (height_cm - 152.4)
+    adj_male = ibw_male + 0.4 * (actual_weight_kg - ibw_male)
+    adj_female = ibw_female + 0.4 * (actual_weight_kg - ibw_female)
+
+    lines = [
+        f"Body size calculations for { _display(actual_weight_kg) } kg, { _display(height_cm) } cm:",
+        f"- BMI: {_display(bmi)} kg/m2",
+        f"- BSA (Mosteller): {_display(bsa)} m2",
+        f"- IBW male-formula: {_display(ibw_male)} kg",
+        f"- IBW female-formula: {_display(ibw_female)} kg",
+        f"- AdjBW40 using male-formula IBW: {_display(adj_male)} kg",
+        f"- AdjBW40 using female-formula IBW: {_display(adj_female)} kg",
+    ]
+    if actual_weight_kg <= ibw_male or actual_weight_kg <= ibw_female:
+        lines.append("")
+        lines.append("Note: actual weight is at or below at least one IBW result; adjusted body weight may not be the appropriate scalar unless a drug-specific protocol says so.")
+    return _calculator_result(
+        "calculated_body_size",
+        "\n".join(lines),
+        slots,
+        bmi=bmi,
+        bsa_m2=bsa,
+        ibw_male_kg=ibw_male,
+        ibw_female_kg=ibw_female,
+        adjusted_body_weight_male_kg=adj_male,
+        adjusted_body_weight_female_kg=adj_female,
+    )
+
+
+def _run_echo_cardiac_output_calculator(slots):
+    lvot_diameter_cm = _to_cm(slots.get("lvot_diameter"), slots.get("lvot_diameter_unit"))
+    lvot_vti_cm = _to_cm(slots.get("lvot_vti"), slots.get("lvot_vti_unit"))
+    missing = []
+    if lvot_diameter_cm is None:
+        missing.append("lvot_diameter")
+    if lvot_vti_cm is None:
+        missing.append("lvot_vti")
+    if missing:
+        return SelectionResult(
+            output_key="missing_input",
+            missing_slots=missing,
+            mode_used="calculator",
+            ask_missing="Please provide LVOT diameter and LVOT VTI, with units mm or cm. Add HR if you want cardiac output.",
+            render_vars=dict(slots),
+        )
+    lvot_csa = math.pi * (lvot_diameter_cm / 2) ** 2
+    sv = lvot_csa * lvot_vti_cm
+    lines = [
+        "Echo LVOT stroke volume:",
+        f"- LVOT diameter: {_display(lvot_diameter_cm)} cm",
+        f"- LVOT CSA: {_display(lvot_csa)} cm2",
+        f"- LVOT VTI: {_display(lvot_vti_cm)} cm",
+        f"- Stroke volume: {_display(sv)} mL",
+    ]
+    output_key = "calculated_sv"
+    co = None
+    if slots.get("heart_rate_bpm") is not None:
+        hr = float(slots["heart_rate_bpm"])
+        co = sv * hr / 1000
+        lines.extend([
+            f"- HR: {_display(hr)} bpm",
+            f"- Cardiac output: {_display(co)} L/min",
+        ])
+        output_key = "calculated_co"
+    return _calculator_result(
+        output_key,
+        "\n".join(lines),
+        slots,
+        lvot_diameter_cm=lvot_diameter_cm,
+        lvot_csa_cm2=lvot_csa,
+        lvot_vti_cm=lvot_vti_cm,
+        stroke_volume_ml=sv,
+        cardiac_output_l_min=co,
+    )
+
+
+def _run_echo_ava_calculator(slots):
+    lvot_diameter_cm = _to_cm(slots.get("lvot_diameter"), slots.get("lvot_diameter_unit"))
+    lvot_vti_cm = _to_cm(slots.get("lvot_vti"), slots.get("lvot_vti_unit"))
+    av_vti_cm = _to_cm(slots.get("av_vti"), slots.get("av_vti_unit"))
+    lvot_csa = slots.get("lvot_csa")
+    if lvot_csa is None and lvot_diameter_cm is not None:
+        lvot_csa = math.pi * (lvot_diameter_cm / 2) ** 2
+
+    if lvot_csa is not None and lvot_vti_cm is not None and av_vti_cm is not None:
+        ava = float(lvot_csa) * lvot_vti_cm / av_vti_cm
+        di = lvot_vti_cm / av_vti_cm
+        lines = [
+            "Echo AVA by continuity equation:",
+            f"- LVOT CSA: {_display(lvot_csa)} cm2",
+            f"- LVOT VTI: {_display(lvot_vti_cm)} cm",
+            f"- AV VTI: {_display(av_vti_cm)} cm",
+            f"- AVA: {_display(ava)} cm2",
+            f"- Dimensionless index: {_display(di)}",
+        ]
+        output_key = "calculated_ava"
+        indexed = None
+        if slots.get("bsa_m2") is not None:
+            indexed = ava / float(slots["bsa_m2"])
+            lines.append(f"- Indexed AVA: {_display(indexed)} cm2/m2")
+            output_key = "calculated_ava_indexed"
+        return _calculator_result(output_key, "\n".join(lines), slots, ava_cm2=ava, dimensionless_index=di, indexed_ava_cm2_m2=indexed)
+
+    lvot_vmax = _to_cm_s(slots.get("lvot_vmax"), slots.get("lvot_vmax_unit"))
+    av_vmax = _to_cm_s(slots.get("av_vmax"), slots.get("av_vmax_unit"))
+    if lvot_vmax is not None and av_vmax is not None:
+        ratio = lvot_vmax / av_vmax
+        lines = ["Echo velocity ratio:", f"- Velocity ratio: {_display(ratio)}"]
+        if lvot_csa is not None:
+            lines.append(f"- Simplified AVA: {_display(float(lvot_csa) * ratio)} cm2")
+        lines.append("VTI continuity-equation AVA is preferred when VTI measurements are available.")
+        return _calculator_result("calculated_velocity_ratio", "\n".join(lines), slots, velocity_ratio=ratio)
+
+    return SelectionResult(
+        output_key="missing_input",
+        missing_slots=["lvot_vti", "av_vti", "lvot_diameter_or_lvot_csa"],
+        mode_used="calculator",
+        ask_missing="Please provide LVOT VTI, AV VTI, and either LVOT diameter or LVOT CSA, with units.",
+        render_vars=dict(slots),
+    )
+
+
+def _run_echo_ero_rvol_calculator(slots):
+    eroa = slots.get("eroa_cm2")
+    rvol = slots.get("regurgitant_volume_ml")
+    reg_vti_cm = _to_cm(slots.get("regurgitant_vti"), slots.get("regurgitant_vti_unit"))
+
+    radius_cm = _to_cm(slots.get("pisa_radius"), slots.get("pisa_radius_unit"))
+    aliasing_cm_s = _to_cm_s(slots.get("aliasing_velocity"), slots.get("aliasing_velocity_unit"))
+    peak_cm_s = _to_cm_s(slots.get("peak_regurgitant_velocity"), slots.get("peak_regurgitant_velocity_unit"))
+    if radius_cm is not None and aliasing_cm_s is not None and peak_cm_s is not None:
+        angle = slots.get("flow_convergence_angle_degrees")
+        pisa_area = 2 * math.pi * radius_cm ** 2
+        if angle is not None:
+            pisa_area *= float(angle) / 180
+        flow = pisa_area * aliasing_cm_s
+        eroa_calc = flow / peak_cm_s
+        lines = [
+            "Echo EROA by PISA:",
+            f"- PISA area: {_display(pisa_area)} cm2",
+            f"- Regurgitant flow: {_display(flow)} mL/s",
+            f"- EROA: {_display(eroa_calc)} cm2",
+        ]
+        rvol_calc = None
+        if reg_vti_cm is not None:
+            rvol_calc = eroa_calc * reg_vti_cm
+            lines.append(f"- Regurgitant volume: {_display(rvol_calc)} mL")
+        else:
+            lines.append("Regurgitant VTI is needed to calculate regurgitant volume.")
+        return _calculator_result("calculated_pisa_eroa_rvol", "\n".join(lines), slots, eroa_cm2=eroa_calc, regurgitant_volume_ml=rvol_calc)
+
+    if eroa is not None and reg_vti_cm is not None:
+        rvol_calc = float(eroa) * reg_vti_cm
+        return _calculator_result(
+            "calculated_direct_rvol",
+            f"Regurgitant volume from EROA and regurgitant VTI:\n- RVol: {_display(rvol_calc)} mL",
+            slots,
+            regurgitant_volume_ml=rvol_calc,
+        )
+    if rvol is not None and reg_vti_cm is not None:
+        eroa_calc = float(rvol) / reg_vti_cm
+        return _calculator_result(
+            "calculated_direct_eroa",
+            f"EROA from regurgitant volume and regurgitant VTI:\n- EROA: {_display(eroa_calc)} cm2",
+            slots,
+            eroa_cm2=eroa_calc,
+        )
+
+    sv_reg = slots.get("stroke_volume_regurgitant_valve_ml")
+    sv_comp = slots.get("stroke_volume_competent_valve_ml")
+    if sv_reg is not None and sv_comp is not None:
+        rvol_calc = float(sv_reg) - float(sv_comp)
+        rf = 100 * rvol_calc / float(sv_reg) if float(sv_reg) else None
+        lines = [
+            "Echo regurgitant volume by volumetric method:",
+            f"- RVol: {_display(rvol_calc)} mL",
+            f"- Regurgitant fraction: {_display(rf)}%",
+        ]
+        if reg_vti_cm is not None:
+            lines.append(f"- EROA: {_display(rvol_calc / reg_vti_cm)} cm2")
+        return _calculator_result("calculated_volumetric_rvol", "\n".join(lines), slots, regurgitant_volume_ml=rvol_calc, regurgitant_fraction_percent=rf)
+
+    if slots.get("lv_edv") is not None and slots.get("lv_esv") is not None and slots.get("forward_stroke_volume") is not None:
+        lv_sv = float(slots["lv_edv"]) - float(slots["lv_esv"])
+        rvol_calc = lv_sv - float(slots["forward_stroke_volume"])
+        lines = [
+            "Echo regurgitant volume by LV-volume method:",
+            f"- LV stroke volume: {_display(lv_sv)} mL",
+            f"- RVol: {_display(rvol_calc)} mL",
+        ]
+        if reg_vti_cm is not None:
+            lines.append(f"- EROA: {_display(rvol_calc / reg_vti_cm)} cm2")
+        return _calculator_result("calculated_volumetric_rvol", "\n".join(lines), slots, regurgitant_volume_ml=rvol_calc)
+
+    return SelectionResult(
+        output_key="missing_input",
+        missing_slots=["complete_calculation_method"],
+        mode_used="calculator",
+        ask_missing="Please provide a complete set for one method: PISA inputs, direct EROA/RVol conversion inputs, or volumetric stroke-volume inputs.",
+        render_vars=dict(slots),
+    )
+
+
+def _run_calculator(parsed, slots, lang="en"):
+    protocol_id = (parsed.get("metadata", {}) or {}).get("protocol_id")
+    if protocol_id == "body_size_calculators":
+        return _run_body_size_calculator(slots)
+    if protocol_id == "echo_cardiac_output":
+        return _run_echo_cardiac_output_calculator(slots)
+    if protocol_id == "echo_ava":
+        return _run_echo_ava_calculator(slots)
+    if protocol_id == "echo_ero_rvol":
+        return _run_echo_ero_rvol_calculator(slots)
+    return SelectionResult(no_match=True, mode_used="calculator")
+
+
 def run_selection(parsed, slots, lang="en"):
     meta = parsed.get("metadata", {})
+    protocol_id = meta.get("protocol_id", "")
     mode = meta.get("selection_mode", "none").lower()
+    if protocol_id in _CALCULATOR_PROTOCOL_IDS:
+        return _run_calculator(parsed, slots, lang=lang)
     bounds_result = _slot_schema_number_bounds(parsed, slots)
     if bounds_result:
         return bounds_result

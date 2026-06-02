@@ -1763,6 +1763,45 @@ class TestSlotExtractor(unittest.TestCase):
         slots = se.extract_slots_from_query("GFR 80", existing_slots={"gfr": 45.0})
         self.assertEqual(slots.get("gfr"), 80.0)
 
+    def test_body_size_height_and_weight_extracted(self):
+        parsed = _s9_load("body_size_calculators.txt")
+        slots = se.extract_slots_from_query("50kg, 190cm", parsed_protocol=parsed)
+        self.assertEqual(slots.get("actual_weight_kg"), 50.0)
+        self.assertEqual(slots.get("height_cm"), 190.0)
+
+
+class TestCalculatorProtocols(unittest.TestCase):
+
+    def test_body_size_calculator_accepts_kg_cm(self):
+        parsed = _s9_load("body_size_calculators.txt")
+        slots = se.extract_slots_from_query("50kg, 190cm", parsed_protocol=parsed)
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "calculated_body_size")
+        self.assertIn("BMI: 13.85 kg/m2", result.rendered)
+        self.assertIn("BSA (Mosteller): 1.62 m2", result.rendered)
+
+    def test_body_size_calculator_accepts_second_example(self):
+        parsed = _s9_load("body_size_calculators.txt")
+        slots = se.extract_slots_from_query("60kg, 189cm", parsed_protocol=parsed)
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "calculated_body_size")
+        self.assertNotIn("Please provide height", result.rendered)
+
+    def test_echo_cardiac_output_calculator(self):
+        parsed = _s9_load("echo_cardiac_output.txt")
+        slots = se.extract_slots_from_query("LVOT VTI 20 cm, LVOT diam 2 cm, HR 70", parsed_protocol=parsed)
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "calculated_co")
+        self.assertIn("Stroke volume: 62.83 mL", result.rendered)
+        self.assertIn("Cardiac output: 4.4 L/min", result.rendered)
+
+    def test_echo_ava_calculator(self):
+        parsed = _s9_load("echo_ava.txt")
+        slots = se.extract_slots_from_query("LVOT diam 2 cm LVOT VTI 20 cm AV VTI 80 cm", parsed_protocol=parsed)
+        result = se.run_selection(parsed, slots)
+        self.assertEqual(result.output_key, "calculated_ava")
+        self.assertIn("AVA: 0.79 cm2", result.rendered)
+
 
 class TestEngineNoMatchModes(unittest.TestCase):
 

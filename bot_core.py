@@ -2323,7 +2323,14 @@ def _try_deterministic_selection(state, recognized, question, lang):
         return None
     meta = parsed.get("metadata", {})
     mode = meta.get("selection_mode", "none")
-    if mode in ("none", "decision_tree", ""):
+    calculator_ids = {
+        "body_size_calculators",
+        "echo_cardiac_output",
+        "echo_ava",
+        "echo_ero_rvol",
+    }
+    protocol_id = meta.get("protocol_id", "")
+    if mode in ("none", "decision_tree", "") and protocol_id not in calculator_ids:
         return None
     existing = _get_protocol_slots(state, recognized)
     correction = _apply_generic_correction_or_clear(parsed, existing, question)
@@ -2943,6 +2950,11 @@ def _looks_like_active_protocol_followup(question, state):
     if _is_slot_clear_phrase(text):
         return True
     if classify_intent(text) != "unknown":
+        return True
+    active = state.get("active_recognized") or {}
+    protocol_file = active.get("protocol_file", "")
+    parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(protocol_file)) if protocol_file else None
+    if parsed and extract_slots_from_query(text, parsed_protocol=parsed):
         return True
     if extract_slots_from_query(text):
         return True
