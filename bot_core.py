@@ -2585,6 +2585,8 @@ _PERIOP_FOLLOWUP_RE = re.compile(
     r"aspirin|asa|acetylsalicylic|ticlopidine|cangrelor|abciximab|"
     r"tirofiban|eptifibatide|triflusal|cilostazol|dipyridamole|"
     r"metformin|insulin|sglt-?2|glp-?1|dpp-?4|sulfonylurea|"
+    r"steroid|szteroid|methylprednison\w*|methylprednisolon\w*|"
+    r"hydrocortison\w*|hydrocortisone|glucocorticoid|glukokortikoid|"
     r"epidural|spinal|neuraxial|regional\s+an(?:a|e)esth|catheter|"
     r"kateter|kanul|spinalis|gerinc|regionalis"
     r")\b",
@@ -2616,6 +2618,20 @@ _PERIOP_SKIP_TERMS = {
 _PERIOP_MODIFIER_FOLLOWUP_RE = re.compile(
     r"\b(?:epidural|spinal|neuraxial|regional\s+an(?:a|e)esth|catheter|"
     r"puncture|kateter|kanul|spinalis|gerinc|regionalis|hasi|abdominal)\b",
+    re.IGNORECASE,
+)
+
+_PERIOP_STEROID_QUERY_RE = re.compile(
+    r"\b(?:steroid|szteroid|stress\s*dose|stressz\s*dozis|"
+    r"methylprednison\w*|methylprednisolon\w*|hydrocortison\w*|"
+    r"hydrocortisone|glucocorticoid|glukokortikoid)\b",
+    re.IGNORECASE,
+)
+
+_PERIOP_STEROID_FOLLOWUP_RE = re.compile(
+    r"\b(?:small|minor|medium|major|large|kis|kozepes|közepes|nagy|"
+    r"surgery|operation|mutet|műtét|hernia|serv|sérv|lc|pppd|"
+    r"dexamethasone|prednisolone|fludrocortisone|equivalent|ekvivalens)\b",
     re.IGNORECASE,
 )
 
@@ -2685,6 +2701,52 @@ def _render_periop_entry(entry):
     return f"{entry['header']}:\n{entry['body']}"
 
 
+def _extract_info_block_section(parsed, section_name):
+    info = parsed.get("info_blocks", "") if parsed else ""
+    pattern = re.compile(
+        r"^###\s+" + re.escape(section_name) + r"\s*$\n(.*?)(?=^###\s+|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    match = pattern.search(info)
+    return match.group(1).strip() if match else None
+
+
+def _recognized_for_protocol_id(protocol_id):
+    for norm_file, parsed in PROTOCOL_PARSED_BY_FILE.items():
+        meta = parsed.get("metadata", {}) if parsed else {}
+        if meta.get("protocol_id") == protocol_id:
+            protocol_file = parsed.get("path") or norm_file
+            return {
+                "protocol_file": protocol_file,
+                "protocol_id": protocol_id,
+                "key": protocol_id,
+                "display": meta.get("canonical_name") or meta.get("protocol_name") or protocol_id,
+                "canonical": meta.get("canonical_name") or protocol_id,
+                "source_label": meta.get("source_label") or protocol_id,
+                "matched_alias": protocol_id,
+                "confidence": "exact",
+                "category": "conditions",
+            }
+    return None
+
+
+def _try_periop_steroid_shortcut(state, protocol_id, question):
+    if protocol_id == "periop_gyogyszerek" and not _PERIOP_STEROID_QUERY_RE.search(question or ""):
+        return None
+    if protocol_id not in {"periop_gyogyszerek", "periop_steroids"}:
+        return None
+
+    steroid_recognized = _recognized_for_protocol_id("periop_steroids")
+    if not steroid_recognized:
+        return None
+    steroid_parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(steroid_recognized.get("protocol_file", "")))
+    body = _extract_info_block_section(steroid_parsed, "steroid_guide_full")
+    if not body:
+        return None
+    state["active_recognized"] = steroid_recognized
+    return body
+
+
 def _try_periop_info_shortcut(state, recognized, question):
     selected = recognized or state.get("active_recognized")
     if not selected:
@@ -2693,6 +2755,9 @@ def _try_periop_info_shortcut(state, recognized, question):
     parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(protocol_file)) if protocol_file else None
     meta = parsed.get("metadata", {}) if parsed else {}
     protocol_id = meta.get("protocol_id") or selected.get("protocol_id") or selected.get("key")
+    steroid_body = _try_periop_steroid_shortcut(state, protocol_id, question)
+    if steroid_body is not None:
+        return steroid_body
     if protocol_id != "periop_gyogyszerek":
         return None
 
@@ -2714,7 +2779,12 @@ def _looks_like_active_protocol_followup(question, state):
     if not state.get("active_recognized"):
         return False
     text = question or ""
-    if _active_protocol_id(state) == "periop_gyogyszerek" and _PERIOP_FOLLOWUP_RE.search(text):
+    active_protocol_id = _active_protocol_id(state)
+    if active_protocol_id == "periop_gyogyszerek" and _PERIOP_FOLLOWUP_RE.search(text):
+        return True
+    if active_protocol_id == "periop_steroids" and (
+        _PERIOP_STEROID_QUERY_RE.search(text) or _PERIOP_STEROID_FOLLOWUP_RE.search(text)
+    ):
         return True
     if _is_slot_clear_phrase(text):
         return True

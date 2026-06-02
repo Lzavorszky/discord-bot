@@ -145,7 +145,7 @@ Which medication or medication class are you asking about perioperatively?
 ## PATHWAY_PRIORITY
 
 1. If the question is not perioperative and there is no active perioperative context, do not answer from this protocol.
-2. If the question is about steroid stress-dose or chronic perioperative steroid supplementation, say this is intentionally not included.
+2. If the question is about steroid stress-dose or chronic perioperative steroid supplementation, use the separate perioperative steroid guide.
 3. If the question is about bridging, say bridging is intentionally not included.
 4. If a named antithrombotic is matched, return the complete entry under that heading.
 5. If a named non-antithrombotic medication/class is matched, return only the short entry for that medication/class.
@@ -163,7 +163,20 @@ No deterministic routing, risk calculation, bridging calculation, or dose calcul
 
 ## LINKS
 
-(none)
+LINK: periop_steroids
+  link_type: perioperative_steroid_guide
+  when_selected_item: perioperative steroids
+  target_protocol_id: periop_steroids
+  target_file: protocols/periop_steroids.txt
+  target_missing_behavior: Perioperative steroid guidance is not specified in the uploaded protocols.
+  trigger_intents:
+    - info_request
+    - link_request
+  transfer_slots:
+    - surgery_type
+    - surgery_size
+    - steroid_agent
+    - chronic_steroid_dose
 
 ## INFO_BLOCKS
 
@@ -176,7 +189,7 @@ If the user only asks about the drug in a non-perioperative setting, say that no
 
 Return only the short entry for the named drug or drug class. Do not list the whole protocol.
 
-Steroid stress-dose and chronic perioperative steroid supplementation are intentionally not included. If asked, say that steroid stress-dose guidance is not included in the uploaded perioperative protocol.
+Steroid stress-dose and chronic perioperative steroid supplementation belong to the separate perioperative steroid guide.
 
 ### icon_key
 
@@ -239,7 +252,7 @@ Inhaled beta-2 agonists; inhalacios beta2 agonistak; albuterol; levalbuterol; sa
 Take/continue on surgery day.
 
 Inhaled corticosteroids; inhalacios kortikoszteroidok; fluticasone; budesonide; mometasone; beclomethasone:
-Take/continue on surgery day. This entry is only for inhaled corticosteroids; steroid stress-dose guidance is not included.
+Take/continue on surgery day. This entry is only for inhaled corticosteroids; systemic steroid stress-dose guidance belongs to the separate perioperative steroid guide.
 
 Endothelin receptor antagonists; endothelin-R antagonistak; bosentan; macitentan; ambrisentan:
 Take/continue on surgery day. Source note: interruption can cause rebound pulmonary hypertension; many interactions; edema and anemia possible; preoperative renal and liver function needed.
@@ -285,7 +298,7 @@ Thiamazole; thiamazol; Metothyrin:
 Take/continue on surgery day.
 
 Other endocrine medications:
-Antidiabetics are covered in the antidiabetic entries in this protocol. Steroid perioperative supplementation is intentionally not included.
+Antidiabetics are covered in the antidiabetic entries in this protocol. Steroid perioperative supplementation belongs to the separate perioperative steroid guide.
 
 ### cns_pain_day_of_surgery
 
@@ -380,7 +393,7 @@ Conditional. If used for urologic indication, omit 3 days before surgery. If use
 
 PERIOPERATIVE_CONTEXT_REQUIRED: yes.
 
-Glucocorticoids and steroid stress dosing are intentionally omitted from this protocol.
+Glucocorticoids and steroid stress dosing belong to the separate perioperative steroid guide.
 
 Interferons; interferonok; beta-1a; beta-1b; interferon alfa; peginterferon; ropeginterferon:
 Take/continue on surgery day. Source note: extended preoperative lab needed because of thrombocytopenia and leukopenia risk: blood count, TSH, liver function, and ECG.
@@ -649,7 +662,7 @@ Omit 24 hours before surgery. Omit 5 days before spinal/epidural anesthesia. Epi
 Never provide:
 - perioperative answers when the user does not ask a perioperative, preoperative, surgery-day, neuraxial, procedure, or operation-related question
 - non-perioperative indications, dosing, monitoring, toxicity management, or alternatives for these drugs
-- steroid stress-dose or chronic steroid supplementation guidance
+- steroid stress-dose or chronic steroid supplementation guidance from this general perioperative medication protocol; use the separate perioperative steroid guide instead
 - bridging recommendations or thromboembolic risk stratification
 - bleeding-risk calculations, CHA2DS2-VASc calculation, renal dosing calculation, or insulin dose calculations
 - antidote or reversal dosing from the antithrombotic source
@@ -667,7 +680,7 @@ Never provide:
 - If a row is conditional, return the stated condition only; do not invent missing clinical decision logic.
 - If antithrombotic timing depends on bleeding risk, neuraxial anesthesia, or renal function, return all relevant listed options.
 - Bridging content from the antithrombotic source is intentionally omitted and must not be reconstructed.
-- Steroid perioperative supplementation content is intentionally omitted and must not be reconstructed.
+- Steroid perioperative supplementation content must come from the separate perioperative steroid guide, not from this general perioperative medication protocol.
 
 ## OUTPUT_TEMPLATES
 

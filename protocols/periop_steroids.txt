@@ -1,0 +1,212 @@
+# PERIOPERATIVE STEROID GUIDE
+
+## METADATA
+
+protocol_id: periop_steroids
+protocol_name: Perioperative chronic steroid and stress-dose guide
+source_label: Perioperative steroid guide
+canonical_name: perioperative steroid guide
+protocol_type: general_rules_protocol
+answer_mode: info_only
+selection_mode: none
+allows_dosing: yes
+dosing_requires_link: no
+default_dose_allowed: yes
+version: 0.1
+last_reviewed: 2023 Q1
+owner: ID team
+status: draft
+
+## ALIASES
+
+- perioperative steroid guide
+- perioperative steroids
+- perioperative steroid
+- perioperative steroid stress dose
+- perioperative stress dose steroid
+- stress dose steroid surgery
+- steroid stress dose surgery
+- chronic steroid surgery
+- steroid before surgery
+- steroid on surgery day
+- methylprednisone before surgery
+- methylprednisolone before surgery
+- hydrocortisone surgery
+- perioperativ szteroid
+- perioperativ szteroidok
+- mutet elotti szteroid
+- mutet napi szteroid
+- stressz dozisu szteroid
+- szteroid stressz dozisa
+- kronikus szteroid mutet
+- methylprednison mutet
+- hydrocortison mutet
+
+## INTENTS
+
+default_request:
+- perioperative steroid
+- perioperative steroids
+- perioperativ szteroid
+- chronic steroid surgery
+- kronikus szteroid mutet
+
+info_request:
+- stress dose steroid
+- steroid stress dose
+- hydrocortisone perioperative
+- methylprednisone perioperative
+- szteroid stressz dozis
+- hydrocortison mutet
+
+dosing_request:
+- dose
+- dosing
+- adag
+- dozis
+- stress dose
+- stressz dozis
+
+selection_request:
+(none)
+
+link_request:
+(none)
+
+## INPUT_SLOTS
+
+required_for_selection:
+(none)
+
+required_for_dosing:
+(none)
+
+optional_modifiers:
+- chronic_steroid_dose
+- steroid_duration
+- surgery_size
+- steroid_agent
+
+forwardable_slots:
+(none)
+
+## SLOT_SCHEMA
+
+(none)
+
+## DEFAULT_ANSWER
+
+Return the complete perioperative steroid guide table. Do not ask for surgery type before showing the table.
+
+## ANSWER_POLICY
+
+This protocol is active only for perioperative, preoperative, operation/procedure, or surgery-day steroid questions.
+
+When the user asks about perioperative steroid management, chronic steroid use before surgery, or stress-dose steroids, return the complete steroid guide table. Do not ask for surgery size first; the table is short and the clinician will choose the applicable row.
+
+Do not calculate steroid equivalence beyond listing the source equivalence table.
+
+Do not provide steroid advice for non-perioperative contexts.
+
+## REQUIRED_INFORMATION
+
+Required before answering:
+- perioperative/surgery/procedure context, or active perioperative context from the preceding turn
+
+No dose, duration, or surgery-size input is required before returning the table.
+
+## DEFAULT_QUESTION
+
+Are you asking about perioperative steroid management around surgery?
+
+## PATHWAY_PRIORITY
+
+1. If there is no perioperative/surgery/procedure context and no active perioperative context, do not answer from this protocol.
+2. If perioperative context is present, return the complete steroid guide table.
+3. If the user asks for equivalence, include the equivalence table.
+4. Do not ask for surgery size before returning the table.
+
+## SELECTION_RULES
+
+selection_mode: none
+
+No deterministic selection, calculation, or dose conversion is performed. The table is returned as source guidance.
+
+## SELECTED_OUTPUTS
+
+(none)
+
+## LINKS
+
+(none)
+
+## INFO_BLOCKS
+
+### steroid_guide_full
+
+Chronic steroid use - perioperative action:
+
+| Regular steroid use | Action |
+|---|---|
+| methylprednisone < 8 mg | Continue the usual dose; no additional steroid is needed. |
+| methylprednisone >= 8 mg for at least 3 months | Usual dose plus hydrocortisone supplementation. |
+
+Hydrocortisone supplementation by surgery size:
+
+| Surgery size | Example from source | Hydrocortisone supplementation |
+|---|---|---|
+| small surgery | inguinal hernia | 1 x 25 mg hydrocortisone at the start of the operation |
+| medium surgery | laparoscopic cholecystectomy | 1 x 25 mg hydrocortisone + 4 x 25 mg for 24 hours |
+| major surgery | PPPD | 1 x 25 mg hydrocortisone + 4 x 25 mg for 48 hours |
+
+Steroid equivalence table:
+
+| Steroid | Equivalent dose | Glucocorticoid:mineralocorticoid activity | Duration |
+|---|---:|---|---|
+| methylprednisone | 8 mg | 5:0.5 | 12-36 h |
+| dexamethasone | 1.5 mg | 30:0 | 36-54 h |
+| hydrocortisone | 40 mg | 1:1 | 8-12 h |
+| prednisolone | 10 mg | 4:0.8 | 12-36 h |
+| fludrocortisone | 4 mg | 10:250 | 24 h |
+
+### source_terms
+
+The source uses:
+- "Rendszeresen szedett szteroid" for regular/chronic steroid use
+- "methylprednison < 8mg"
+- "methylprednison 8+ mg legalább 3 hónapig"
+- "hydrocortison kiegészítés"
+- "kis műtét", "közepes műtét", "nagy műtét"
+
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- non-perioperative steroid treatment advice
+- steroid equivalence calculations beyond the listed source table
+- adrenal insufficiency diagnosis or testing advice unless present in the source
+- tapering advice
+- pediatric dosing
+- pregnancy-specific steroid advice
+- hydrocortisone regimens other than the source rows
+
+## SAFETY_RULES
+
+- Return the complete source table for perioperative steroid questions.
+- Do not ask for surgery type before returning the table.
+- Do not extrapolate to surgery categories not listed in the source.
+- If the user asks for an unlisted steroid, provide only the equivalence table if applicable and state that unlisted steroid guidance is not specified.
+- If the user asks for conversion/calculation, list the equivalence table but do not calculate a patient-specific converted dose.
+
+## OUTPUT_TEMPLATES
+
+### INFO_ANSWER
+
+Return the complete `steroid_guide_full` INFO_BLOCK.
+
+### NON_PERIOP_STEROID
+
+I only have perioperative steroid guidance. I do not have a non-perioperative steroid protocol.
+
+## DEFAULT_FOOTER
+
+Reference: MH EK - KAITO Kisokos 2023.Q1 perioperative steroid table. Individual clinical review may still be needed.

@@ -207,6 +207,36 @@
         "antikoagulans mutet elott",
         "thrombocyta gatlo mutet elott"
       ]
+    },
+    "periop_steroids": {
+      "canonical": "perioperative steroid guide",
+      "display": "Perioperative steroids",
+      "source_label": "Perioperative steroid guide",
+      "protocol_file": "protocols/periop_steroids.txt",
+      "aliases": [
+        "perioperative steroid guide",
+        "perioperative steroids",
+        "perioperative steroid",
+        "perioperative steroid stress dose",
+        "perioperative stress dose steroid",
+        "stress dose steroid surgery",
+        "steroid stress dose surgery",
+        "chronic steroid surgery",
+        "steroid before surgery",
+        "steroid on surgery day",
+        "methylprednisone before surgery",
+        "methylprednisolone before surgery",
+        "hydrocortisone surgery",
+        "perioperativ szteroid",
+        "perioperativ szteroidok",
+        "mutet elotti szteroid",
+        "mutet napi szteroid",
+        "stressz dozisu szteroid",
+        "szteroid stressz dozisa",
+        "kronikus szteroid mutet",
+        "methylprednison mutet",
+        "hydrocortison mutet"
+      ]
     }
   },
   "unsupported_syndromes": {
