@@ -48,6 +48,8 @@ status: draft
 - hydrocortison ekvivalens
 - hydrocortison atvaltas
 - methylprednison ekvivalens
+- medrol ekvivalens
+- medrol equivalent
 - methylprednison atvaltas
 - dexamethason ekvivalens
 - prednisolon ekvivalens
@@ -81,8 +83,6 @@ dosing_request:
 info_request:
 - equivalence table
 - generic equivalence table
-- activity
-- duration
 - ekvivalencia tabla
 
 link_request:
@@ -152,13 +152,13 @@ State that the steroid is not in the supported equivalence table and list suppor
 
 Generic steroid equivalence table:
 
-| Steroid | Equivalent dose | Glucocorticoid:mineralocorticoid activity | Duration |
-|---|---:|---|---|
-| methylprednisone | 8 mg | 5:0.5 | 12-36 h |
-| dexamethasone | 1.5 mg | 30:0 | 36-54 h |
-| hydrocortisone | 40 mg | 1:1 | 8-12 h |
-| prednisolone | 10 mg | 4:0.8 | 12-36 h |
-| fludrocortisone | 4 mg | 10:250 | 24 h |
+| Steroid | Equivalent dose |
+|---|---:|
+| methylprednisone | 8 mg |
+| dexamethasone | 1.5 mg |
+| hydrocortisone | 40 mg |
+| prednisolone | 10 mg |
+| fludrocortisone | 4 mg |
 
 ## RESTRICTED_OUTPUTS
 
@@ -195,5 +195,3 @@ Please provide the steroid and dose in mg, for example: methylprednisone 8 mg.
 I can calculate equivalence only for methylprednisone, dexamethasone, hydrocortisone, prednisolone, and fludrocortisone.
 
 ## DEFAULT_FOOTER
-
-Reference: MH EK - KAITO Kisokos 2023.Q1 steroid equivalence table. This is a mathematical equivalence aid only; clinical dosing decisions still require clinician review.

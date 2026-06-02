@@ -2822,15 +2822,12 @@ def _render_steroid_equivalence(agent_key, dose_mg, parsed):
     lines = [
         f"Steroid equivalence for {_fmt_steroid_mg(dose_mg)} mg {source['display']}:",
         "",
-        "| Steroid | Equivalent dose | Glucocorticoid:mineralocorticoid activity | Duration |",
-        "|---|---:|---|---|",
+        "| Steroid | Equivalent dose |",
+        "|---|---:|",
     ]
     for row in _STEROID_EQUIVALENCE_DATA.values():
         equivalent = factor * row["reference_mg"]
-        lines.append(
-            f"| {row['display']} | {_fmt_steroid_mg(equivalent)} mg | "
-            f"{row['activity']} | {row['duration']} |"
-        )
+        lines.append(f"| {row['display']} | {_fmt_steroid_mg(equivalent)} mg |")
 
     table = _extract_info_block_section(parsed, "equivalence_table") if parsed else None
     if table:

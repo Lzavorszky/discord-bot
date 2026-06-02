@@ -178,5 +178,4 @@ Return the complete `steroid_guide_full` INFO_BLOCK.
 I only have perioperative steroid guidance. I do not have a non-perioperative steroid protocol.
 
 ## DEFAULT_FOOTER
-
-Reference: MH EK - KAITO Kisokos 2023.Q1 perioperative steroid table. Individual clinical review may still be needed.
+Curious about steroid equivalency? Ask: dexamethasone 6mg equivalent?

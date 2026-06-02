@@ -702,4 +702,3 @@ I only have perioperative guidance for this medication. I do not have a non-peri
 
 ## DEFAULT_FOOTER
 
-Reference: MH EK - KAITO Kisokos 2023.Q1 perioperative medication table and antithrombotic perioperative table. Individual clinical review may still be needed.
