@@ -2587,6 +2587,9 @@ _PERIOP_FOLLOWUP_RE = re.compile(
     r"metformin|insulin|sglt-?2|glp-?1|dpp-?4|sulfonylurea|"
     r"steroid|szteroid|methylprednison\w*|methylprednisolon\w*|"
     r"hydrocortison\w*|hydrocortisone|glucocorticoid|glukokortikoid|"
+    r"dexamethason\w*|dexamethasone|prednisolon\w*|prednisolone|"
+    r"fludrocortison\w*|fludrocortisone|equivalent|equivalence|"
+    r"conversion|convert|ekvivalens|ekvivalencia|atvaltas|konverzio|"
     r"epidural|spinal|neuraxial|regional\s+an(?:a|e)esth|catheter|"
     r"kateter|kanul|spinalis|gerinc|regionalis"
     r")\b",
@@ -2632,6 +2635,64 @@ _PERIOP_STEROID_FOLLOWUP_RE = re.compile(
     r"\b(?:small|minor|medium|major|large|kis|kozepes|közepes|nagy|"
     r"surgery|operation|mutet|műtét|hernia|serv|sérv|lc|pppd|"
     r"dexamethasone|prednisolone|fludrocortisone|equivalent|ekvivalens)\b",
+    re.IGNORECASE,
+)
+
+_STEROID_EQUIVALENCE_QUERY_RE = re.compile(
+    r"\b(?:equivalent|equivalence|equivalency|conversion|convert|"
+    r"ekvivalens|ekvivalencia|atvaltas|konverzio)\b",
+    re.IGNORECASE,
+)
+
+_STEROID_EQUIVALENCE_DATA = {
+    "methylprednisone": {
+        "display": "methylprednisone",
+        "reference_mg": 8.0,
+        "activity": "5:0.5",
+        "duration": "12-36 h",
+        "aliases": ["methylprednisone", "methylprednisolone", "methylprednison", "methylprednisolon"],
+    },
+    "dexamethasone": {
+        "display": "dexamethasone",
+        "reference_mg": 1.5,
+        "activity": "30:0",
+        "duration": "36-54 h",
+        "aliases": ["dexamethasone", "dexamethason"],
+    },
+    "hydrocortisone": {
+        "display": "hydrocortisone",
+        "reference_mg": 40.0,
+        "activity": "1:1",
+        "duration": "8-12 h",
+        "aliases": ["hydrocortisone", "hydrocortison"],
+    },
+    "prednisolone": {
+        "display": "prednisolone",
+        "reference_mg": 10.0,
+        "activity": "4:0.8",
+        "duration": "12-36 h",
+        "aliases": ["prednisolone", "prednisolon"],
+    },
+    "fludrocortisone": {
+        "display": "fludrocortisone",
+        "reference_mg": 4.0,
+        "activity": "10:250",
+        "duration": "24 h",
+        "aliases": ["fludrocortisone", "fludrocortison"],
+    },
+}
+
+_STEROID_ALIAS_TO_KEY = {
+    alias: key
+    for key, row in _STEROID_EQUIVALENCE_DATA.items()
+    for alias in row["aliases"]
+}
+
+_STEROID_DOSE_MG_RE = re.compile(r"(?<!\d)(\d+(?:[\.,]\d+)?)\s*mg\b", re.IGNORECASE)
+
+_UNSUPPORTED_STEROID_EQUIVALENCE_RE = re.compile(
+    r"\b(?:prednisone|betamethasone|triamcinolone|cortisone|"
+    r"budesonide|fluticasone|mometasone|beclomethasone)\b",
     re.IGNORECASE,
 )
 
@@ -2730,6 +2791,99 @@ def _recognized_for_protocol_id(protocol_id):
     return None
 
 
+def _find_steroid_equivalence_agent(question):
+    folded = _ascii_fold(question or "")
+    for alias in sorted(_STEROID_ALIAS_TO_KEY, key=len, reverse=True):
+        if re.search(r"\b" + re.escape(alias) + r"\b", folded):
+            return _STEROID_ALIAS_TO_KEY[alias]
+    return None
+
+
+def _find_steroid_equivalence_dose(question):
+    match = _STEROID_DOSE_MG_RE.search(question or "")
+    if not match:
+        return None
+    try:
+        return float(match.group(1).replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _fmt_steroid_mg(value):
+    rounded = round(float(value), 3)
+    if rounded.is_integer():
+        return str(int(rounded))
+    return f"{rounded:.3f}".rstrip("0").rstrip(".")
+
+
+def _render_steroid_equivalence(agent_key, dose_mg, parsed):
+    source = _STEROID_EQUIVALENCE_DATA[agent_key]
+    factor = dose_mg / source["reference_mg"]
+    lines = [
+        f"Steroid equivalence for {_fmt_steroid_mg(dose_mg)} mg {source['display']}:",
+        "",
+        "| Steroid | Equivalent dose | Glucocorticoid:mineralocorticoid activity | Duration |",
+        "|---|---:|---|---|",
+    ]
+    for row in _STEROID_EQUIVALENCE_DATA.values():
+        equivalent = factor * row["reference_mg"]
+        lines.append(
+            f"| {row['display']} | {_fmt_steroid_mg(equivalent)} mg | "
+            f"{row['activity']} | {row['duration']} |"
+        )
+
+    table = _extract_info_block_section(parsed, "equivalence_table") if parsed else None
+    if table:
+        lines.extend(["", table])
+    return "\n".join(lines)
+
+
+def _try_steroid_equivalence_shortcut(state, recognized, question):
+    selected = recognized or state.get("active_recognized")
+    protocol_id = None
+    if selected:
+        protocol_file = selected.get("protocol_file", "")
+        parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(protocol_file)) if protocol_file else None
+        meta = parsed.get("metadata", {}) if parsed else {}
+        protocol_id = meta.get("protocol_id") or selected.get("protocol_id") or selected.get("key")
+
+    text = question or ""
+    wants_equivalence = bool(_STEROID_EQUIVALENCE_QUERY_RE.search(text))
+    if protocol_id == "steroid_equivalence":
+        should_apply = True
+    elif protocol_id in {"periop_gyogyszerek", "periop_steroids"} and wants_equivalence:
+        should_apply = True
+    else:
+        should_apply = False
+    if not should_apply:
+        return None
+
+    equivalence_recognized = _recognized_for_protocol_id("steroid_equivalence")
+    if not equivalence_recognized:
+        return None
+    equivalence_parsed = PROTOCOL_PARSED_BY_FILE.get(
+        normalize_path(equivalence_recognized.get("protocol_file", ""))
+    )
+
+    agent_key = _find_steroid_equivalence_agent(text)
+    dose_mg = _find_steroid_equivalence_dose(text)
+
+    state["active_recognized"] = equivalence_recognized
+    _update_routing_state(state, equivalence_recognized, "steroid_equivalence_shortcut")
+
+    if not agent_key:
+        if _UNSUPPORTED_STEROID_EQUIVALENCE_RE.search(text):
+            return (
+                "I can calculate equivalence only for methylprednisone, dexamethasone, "
+                "hydrocortisone, prednisolone, and fludrocortisone."
+            )
+        return "Please provide the steroid and dose in mg, for example: methylprednisone 8 mg."
+    if dose_mg is None:
+        return f"Please provide the { _STEROID_EQUIVALENCE_DATA[agent_key]['display'] } dose in mg."
+
+    return _render_steroid_equivalence(agent_key, dose_mg, equivalence_parsed)
+
+
 def _try_periop_steroid_shortcut(state, protocol_id, question):
     if protocol_id == "periop_gyogyszerek" and not _PERIOP_STEROID_QUERY_RE.search(question or ""):
         return None
@@ -2784,6 +2938,12 @@ def _looks_like_active_protocol_followup(question, state):
         return True
     if active_protocol_id == "periop_steroids" and (
         _PERIOP_STEROID_QUERY_RE.search(text) or _PERIOP_STEROID_FOLLOWUP_RE.search(text)
+    ):
+        return True
+    if active_protocol_id == "steroid_equivalence" and (
+        _STEROID_EQUIVALENCE_QUERY_RE.search(text)
+        or _find_steroid_equivalence_agent(text)
+        or _find_steroid_equivalence_dose(text) is not None
     ):
         return True
     if _is_slot_clear_phrase(text):
@@ -3149,6 +3309,28 @@ def _ask_ai_impl(question, chat_id):
         )
         _remember_answer(state, question, answer)
         _log_answer_envelope(t_start, chat_id, question, recognized, envelope)
+        return answer
+
+    # -- Steroid equivalence calculator shortcut ---
+    steroid_equivalence_body = _try_steroid_equivalence_shortcut(
+        state, recognized or state.get("active_recognized"), question
+    )
+    if steroid_equivalence_body is not None:
+        active = state.get("active_recognized") or recognized
+        source_label = (active or {}).get("source_label")
+        _pf = (active or {}).get("protocol_file")
+        _parsed_steroid_eq = PROTOCOL_PARSED_BY_FILE.get(normalize_path(_pf)) if _pf else None
+        _footer_steroid_eq = _parsed_steroid_eq.get("default_footer") if _parsed_steroid_eq else None
+        answer = finalize_answer(steroid_equivalence_body, _footer_steroid_eq, source_label)
+        envelope = _make_answer_envelope(
+            state=state, turn_context=turn, recognized=active,
+            active_before=active_before, final_body=steroid_equivalence_body,
+            final_answer=answer,
+            deterministic_or_llm="deterministic_steroid_equivalence",
+            llm_called=False,
+        )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, active, envelope)
         return answer
 
     # -- Perioperative medication exact-entry shortcut ---

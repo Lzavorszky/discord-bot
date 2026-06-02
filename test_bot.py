@@ -3052,6 +3052,82 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Perioperative steroid and steroid equivalence split
+# ---------------------------------------------------------------------------
+
+class TestPeriopSteroidSplit(unittest.TestCase):
+
+    PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
+
+    def setUp(self):
+        import protocol_parser as pp
+        import telegram_bot as b
+
+        self.b = b
+        self._old_parsed = dict(b.PROTOCOL_PARSED_BY_FILE)
+        self._old_state = dict(b.CONVERSATION_STATE)
+        b.PROTOCOL_PARSED_BY_FILE.clear()
+        b.CONVERSATION_STATE.clear()
+
+        for filename in [
+            "periop_gyogyszerek.txt",
+            "periop_steroids.txt",
+            "steroid_equivalence.txt",
+        ]:
+            rel_path = os.path.join("protocols", filename)
+            with open(os.path.join(self.PROTO_DIR, filename), encoding="utf-8") as f:
+                text = f.read()
+            parsed = pp._parse_protocol_text(text, path=rel_path)
+            b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(rel_path)] = parsed
+
+    def tearDown(self):
+        b = self.b
+        b.PROTOCOL_PARSED_BY_FILE.clear()
+        b.PROTOCOL_PARSED_BY_FILE.update(self._old_parsed)
+        b.CONVERSATION_STATE.clear()
+        b.CONVERSATION_STATE.update(self._old_state)
+
+    def test_periop_steroid_table_excludes_equivalence_table(self):
+        b = self.b
+        periop = b._recognized_for_protocol_id("periop_steroids")
+        body = b._try_periop_info_shortcut({}, periop, "perioperative steroid stress dose")
+
+        self.assertIn("small surgery", body)
+        self.assertIn("major surgery", body)
+        self.assertNotIn("Generic steroid equivalence table", body)
+        self.assertNotIn("Steroid equivalence table", body)
+
+    def test_steroid_equivalence_calculates_all_table_rows(self):
+        b = self.b
+        periop = b._recognized_for_protocol_id("periop_steroids")
+        state = {"active_recognized": periop}
+
+        body = b._try_steroid_equivalence_shortcut(
+            state, periop, "methylprednisone 8 mg equivalent"
+        )
+
+        self.assertIn("| hydrocortisone | 40 mg |", body)
+        self.assertIn("| dexamethasone | 1.5 mg |", body)
+        self.assertIn("| fludrocortisone | 4 mg |", body)
+        self.assertEqual(b._active_protocol_id(state), "steroid_equivalence")
+
+    def test_steroid_equivalence_active_followup_accepts_dose_only(self):
+        b = self.b
+        calc = b._recognized_for_protocol_id("steroid_equivalence")
+        state = {"active_recognized": calc}
+
+        self.assertTrue(
+            b._looks_like_active_protocol_followup("hydrocortisone 20 mg", state)
+        )
+
+        body = b._try_steroid_equivalence_shortcut(
+            state, calc, "hydrocortisone 20 mg"
+        )
+        self.assertIn("| methylprednisone | 4 mg |", body)
+        self.assertIn("| dexamethasone | 0.75 mg |", body)
+
+
+# ---------------------------------------------------------------------------
 # Session 10: Debug/Admin Inspectability Tests
 # ---------------------------------------------------------------------------
 

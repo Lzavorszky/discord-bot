@@ -12,7 +12,7 @@ selection_mode: none
 allows_dosing: yes
 dosing_requires_link: no
 default_dose_allowed: yes
-version: 0.1
+version: 0.2
 last_reviewed: 2023 Q1
 owner: ID team
 status: draft
@@ -90,47 +90,23 @@ optional_modifiers:
 forwardable_slots:
 (none)
 
-## SLOT_SCHEMA
-
-(none)
-
 ## DEFAULT_ANSWER
 
 Return the complete perioperative steroid guide table. Do not ask for surgery type before showing the table.
-
-## ANSWER_POLICY
-
-This protocol is active only for perioperative, preoperative, operation/procedure, or surgery-day steroid questions.
-
-When the user asks about perioperative steroid management, chronic steroid use before surgery, or stress-dose steroids, return the complete steroid guide table. Do not ask for surgery size first; the table is short and the clinician will choose the applicable row.
-
-Do not calculate steroid equivalence beyond listing the source equivalence table.
-
-Do not provide steroid advice for non-perioperative contexts.
-
-## REQUIRED_INFORMATION
-
-Required before answering:
-- perioperative/surgery/procedure context, or active perioperative context from the preceding turn
-
-No dose, duration, or surgery-size input is required before returning the table.
-
-## DEFAULT_QUESTION
-
-Are you asking about perioperative steroid management around surgery?
-
-## PATHWAY_PRIORITY
-
-1. If there is no perioperative/surgery/procedure context and no active perioperative context, do not answer from this protocol.
-2. If perioperative context is present, return the complete steroid guide table.
-3. If the user asks for equivalence, include the equivalence table.
-4. Do not ask for surgery size before returning the table.
 
 ## SELECTION_RULES
 
 selection_mode: none
 
-No deterministic selection, calculation, or dose conversion is performed. The table is returned as source guidance.
+No deterministic selection, calculation, or dose conversion is performed. The complete perioperative source table is returned.
+
+This protocol is active only for perioperative, preoperative, operation/procedure, or surgery-day steroid questions.
+
+When the user asks about perioperative steroid management, chronic steroid use before surgery, or stress-dose steroids, return the complete steroid guide table. Do not ask for surgery size first; the table is short and the clinician will choose the applicable row.
+
+Steroid equivalence and dose conversion belong to the separate steroid equivalence calculator protocol.
+
+Do not provide steroid advice for non-perioperative contexts.
 
 ## SELECTED_OUTPUTS
 
@@ -138,7 +114,12 @@ No deterministic selection, calculation, or dose conversion is performed. The ta
 
 ## LINKS
 
-(none)
+LINK: steroid_equivalence
+  link_type: steroid_equivalence_calculator
+  when_selected_item: steroid equivalence calculator
+  target_protocol_id: steroid_equivalence
+  target_file: protocols/steroid_equivalence.txt
+  target_missing_behavior: Steroid equivalence calculation is not available unless the separate steroid equivalence calculator protocol is installed.
 
 ## INFO_BLOCKS
 
@@ -159,30 +140,20 @@ Hydrocortisone supplementation by surgery size:
 | medium surgery | laparoscopic cholecystectomy | 1 x 25 mg hydrocortisone + 4 x 25 mg for 24 hours |
 | major surgery | PPPD | 1 x 25 mg hydrocortisone + 4 x 25 mg for 48 hours |
 
-Steroid equivalence table:
-
-| Steroid | Equivalent dose | Glucocorticoid:mineralocorticoid activity | Duration |
-|---|---:|---|---|
-| methylprednisone | 8 mg | 5:0.5 | 12-36 h |
-| dexamethasone | 1.5 mg | 30:0 | 36-54 h |
-| hydrocortisone | 40 mg | 1:1 | 8-12 h |
-| prednisolone | 10 mg | 4:0.8 | 12-36 h |
-| fludrocortisone | 4 mg | 10:250 | 24 h |
-
 ### source_terms
 
 The source uses:
 - "Rendszeresen szedett szteroid" for regular/chronic steroid use
 - "methylprednison < 8mg"
-- "methylprednison 8+ mg legalább 3 hónapig"
-- "hydrocortison kiegészítés"
-- "kis műtét", "közepes műtét", "nagy műtét"
+- "methylprednison 8+ mg legalabb 3 honapig"
+- "hydrocortison kiegeszites"
+- "kis mutet", "kozepes mutet", "nagy mutet"
 
 ## RESTRICTED_OUTPUTS
 
 Never provide:
 - non-perioperative steroid treatment advice
-- steroid equivalence calculations beyond the listed source table
+- steroid equivalence calculations from this perioperative guide; use the separate steroid equivalence calculator protocol
 - adrenal insufficiency diagnosis or testing advice unless present in the source
 - tapering advice
 - pediatric dosing
@@ -194,8 +165,7 @@ Never provide:
 - Return the complete source table for perioperative steroid questions.
 - Do not ask for surgery type before returning the table.
 - Do not extrapolate to surgery categories not listed in the source.
-- If the user asks for an unlisted steroid, provide only the equivalence table if applicable and state that unlisted steroid guidance is not specified.
-- If the user asks for conversion/calculation, list the equivalence table but do not calculate a patient-specific converted dose.
+- If the user asks for steroid equivalence or conversion, use the separate steroid equivalence calculator protocol.
 
 ## OUTPUT_TEMPLATES
 

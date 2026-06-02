@@ -237,6 +237,47 @@
         "methylprednison mutet",
         "hydrocortison mutet"
       ]
+    },
+    "steroid_equivalence": {
+      "canonical": "steroid equivalence calculator",
+      "display": "Steroid equivalence calculator",
+      "source_label": "Steroid equivalence table",
+      "protocol_file": "protocols/steroid_equivalence.txt",
+      "aliases": [
+        "steroid equivalence calculator",
+        "steroid equivalence",
+        "steroid equivalency",
+        "steroid conversion",
+        "steroid dose conversion",
+        "corticosteroid equivalence",
+        "corticosteroid conversion",
+        "glucocorticoid equivalence",
+        "hydrocortisone equivalent",
+        "hydrocortisone conversion",
+        "methylprednisone equivalent",
+        "methylprednisolone equivalent",
+        "methylprednisone conversion",
+        "methylprednisolone conversion",
+        "dexamethasone equivalent",
+        "dexamethasone conversion",
+        "prednisolone equivalent",
+        "prednisolone conversion",
+        "fludrocortisone equivalent",
+        "fludrocortisone conversion",
+        "szteroid ekvivalencia",
+        "szteroid ekvivalens",
+        "szteroid atvaltas",
+        "szteroid konverzio",
+        "kortikoszteroid ekvivalencia",
+        "kortikoszteroid atvaltas",
+        "hydrocortison ekvivalens",
+        "hydrocortison atvaltas",
+        "methylprednison ekvivalens",
+        "methylprednison atvaltas",
+        "dexamethason ekvivalens",
+        "prednisolon ekvivalens",
+        "fludrocortison ekvivalens"
+      ]
     }
   },
   "unsupported_syndromes": {
