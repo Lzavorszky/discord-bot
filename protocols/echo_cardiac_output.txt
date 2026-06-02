@@ -1,0 +1,195 @@
+# ECHO CARDIAC OUTPUT CALCULATOR
+
+## METADATA
+
+protocol_id: echo_cardiac_output
+protocol_name: Echo LVOT stroke volume and cardiac output calculator
+source_label: Echo cardiac output
+canonical_name: echo cardiac output calculator
+protocol_type: general_rules_protocol
+answer_mode: required_slots_then_selected_output
+selection_mode: none
+allows_dosing: yes
+dosing_requires_link: no
+default_dose_allowed: no
+version: 0.1
+last_reviewed: 2026-06-02
+owner: ID team
+status: draft
+
+## ALIASES
+
+- echo cardiac output calculator
+- cardiac output calculator
+- echo co calculator
+- lvot stroke volume calculator
+- stroke volume calculator
+- sv calculator
+- lvot vti calculator
+- lvot vti co
+- lvot diameter vti
+- echocardiography cardiac output
+- echo percterfogat
+- sziv percterfogat kalkulator
+
+## INTENTS
+
+default_request:
+- echo cardiac output calculator
+- cardiac output calculator
+- lvot stroke volume calculator
+
+selection_request:
+- LVOT VTI
+- LVOT diameter
+- LVOT diam
+- heart rate
+- HR
+- SV
+- CO
+
+dosing_request:
+(none)
+
+info_request:
+- formula
+- method
+- LVOT area
+
+link_request:
+(none)
+
+## INPUT_SLOTS
+
+required_for_selection:
+- lvot_diameter
+- lvot_vti
+
+required_for_dosing:
+(none)
+
+optional_modifiers:
+- heart_rate_bpm
+
+forwardable_slots:
+- lvot_diameter_cm
+- lvot_vti_cm
+- lvot_csa_cm2
+- stroke_volume_ml
+- heart_rate_bpm
+- cardiac_output_l_min
+
+## SLOT_SCHEMA
+
+SLOT: lvot_diameter
+  type: number
+  unit: mm_or_cm
+  clinical_min: 5
+  clinical_max: 40
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: lvot_vti
+  type: number
+  unit: mm_or_cm
+  clinical_min: 1
+  clinical_max: 100
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: heart_rate_bpm
+  type: number
+  unit: bpm
+  clinical_min: 20
+  clinical_max: 250
+  out_of_clinical_policy: ask_confirmation
+
+## DEFAULT_ANSWER
+
+Provide LVOT VTI and LVOT diameter. If heart rate is also supplied, this calculator returns cardiac output.
+
+## SELECTION_RULES
+
+selection_mode: none
+
+Unit conversion rules:
+- LVOT diameter may be supplied in mm or cm.
+- LVOT VTI may be supplied in mm or cm.
+- Convert mm to cm by dividing by 10.
+- Heart rate is beats per minute.
+
+Calculation rules:
+- LVOT_diameter_cm = LVOT_diameter_mm / 10 if supplied in mm
+- LVOT_CSA_cm2 = pi * (LVOT_diameter_cm / 2)^2
+- Stroke_volume_ml = LVOT_CSA_cm2 * LVOT_VTI_cm
+- If heart_rate_bpm is supplied: Cardiac_output_L_min = Stroke_volume_ml * heart_rate_bpm / 1000
+- If heart_rate_bpm is not supplied, return stroke volume only.
+
+## SELECTED_OUTPUTS
+
+### calculated_sv
+
+Return LVOT diameter in cm, LVOT CSA in cm2, LVOT VTI in cm, and stroke volume in mL.
+
+### calculated_co
+
+Return LVOT diameter in cm, LVOT CSA in cm2, LVOT VTI in cm, stroke volume in mL, heart rate in bpm, and cardiac output in L/min.
+
+### missing_input
+
+Ask for LVOT diameter and/or LVOT VTI. Heart rate is optional.
+
+### unsupported_units
+
+Ask the user to resend LVOT diameter and LVOT VTI in mm or cm, and heart rate in bpm if cardiac output is requested.
+
+## LINKS
+
+(none)
+
+## INFO_BLOCKS
+
+### method_notes
+
+Stroke volume by pulsed-wave Doppler is calculated as cross-sectional area times VTI. The LVOT area is commonly estimated from LVOT diameter using the circular area formula. Cardiac output is stroke volume multiplied by heart rate.
+
+### quality_notes
+
+LVOT diameter error is squared in the formula. The calculation assumes a representative LVOT VTI tracing, appropriate sample-volume placement, and compatible measurement timing.
+
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- treatment advice for low or high cardiac output
+- shock classification
+- valve disease grading
+- fluid responsiveness advice
+- indexed cardiac output unless BSA is explicitly supplied and the user asks for it
+- assumptions for missing LVOT diameter, LVOT VTI, or heart rate
+
+## SAFETY_RULES
+
+- Require LVOT diameter and LVOT VTI before calculating stroke volume.
+- Use mm-to-cm conversion when units are explicit.
+- If the unit is ambiguous, ask for clarification rather than guessing.
+- Calculate cardiac output only when heart rate is supplied.
+
+## OUTPUT_TEMPLATES
+
+### CALCULATED_SV
+
+Echo LVOT stroke volume:
+
+Return normalized inputs, LVOT CSA, and stroke volume.
+
+### CALCULATED_CO
+
+Echo LVOT cardiac output:
+
+Return normalized inputs, LVOT CSA, stroke volume, HR, and cardiac output.
+
+### MISSING_INPUT
+
+Please provide LVOT diameter and LVOT VTI, with units mm or cm. Add HR if you want cardiac output.
+
+## DEFAULT_FOOTER
+
+Calculator output only; verify echo measurement quality before clinical interpretation.

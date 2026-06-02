@@ -278,6 +278,91 @@
         "prednisolon ekvivalens",
         "fludrocortison ekvivalens"
       ]
+    },
+    "body_size_calculators": {
+      "canonical": "body size calculators",
+      "display": "Body size calculators",
+      "source_label": "Body size calculators",
+      "protocol_file": "protocols/body_size_calculators.txt",
+      "aliases": [
+        "body size calculator",
+        "bmi bsa ibw abw calculator",
+        "bmi bsa calculator",
+        "bmi calculator",
+        "bsa calculator",
+        "ideal body weight calculator",
+        "ibw calculator",
+        "adjusted body weight calculator",
+        "adjbw calculator",
+        "abw calculator",
+        "testtomeg kalkulator",
+        "bmi kalkulator",
+        "bsa kalkulator",
+        "idealis testsuly",
+        "korrigalt testsuly"
+      ]
+    },
+    "echo_cardiac_output": {
+      "canonical": "echo cardiac output calculator",
+      "display": "Echo cardiac output calculator",
+      "source_label": "Echo cardiac output",
+      "protocol_file": "protocols/echo_cardiac_output.txt",
+      "aliases": [
+        "echo cardiac output calculator",
+        "cardiac output calculator",
+        "echo co calculator",
+        "lvot stroke volume calculator",
+        "stroke volume calculator",
+        "sv calculator",
+        "lvot vti calculator",
+        "lvot vti co",
+        "lvot diameter vti",
+        "echocardiography cardiac output",
+        "echo percterfogat",
+        "sziv percterfogat kalkulator"
+      ]
+    },
+    "echo_ava": {
+      "canonical": "echo aortic valve area calculator",
+      "display": "Echo AVA calculator",
+      "source_label": "Echo AVA",
+      "protocol_file": "protocols/echo_ava.txt",
+      "aliases": [
+        "ava calculator",
+        "echo ava calculator",
+        "aortic valve area calculator",
+        "aortic valve area",
+        "continuity equation calculator",
+        "aortic stenosis valve area",
+        "av area calculator",
+        "lvot ava calculator",
+        "aorta billentyu terulet",
+        "ava kalkulator"
+      ]
+    },
+    "echo_ero_rvol": {
+      "canonical": "echo EROA and regurgitant volume calculator",
+      "display": "Echo EROA/RVol calculator",
+      "source_label": "Echo EROA/RVol",
+      "protocol_file": "protocols/echo_ero_rvol.txt",
+      "aliases": [
+        "ero calculator",
+        "eroa calculator",
+        "rvol calculator",
+        "regurgitant volume calculator",
+        "regurgitation calculator",
+        "pisa calculator",
+        "echo ero calculator",
+        "echo eroa calculator",
+        "echo rvol calculator",
+        "mitral regurgitation calculator",
+        "aortic regurgitation calculator",
+        "mr eroa",
+        "ar eroa",
+        "ero rv calculator",
+        "ero rvol calculator",
+        "regurgitacios volumen kalkulator"
+      ]
     }
   },
   "unsupported_syndromes": {

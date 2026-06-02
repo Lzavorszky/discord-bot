@@ -1,0 +1,305 @@
+# ECHO EROA AND REGURGITANT VOLUME CALCULATOR
+
+## METADATA
+
+protocol_id: echo_ero_rvol
+protocol_name: Echo EROA and regurgitant volume calculator
+source_label: Echo EROA/RVol
+canonical_name: echo EROA and regurgitant volume calculator
+protocol_type: general_rules_protocol
+answer_mode: required_slots_then_selected_output
+selection_mode: none
+allows_dosing: yes
+dosing_requires_link: no
+default_dose_allowed: no
+version: 0.1
+last_reviewed: 2026-06-02
+owner: ID team
+status: draft
+
+## ALIASES
+
+- ero calculator
+- eroa calculator
+- rvol calculator
+- regurgitant volume calculator
+- regurgitation calculator
+- pisa calculator
+- echo ero calculator
+- echo eroa calculator
+- echo rvol calculator
+- mitral regurgitation calculator
+- aortic regurgitation calculator
+- mr eroa
+- ar eroa
+- ero rv calculator
+- ero rvol calculator
+- regurgitacios volumen kalkulator
+
+## INTENTS
+
+default_request:
+- ERO calculator
+- EROA calculator
+- regurgitant volume calculator
+- PISA calculator
+
+selection_request:
+- PISA radius
+- aliasing velocity
+- Nyquist
+- peak regurgitant velocity
+- regurgitant jet VTI
+- MR VTI
+- AR VTI
+- EROA
+- RVol
+- regurgitant volume
+- annulus diameter
+- annulus VTI
+
+dosing_request:
+(none)
+
+info_request:
+- formula
+- method
+- PISA method
+- volumetric method
+
+link_request:
+(none)
+
+## INPUT_SLOTS
+
+required_for_selection:
+- pisa_radius_and_aliasing_velocity_and_peak_regurgitant_velocity
+- or eroa_and_regurgitant_vti
+- or regurgitant_volume_and_regurgitant_vti
+- or regurgitant_valve_stroke_volume_and_competent_valve_stroke_volume
+
+required_for_dosing:
+(none)
+
+optional_modifiers:
+- regurgitant_vti
+- flow_convergence_angle_degrees
+- regurgitant_valve
+- annulus_diameter
+- annulus_vti
+- lv_edv
+- lv_esv
+- forward_stroke_volume
+
+forwardable_slots:
+- eroa_cm2
+- regurgitant_volume_ml
+- regurgitant_fraction_percent
+- pisa_radius_cm
+- aliasing_velocity_cm_s
+- peak_regurgitant_velocity_cm_s
+- regurgitant_vti_cm
+
+## SLOT_SCHEMA
+
+SLOT: pisa_radius
+  type: number
+  unit: mm_or_cm
+  clinical_min: 1
+  clinical_max: 30
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: aliasing_velocity
+  type: number
+  unit: cm_per_s_or_m_per_s
+  clinical_min: 10
+  clinical_max: 150
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: peak_regurgitant_velocity
+  type: number
+  unit: cm_per_s_or_m_per_s
+  clinical_min: 50
+  clinical_max: 800
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: regurgitant_vti
+  type: number
+  unit: mm_or_cm
+  clinical_min: 1
+  clinical_max: 300
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: eroa_cm2
+  type: number
+  unit: cm2
+  clinical_min: 0.01
+  clinical_max: 2
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: regurgitant_volume_ml
+  type: number
+  unit: ml
+  clinical_min: 0
+  clinical_max: 300
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: flow_convergence_angle_degrees
+  type: number
+  unit: degrees
+  clinical_min: 30
+  clinical_max: 360
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: annulus_diameter
+  type: number
+  unit: mm_or_cm
+  clinical_min: 5
+  clinical_max: 60
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: annulus_vti
+  type: number
+  unit: mm_or_cm
+  clinical_min: 1
+  clinical_max: 300
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: stroke_volume
+  type: number
+  unit: ml
+  clinical_min: 1
+  clinical_max: 300
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: lv_edv
+  type: number
+  unit: ml
+  clinical_min: 1
+  clinical_max: 500
+  out_of_clinical_policy: ask_confirmation
+
+SLOT: lv_esv
+  type: number
+  unit: ml
+  clinical_min: 0
+  clinical_max: 500
+  out_of_clinical_policy: ask_confirmation
+
+## DEFAULT_ANSWER
+
+Proposed protocol: use PISA when radius, aliasing velocity, peak regurgitant velocity, and regurgitant jet VTI are available. Use volumetric calculation when regurgitant-valve and competent-valve stroke volumes are available.
+
+## SELECTION_RULES
+
+selection_mode: none
+
+Unit conversion rules:
+- Radius and diameters may be supplied in mm or cm. Convert mm to cm by dividing by 10.
+- VTI values may be supplied in mm or cm. Convert mm to cm by dividing by 10.
+- Velocities may be supplied in m/s or cm/s. Convert m/s to cm/s by multiplying by 100.
+- Stroke volumes and regurgitant volumes are in mL.
+
+PISA method:
+- PISA_area_cm2 = 2 * pi * pisa_radius_cm^2.
+- If flow_convergence_angle_degrees is supplied, corrected_PISA_area_cm2 = PISA_area_cm2 * (flow_convergence_angle_degrees / 180).
+- If no angle is supplied, use hemispheric PISA_area_cm2 without angle correction.
+- Regurgitant_flow_ml_s = PISA_area_cm2 * aliasing_velocity_cm_s.
+- EROA_cm2 = Regurgitant_flow_ml_s / peak_regurgitant_velocity_cm_s.
+- RVol_ml = EROA_cm2 * regurgitant_VTI_cm.
+
+Direct EROA/RVol conversions:
+- If EROA_cm2 and regurgitant_VTI_cm are supplied: RVol_ml = EROA_cm2 * regurgitant_VTI_cm.
+- If RVol_ml and regurgitant_VTI_cm are supplied: EROA_cm2 = RVol_ml / regurgitant_VTI_cm.
+
+Volumetric method:
+- Stroke_volume_ml = annulus_CSA_cm2 * annulus_VTI_cm.
+- annulus_CSA_cm2 = pi * (annulus_diameter_cm / 2)^2.
+- RVol_ml = stroke_volume_regurgitant_valve_ml - stroke_volume_competent_valve_ml.
+- Regurgitant_fraction_percent = 100 * RVol_ml / stroke_volume_regurgitant_valve_ml.
+- If regurgitant_VTI_cm is supplied: EROA_cm2 = RVol_ml / regurgitant_VTI_cm.
+
+LV-volume method:
+- LV_stroke_volume_ml = LV_EDV_ml - LV_ESV_ml.
+- RVol_ml = LV_stroke_volume_ml - forward_stroke_volume_ml.
+- If regurgitant_VTI_cm is supplied: EROA_cm2 = RVol_ml / regurgitant_VTI_cm.
+
+## SELECTED_OUTPUTS
+
+### calculated_pisa_eroa_rvol
+
+Return normalized inputs, PISA area, regurgitant flow, EROA in cm2, and regurgitant volume in mL.
+
+### calculated_direct_rvol
+
+Return regurgitant volume from EROA and regurgitant VTI.
+
+### calculated_direct_eroa
+
+Return EROA from regurgitant volume and regurgitant VTI.
+
+### calculated_volumetric_rvol
+
+Return the two stroke volumes, regurgitant volume, regurgitant fraction, and EROA if regurgitant VTI is supplied.
+
+### missing_input
+
+Ask for the missing inputs for the requested method.
+
+### unsupported_units
+
+Ask the user to resend radius/diameter/VTI in mm or cm, velocities in m/s or cm/s, and volumes in mL.
+
+## LINKS
+
+(none)
+
+## INFO_BLOCKS
+
+### proposed_protocol
+
+Use three calculation paths:
+1. PISA path for EROA and RVol: radius, aliasing velocity, peak regurgitant velocity, and regurgitant jet VTI.
+2. Direct conversion path: EROA with regurgitant VTI gives RVol; RVol with regurgitant VTI gives EROA.
+3. Volumetric path: subtract competent-valve stroke volume from regurgitant-valve stroke volume; add regurgitant VTI if EROA is desired.
+
+### quality_notes
+
+PISA assumes an appropriate flow-convergence shape and simultaneous timing of radius and peak regurgitant velocity. Volumetric subtraction compounds measurement error because two stroke volumes are subtracted. Multiple jets, eccentric jets, nonhemispheric PISA, shunts, and more than one significant regurgitant valve can invalidate simple calculations.
+
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- definitive mitral, aortic, tricuspid, or pulmonary regurgitation grading from calculator output alone
+- surgery, intervention, or follow-up recommendations
+- assumptions for missing PISA radius, aliasing velocity, peak regurgitant velocity, regurgitant VTI, annulus measurements, or stroke volumes
+- right-ventricle assessment under the abbreviation RV; in this protocol RV means regurgitant volume only
+
+## SAFETY_RULES
+
+- Clarify that RV means regurgitant volume, not right ventricle, when ambiguity is possible.
+- If method inputs are mixed, calculate only the internally coherent method or ask which method to use.
+- If units are ambiguous, ask for clarification rather than guessing.
+- Do not grade severity unless the user asks and the answer is limited to explicitly supplied guideline thresholds.
+
+## OUTPUT_TEMPLATES
+
+### CALCULATED_PISA_EROA_RVOL
+
+Echo EROA/RVol by PISA:
+
+Return normalized inputs, PISA area, regurgitant flow, EROA, and regurgitant volume.
+
+### CALCULATED_VOLUMETRIC_RVOL
+
+Echo regurgitant volume by volumetric method:
+
+Return the stroke-volume subtraction, regurgitant volume, regurgitant fraction, and EROA if regurgitant VTI was supplied.
+
+### MISSING_INPUT
+
+Please provide a complete set for one method: PISA inputs, direct EROA/RVol conversion inputs, or volumetric stroke-volume inputs.
+
+## DEFAULT_FOOTER
+
+Calculator output only; integrate with full valve assessment and echo image quality before interpretation.
