@@ -83,6 +83,8 @@ dosing_request:
 info_request:
 - equivalence table
 - generic equivalence table
+- activity
+- duration
 - ekvivalencia tabla
 
 link_request:
@@ -132,7 +134,7 @@ If steroid_agent or steroid_dose_mg is missing, ask for the missing input. Do no
 
 ### calculated_equivalence
 
-Return equivalent doses for all supported steroids, followed by the generic equivalence table.
+Return equivalent doses for all supported steroids. The generic source equivalence table is appended in the footer.
 
 ### missing_input
 
@@ -148,17 +150,7 @@ State that the steroid is not in the supported equivalence table and list suppor
 
 ## INFO_BLOCKS
 
-### equivalence_table
-
-Generic steroid equivalence table:
-
-| Steroid | Equivalent dose |
-|---|---:|
-| methylprednisone | 8 mg |
-| dexamethasone | 1.5 mg |
-| hydrocortisone | 40 mg |
-| prednisolone | 10 mg |
-| fludrocortisone | 4 mg |
+(none)
 
 ## RESTRICTED_OUTPUTS
 
@@ -184,7 +176,7 @@ Never provide:
 
 Steroid equivalence for `{dose_mg} mg {steroid_agent}`:
 
-Return calculated equivalent doses for all supported steroids, then the generic equivalence table.
+Return calculated equivalent doses for all supported steroids. The generic equivalence table is provided in the footer.
 
 ### MISSING_INPUT
 
@@ -195,3 +187,15 @@ Please provide the steroid and dose in mg, for example: methylprednisone 8 mg.
 I can calculate equivalence only for methylprednisone, dexamethasone, hydrocortisone, prednisolone, and fludrocortisone.
 
 ## DEFAULT_FOOTER
+
+Reference: MH EK - KAITO Kisokos 2023.Q1 steroid equivalence table. This is a mathematical equivalence aid only; clinical dosing decisions still require clinician review.
+
+Generic steroid equivalence table:
+
+| Steroid | Equivalent dose | Glucocorticoid:mineralocorticoid activity | Duration |
+|---|---:|---|---|
+| methylprednisone | 8 mg | 5:0.5 | 12-36 h |
+| dexamethasone | 1.5 mg | 30:0 | 36-54 h |
+| hydrocortisone | 40 mg | 1:1 | 8-12 h |
+| prednisolone | 10 mg | 4:0.8 | 12-36 h |
+| fludrocortisone | 4 mg | 10:250 | 24 h |

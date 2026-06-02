@@ -3109,11 +3109,21 @@ class TestPeriopSteroidSplit(unittest.TestCase):
         self.assertIn("| hydrocortisone | 40 mg |", body)
         self.assertIn("| dexamethasone | 1.5 mg |", body)
         self.assertIn("| fludrocortisone | 4 mg |", body)
+        self.assertNotIn("Generic steroid equivalence table", body)
         self.assertNotIn("Glucocorticoid:mineralocorticoid", body)
         self.assertNotIn("Duration", body)
         self.assertNotIn("12-36 h", body)
         self.assertNotIn("5:0.5", body)
         self.assertEqual(b._active_protocol_id(state), "steroid_equivalence")
+
+        parsed = b.PROTOCOL_PARSED_BY_FILE[
+            b.normalize_path(os.path.join("protocols", "steroid_equivalence.txt"))
+        ]
+        footer = parsed.get("default_footer", "")
+        self.assertIn("Generic steroid equivalence table", footer)
+        self.assertIn("Glucocorticoid:mineralocorticoid", footer)
+        self.assertIn("12-36 h", footer)
+        self.assertIn("5:0.5", footer)
 
     def test_steroid_equivalence_active_followup_accepts_dose_only(self):
         b = self.b

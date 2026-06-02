@@ -2829,9 +2829,6 @@ def _render_steroid_equivalence(agent_key, dose_mg, parsed):
         equivalent = factor * row["reference_mg"]
         lines.append(f"| {row['display']} | {_fmt_steroid_mg(equivalent)} mg |")
 
-    table = _extract_info_block_section(parsed, "equivalence_table") if parsed else None
-    if table:
-        lines.extend(["", table])
     return "\n".join(lines)
 
 
