@@ -2157,6 +2157,7 @@ class TestGoldenRoutingCases(unittest.TestCase):
             "pneumonia_pcr.txt",
             "cap.txt",
             "vancomycin.txt",
+            "body_size_calculators.txt",
         ]:
             rel_path = os.path.join("protocols", filename)
             abs_path = os.path.join(self.PROTO_DIR, filename)
@@ -2294,6 +2295,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
             "pneumonia_pcr.txt",
             "cap.txt",
             "vancomycin.txt",
+            "body_size_calculators.txt",
         ]:
             rel_path = os.path.join("protocols", filename)
             abs_path = os.path.join(self.PROTO_DIR, filename)
@@ -2734,6 +2736,34 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
             "protocols/meropenem.txt",
         )
         self.assertEqual(trace["turn_context"]["protocol_slots_after"], {"gfr": 95.0})
+
+    def test_implicit_body_size_input_routes_without_active_protocol(self):
+        chat_id = self._chat_id("implicit_body_size")
+        answer = self._ask_without_rag_or_llm("190cm, 130kg", chat_id)
+
+        self.assertIn("Body size calculations for 130 kg, 190 cm", answer)
+        self.assertIn("BMI:", answer)
+        self.assertIn("Source: Body size calculators", answer)
+        active = self.b.get_chat_state(chat_id).get("active_recognized")
+        self.assertEqual(
+            self.b.normalize_path(active["protocol_file"]),
+            "protocols/body_size_calculators.txt",
+        )
+
+    def test_implicit_body_size_input_overrides_stale_drug_context(self):
+        chat_id = self._chat_id("body_size_over_stale_meropenem")
+        self._ask_without_rag_or_llm("meropenem", chat_id)
+        self.mock_log.reset_mock()
+
+        answer = self._ask_without_rag_or_llm("150cm magas, 100kg súly", chat_id)
+
+        self.assertIn("Body size calculations for 100 kg, 150 cm", answer)
+        self.assertNotIn("Meropenem gyors", answer)
+        active = self.b.get_chat_state(chat_id).get("active_recognized")
+        self.assertEqual(
+            self.b.normalize_path(active["protocol_file"]),
+            "protocols/body_size_calculators.txt",
+        )
 
     def test_unsupported_syndrome_block_trace_fields_are_complete(self):
         chat_id = self._chat_id("trace_unsupported_block")

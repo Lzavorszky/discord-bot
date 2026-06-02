@@ -582,6 +582,44 @@ def _is_obvious_nonclinical_message(question):
     return alias_helpers._is_obvious_nonclinical_message(question)
 
 
+_EXPLICIT_HEIGHT_CM_RE = re.compile(r"\b\d+(?:\.\d+)?\s*cm\b", re.IGNORECASE)
+_EXPLICIT_WEIGHT_KG_RE = re.compile(r"\b\d+(?:\.\d+)?\s*kg\b", re.IGNORECASE)
+
+
+def _looks_like_body_size_input(question):
+    text = question or ""
+    return bool(_EXPLICIT_HEIGHT_CM_RE.search(text) and _EXPLICIT_WEIGHT_KG_RE.search(text))
+
+
+def _implicit_body_size_recognized(question):
+    if not _looks_like_body_size_input(question):
+        return None
+    protocol_file = "protocols/body_size_calculators.txt"
+    if normalize_path(protocol_file) not in PROTOCOL_PARSED_BY_FILE:
+        return None
+    indexed = ALIAS_INDEX.get("body size calculator") or ALIAS_INDEX.get("bmi calculator")
+    if indexed:
+        return {
+            **indexed,
+            "matched_alias": "explicit cm/kg input",
+            "confidence": "high",
+            "score": 100,
+            "implicit": "body_size_input",
+        }
+    return {
+        "key": "body_size_calculators",
+        "category": "conditions",
+        "display": "Body size calculators",
+        "canonical": "body size calculators",
+        "source_label": "Body size calculators",
+        "protocol_file": protocol_file,
+        "matched_alias": "explicit cm/kg input",
+        "confidence": "high",
+        "score": 100,
+        "implicit": "body_size_input",
+    }
+
+
 
 # ---------------------------------------------------------------------------
 # Embeddings cache (SQLite)
@@ -3110,6 +3148,14 @@ def _ask_ai_impl(question, chat_id):
     unsupported_matched_term = unsupported_hit.get("matched_term") if unsupported_hit else None
     unsupported_message = unsupported_hit.get("message") if unsupported_hit else None
     normalized_question, recognized = normalize_question(question)
+    implicit_body_size = _implicit_body_size_recognized(question)
+    if implicit_body_size and (recognized is None or recognized.get("confidence") != "exact"):
+        recognized = implicit_body_size
+        normalized_question = (
+            question
+            + f"\n\nRecognized term: {recognized.get('display', '')}"
+            + f"\nCanonical term: {recognized.get('canonical', recognized.get('display', ''))}"
+        )
     if forced_recognized:
         recognized = forced_recognized
         normalized_question = (
