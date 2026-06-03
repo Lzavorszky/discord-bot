@@ -1,0 +1,268 @@
+﻿# CEFTOLOZANE_TAZOBACTAM
+
+## METADATA
+
+protocol_id: ceftolozane_tazobactam
+protocol_name: Ceftolozane/tazobactam renal dosing table
+source_label: uploaded antibiotic renal dosing DOCX - ceftolozane/tazobactam
+canonical_name: ceftolozane/tazobactam
+protocol_type: drug_dosing_protocol
+answer_mode: default_then_selected_output
+selection_mode: priority_rules
+allows_dosing: yes
+dosing_requires_link: no
+default_dose_allowed: yes
+version: 0.2
+last_reviewed: unknown
+owner: ID team
+status: draft
+
+## ALIASES
+
+- ceftolozane/tazobactam
+- ceftolozane tazobactam
+- ceftolozane-tazobactam
+- zerbaxa
+- ceftolo tazo
+- ceftolozane/tazo
+
+## INTENTS
+
+default_request:
+- ceftolozane/tazobactam
+- zerbaxa
+
+selection_request:
+- GFR
+- eGFR
+- CrCl
+- CRRT
+- IHD
+- dialysis
+- anuria
+- renal
+- vesefunkcio
+
+dosing_request:
+- dose
+- dosing
+- adag
+- dozis
+- mennyi
+- table
+- dosing table
+- pump
+- infusion
+- perfuzor
+
+info_request:
+- preparation
+- dilution
+- oldas
+- administration
+
+link_request:
+(none)
+
+## INPUT_SLOTS
+
+required_for_selection:
+(none)
+
+required_for_dosing:
+(none)
+
+optional_modifiers:
+- gfr
+- crrt
+- ihd
+- renal_function
+
+forwardable_slots:
+(none)
+
+## SLOT_SCHEMA
+
+SLOT: gfr
+  type: number
+  unit: mL/min
+  clinical_min: 0
+  clinical_max: 250
+  out_of_clinical_policy: ask_confirmation
+
+## DEFAULT_ANSWER
+
+### HU
+
+Ceftolozane/tazobactam dosing table:
+
+| Tier | When | Daily dose | Administration | Preparation | Pump |
+|---|---|---:|---|---|---|
+| Normal | GFR 50+ | 9 g/day | one 1/0.5 g syringe over 4 h | 1/0.5 g in 50 mL -> 20 mg/mL | 12.5 mL/h |
+| Normal | GFR 20-50 | 4.5 g/day | one 1/0.5 g syringe over 8 h | 1/0.5 g in 50 mL -> 20 mg/mL | 6.3 mL/h |
+| Severe renal dysfunction | source severe renal dysfunction bucket | 3 g/day | one 1/0.5 g syringe over 12 h | 1/0.5 g in 50 mL -> 20 mg/mL | 4.2 mL/h |
+| Anuria/IHD | anuria or IHD | 1.5 g/day | one 1/0.5 g syringe over 24 h | 1/0.5 g in 50 mL -> 20 mg/mL | 2.1 mL/h |
+| CRRT | CRRT | 4.5 g/day | one 1/0.5 g syringe over 4 h | 1/0.5 g in 50 mL -> 20 mg/mL | 12.5 mL/h |
+
+The source step-up row is not shown as a separate Step-up dose because it is the same daily dose as the Normal GFR 50+ row.
+The uploaded table does not define a numeric cutoff for the general severe renal dysfunction bucket beyond the explicit anuria/IHD note.
+
+### EN
+
+Ceftolozane/tazobactam dosing table:
+
+| Tier | When | Daily dose | Administration | Preparation | Pump |
+|---|---|---:|---|---|---|
+| Normal | GFR 50+ | 9 g/day | one 1/0.5 g syringe over 4 h | 1/0.5 g in 50 mL -> 20 mg/mL | 12.5 mL/h |
+| Normal | GFR 20-50 | 4.5 g/day | one 1/0.5 g syringe over 8 h | 1/0.5 g in 50 mL -> 20 mg/mL | 6.3 mL/h |
+| Severe renal dysfunction | source severe renal dysfunction bucket | 3 g/day | one 1/0.5 g syringe over 12 h | 1/0.5 g in 50 mL -> 20 mg/mL | 4.2 mL/h |
+| Anuria/IHD | anuria or IHD | 1.5 g/day | one 1/0.5 g syringe over 24 h | 1/0.5 g in 50 mL -> 20 mg/mL | 2.1 mL/h |
+| CRRT | CRRT | 4.5 g/day | one 1/0.5 g syringe over 4 h | 1/0.5 g in 50 mL -> 20 mg/mL | 12.5 mL/h |
+
+The source step-up row is not shown as a separate Step-up dose because it is the same daily dose as the Normal GFR 50+ row.
+The uploaded table does not define a numeric cutoff for the general severe renal dysfunction bucket beyond the explicit anuria/IHD note.
+
+## SELECTION_RULES
+
+selection_mode: priority_rules
+
+RULE: IHD
+  IF: ihd == true
+  PRIORITY: 100
+  SELECT: ANURIA_IHD
+
+RULE: CRRT
+  IF: crrt == true
+  PRIORITY: 95
+  SELECT: CRRT
+
+RULE: NORMAL_GFR_GE_50
+  IF: gfr >= 50
+  PRIORITY: 80
+  SELECT: NORMAL_GFR_GE_50
+
+RULE: NORMAL_GFR_20_TO_50
+  IF: gfr >= 20 AND gfr < 50
+  PRIORITY: 70
+  SELECT: NORMAL_GFR_20_TO_50
+
+RULE: DEFAULT
+  IF: no_selection_input_supplied == true
+  PRIORITY: 1
+  SELECT: DEFAULT_ANSWER
+
+## SELECTED_OUTPUTS
+
+### NORMAL_GFR_GE_50
+
+type: dosing_tier
+display_name_hu: Normal
+display_name_en: Normal
+dose: 9 g/day
+when: GFR 50+
+administration: one 1/0.5 g syringe over 4 h
+preparation: 1/0.5 g in 50 mL -> 20 mg/mL
+pump: 12.5 mL/h
+
+### NORMAL_GFR_20_TO_50
+
+type: dosing_tier
+display_name_hu: Normal
+display_name_en: Normal
+dose: 4.5 g/day
+when: GFR 20-50
+administration: one 1/0.5 g syringe over 8 h
+preparation: 1/0.5 g in 50 mL -> 20 mg/mL
+pump: 6.3 mL/h
+
+### SEVERE_RENAL_DYSFUNCTION
+
+type: dosing_tier
+display_name_hu: severe renal dysfunction
+display_name_en: severe renal dysfunction
+dose: 3 g/day
+when: source severe renal dysfunction bucket
+administration: one 1/0.5 g syringe over 12 h
+preparation: 1/0.5 g in 50 mL -> 20 mg/mL
+pump: 4.2 mL/h
+
+### ANURIA_IHD
+
+type: dosing_tier
+display_name_hu: Anuria/IHD
+display_name_en: Anuria/IHD
+dose: 1.5 g/day
+when: anuria or IHD
+administration: one 1/0.5 g syringe over 24 h
+preparation: 1/0.5 g in 50 mL -> 20 mg/mL
+pump: 2.1 mL/h
+
+### CRRT
+
+type: dosing_tier
+display_name_hu: CRRT
+display_name_en: CRRT
+dose: 4.5 g/day
+when: CRRT
+administration: one 1/0.5 g syringe over 4 h
+preparation: 1/0.5 g in 50 mL -> 20 mg/mL
+pump: 12.5 mL/h
+
+## LINKS
+
+(none)
+
+## INFO_BLOCKS
+
+### source_scope
+
+This protocol contains only the dosing, preparation, administration time, and pump settings from the uploaded DOCX table.
+The source explicitly names GFR 50+, GFR 20-50, anuria/IHD, and CRRT rows.
+The source does not define a numeric cutoff for the general severe renal dysfunction bucket beyond the explicit anuria/IHD note.
+
+### administration
+
+Use only the preparation and pump settings listed in DEFAULT_ANSWER or SELECTED_OUTPUTS.
+Do not invent alternative dilutions, infusion durations, or pump rates.
+
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- ceftolozane/tazobactam dosing outside the uploaded table rows
+- numeric GFR cutoff mapping for the general severe renal dysfunction bucket
+- alternative antibiotics, duration, toxicity management, or indication advice from this protocol
+
+## SAFETY_RULES
+
+- This is an open dosing-table protocol: broad drug requests may return DEFAULT_ANSWER.
+- IHD, CRRT, GFR 50+, and GFR 20-50 can be selected because they are explicit in the uploaded row.
+- If GFR is below 20 without IHD/anuria, show DEFAULT_ANSWER rather than selecting a dose.
+
+## OUTPUT_TEMPLATES
+
+### FINAL_SELECTED_HU
+
+Ceftolozane/tazobactam - renal tier: {display_name_hu}
+- dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### FINAL_SELECTED_EN
+
+Ceftolozane/tazobactam - renal tier: {display_name_en}
+- dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### INFO_ANSWER
+
+Answer only from the selected INFO_BLOCK.
+Do not add dosing outside the uploaded table.
+
+## DEFAULT_FOOTER
+
+Numeric GFR cutoffs are not specified in the uploaded table unless explicitly shown in a row.

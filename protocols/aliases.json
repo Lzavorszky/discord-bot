@@ -4,7 +4,7 @@
       "canonical": "trimethoprim/sulfamethoxazole",
       "display": "TMP/SMX",
       "source_label": "TMP/SMX",
-      "protocol_file": "protocols/tmpsmx.txt",
+      "protocol_file": "protocols/antibiotics/tmpsmx.txt",
       "aliases": [
         "tmp/smx",
         "tmp-smx",
@@ -30,7 +30,7 @@
       "canonical": "ampicillin/sulbactam",
       "display": "ampicillin/sulbactam",
       "source_label": "ampicillin/sulbactam",
-      "protocol_file": "protocols/ampsul.txt",
+      "protocol_file": "protocols/antibiotics/ampsul.txt",
       "aliases": [
         "ampicillin sulbactam",
         "ampicillin/sulbactam",
@@ -54,8 +54,8 @@
     "meropenem": {
       "canonical": "meropenem",
       "display": "meropenem",
-      "source_label": "meropenem",
-      "protocol_file": "protocols/meropenem.txt",
+      "source_label": "uploaded antibiotic renal dosing DOCX - meropenem",
+      "protocol_file": "protocols/antibiotics/meropenem.txt",
       "aliases": [
         "meropenem",
         "mero",
@@ -68,11 +68,146 @@
         "magas meropenem"
       ]
     },
+    "piperacillin_tazobactam": {
+      "canonical": "piperacillin/tazobactam",
+      "display": "piperacillin/tazobactam",
+      "source_label": "uploaded antibiotic renal dosing DOCX - tazocin",
+      "protocol_file": "protocols/antibiotics/piperacillin_tazobactam.txt",
+      "aliases": [
+        "tazocin",
+        "piperacillin/tazobactam",
+        "piperacillin tazobactam",
+        "piperacillin-tazobactam",
+        "pip/tazo",
+        "pip tazo",
+        "piptazo",
+        "piperacillin tazobactam dose"
+      ]
+    },
+    "cefepime": {
+      "canonical": "cefepime",
+      "display": "cefepime",
+      "source_label": "uploaded antibiotic renal dosing DOCX - cefepim",
+      "protocol_file": "protocols/antibiotics/cefepime.txt",
+      "aliases": [
+        "cefepime",
+        "cefepim",
+        "cefepime dose",
+        "cefepim dose",
+        "cefepime dosing"
+      ]
+    },
+    "cefazolin": {
+      "canonical": "cefazolin",
+      "display": "cefazolin",
+      "source_label": "uploaded antibiotic renal dosing DOCX - cefazolin",
+      "protocol_file": "protocols/antibiotics/cefazolin.txt",
+      "aliases": [
+        "cefazolin",
+        "cefazolin dose",
+        "cefazolin dosing",
+        "cefazolin iv"
+      ]
+    },
+    "penicillin": {
+      "canonical": "penicillin G",
+      "display": "penicillin G",
+      "source_label": "uploaded antibiotic renal dosing DOCX - penicillin",
+      "protocol_file": "protocols/antibiotics/penicillin.txt",
+      "aliases": [
+        "penicillin G",
+        "benzylpenicillin",
+        "benzyl penicillin",
+        "penicillin g dose",
+        "benzylpenicillin dose"
+      ]
+    },
+    "ampicillin": {
+      "canonical": "ampicillin",
+      "display": "ampicillin",
+      "source_label": "uploaded antibiotic renal dosing DOCX - ampicillin",
+      "protocol_file": "protocols/antibiotics/ampicillin.txt",
+      "aliases": [
+        "ampicillin",
+        "ampicillin dose",
+        "ampicillin dosing",
+        "ampicillin iv"
+      ]
+    },
+    "ceftazidime": {
+      "canonical": "ceftazidime",
+      "display": "ceftazidime",
+      "source_label": "uploaded antibiotic renal dosing DOCX - ceftazidim",
+      "protocol_file": "protocols/antibiotics/ceftazidime.txt",
+      "aliases": [
+        "ceftazidime",
+        "ceftazidim",
+        "ceftazidime dose",
+        "ceftazidim dose",
+        "ceftaz"
+      ]
+    },
+    "ceftazidime_avibactam": {
+      "canonical": "ceftazidime/avibactam",
+      "display": "ceftazidime/avibactam",
+      "source_label": "uploaded antibiotic renal dosing DOCX - ceftazidim/avibactam",
+      "protocol_file": "protocols/antibiotics/ceftazidime_avibactam.txt",
+      "aliases": [
+        "ceftazidime/avibactam",
+        "ceftazidime avibactam",
+        "ceftazidime-avibactam",
+        "ceftazidim/avibactam",
+        "avycaz",
+        "zavicefta",
+        "ceftaz avi",
+        "caz avi"
+      ]
+    },
+    "ceftolozane_tazobactam": {
+      "canonical": "ceftolozane/tazobactam",
+      "display": "ceftolozane/tazobactam",
+      "source_label": "uploaded antibiotic renal dosing DOCX - ceftolozane/tazobactam",
+      "protocol_file": "protocols/antibiotics/ceftolozane_tazobactam.txt",
+      "aliases": [
+        "ceftolozane/tazobactam",
+        "ceftolozane tazobactam",
+        "ceftolozane-tazobactam",
+        "zerbaxa",
+        "ceftolo tazo",
+        "ceftolozane/tazo"
+      ]
+    },
+    "cefiderocol": {
+      "canonical": "cefiderocol",
+      "display": "cefiderocol",
+      "source_label": "uploaded antibiotic renal dosing DOCX - cefiderocol",
+      "protocol_file": "protocols/antibiotics/cefiderocol.txt",
+      "aliases": [
+        "cefiderocol",
+        "cefiderocol dose",
+        "cefiderocol dosing",
+        "cefiderocol iv",
+        "fdc"
+      ]
+    },
+    "fosfomycin": {
+      "canonical": "fosfomycin",
+      "display": "fosfomycin",
+      "source_label": "uploaded antibiotic renal dosing DOCX - fosfomycin",
+      "protocol_file": "protocols/antibiotics/fosfomycin.txt",
+      "aliases": [
+        "fosfomycin",
+        "fosfomycin dose",
+        "fosfomycin dosing",
+        "fosfomycin iv",
+        "fosfomycin intravenous"
+      ]
+    },
     "vancomycin": {
       "canonical": "vancomycin",
       "display": "vancomycin",
       "source_label": "vancomycin",
-      "protocol_file": "protocols/vancomycin.txt",
+      "protocol_file": "protocols/antibiotics/vancomycin.txt",
       "aliases": [
         "vancomycin",
         "vanco",

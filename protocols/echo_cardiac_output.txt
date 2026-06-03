@@ -1,3 +1,4 @@
+
 # ECHO CARDIAC OUTPUT CALCULATOR
 
 ## METADATA
@@ -84,21 +85,21 @@ forwardable_slots:
 SLOT: lvot_diameter
   type: number
   unit: mm_or_cm
-  clinical_min: 5
-  clinical_max: 40
+  clinical_min: 10
+  clinical_max: 30
   out_of_clinical_policy: ask_confirmation
 
 SLOT: lvot_vti
   type: number
-  unit: mm_or_cm
+  unit: cm
   clinical_min: 1
-  clinical_max: 100
+  clinical_max: 35
   out_of_clinical_policy: ask_confirmation
 
 SLOT: heart_rate_bpm
   type: number
   unit: bpm
-  clinical_min: 20
+  clinical_min: 1
   clinical_max: 250
   out_of_clinical_policy: ask_confirmation
 

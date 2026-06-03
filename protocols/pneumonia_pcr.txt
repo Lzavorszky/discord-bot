@@ -494,7 +494,7 @@ LINK: cefepime_dosing
   link_type: antimicrobial_dosing
   when_selected_item: cefepime
   target_protocol_id: cefepime
-  target_file: protocols/cefepime.txt
+  target_file: protocols/antibiotics/cefepime.txt
   target_missing_behavior: Cefepime dosing is not specified in the uploaded protocols.
   trigger_intents:
     - dosing_request
@@ -544,7 +544,7 @@ LINK: meropenem_dosing
   link_type: antimicrobial_dosing
   when_selected_item: meropenem
   target_protocol_id: meropenem
-  target_file: protocols/meropenem.txt
+  target_file: protocols/antibiotics/meropenem.txt
   target_missing_behavior: Meropenem dosing is not specified in the uploaded protocols.
   trigger_intents:
     - dosing_request
@@ -594,7 +594,7 @@ LINK: vancomycin_dosing
   link_type: antimicrobial_dosing
   when_selected_item: vancomycin
   target_protocol_id: vancomycin
-  target_file: protocols/vancomycin.txt
+  target_file: protocols/antibiotics/vancomycin.txt
   target_missing_behavior: Vancomycin dosing is not specified in the uploaded protocols.
   trigger_intents:
     - dosing_request
@@ -619,7 +619,7 @@ LINK: cefazolin_dosing
   link_type: antimicrobial_dosing
   when_selected_item: cefazolin
   target_protocol_id: cefazolin
-  target_file: protocols/cefazolin.txt
+  target_file: protocols/antibiotics/cefazolin.txt
   target_missing_behavior: Cefazolin dosing is not specified in the uploaded protocols.
   trigger_intents:
     - dosing_request
@@ -644,7 +644,7 @@ LINK: penicillin_dosing
   link_type: antimicrobial_dosing
   when_selected_item: penicillin
   target_protocol_id: penicillin
-  target_file: protocols/penicillin.txt
+  target_file: protocols/antibiotics/penicillin.txt
   target_missing_behavior: Penicillin dosing is not specified in the uploaded protocols.
   trigger_intents:
     - dosing_request

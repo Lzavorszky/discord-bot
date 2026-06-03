@@ -1,0 +1,245 @@
+﻿# AMPICILLIN
+
+## METADATA
+
+protocol_id: ampicillin
+protocol_name: Ampicillin renal dosing table
+source_label: uploaded antibiotic renal dosing DOCX - ampicillin
+canonical_name: ampicillin
+protocol_type: drug_dosing_protocol
+answer_mode: default_then_selected_output
+selection_mode: priority_rules
+allows_dosing: yes
+dosing_requires_link: no
+default_dose_allowed: yes
+version: 0.2
+last_reviewed: unknown
+owner: ID team
+status: draft
+
+## ALIASES
+
+- ampicillin
+- ampicillin dose
+- ampicillin dosing
+- ampicillin iv
+
+## INTENTS
+
+default_request:
+- ampicillin
+
+selection_request:
+- CRRT
+- IHD
+- dialysis
+- renal
+- vesefunkcio
+
+dosing_request:
+- dose
+- dosing
+- adag
+- dozis
+- mennyi
+- table
+- dosing table
+- pump
+- infusion
+- volumetric pump
+- volumetrikus pumpa
+
+info_request:
+- preparation
+- dilution
+- oldas
+- administration
+
+link_request:
+(none)
+
+## INPUT_SLOTS
+
+required_for_selection:
+(none)
+
+required_for_dosing:
+(none)
+
+optional_modifiers:
+- crrt
+- ihd
+- renal_function
+- tdm_low_level
+
+forwardable_slots:
+(none)
+
+## SLOT_SCHEMA
+
+(none)
+
+## DEFAULT_ANSWER
+
+### HU
+
+Ampicillin dosing table:
+
+| Tier | When | Daily dose | Administration | Preparation | Pump |
+|---|---|---:|---|---|---|
+| Normal | source Normal bucket | 12 g/day | one 4 g bag over 8 h | 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml | 31.3 mL/h |
+| Severe renal dysfunction | source severe renal dysfunction bucket | 8 g/day | one 4 g bag over 24 h | 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml | 20.8 mL/h |
+| Anuria/IHD | anuria or IHD | 4 g/day | one 4 g bag over 24 h | 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml | 10.4 mL/h |
+| CRRT | CRRT | 12 g/day | one 4 g bag over 8 h | 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml | 31.3 mL/h |
+| Step-up dose | only if TDM suggests low levels | 16 g/day | one 4 g bag over 6 h | 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml | 41.6 mL/h |
+
+The uploaded table does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+
+### EN
+
+Ampicillin dosing table:
+
+| Tier | When | Daily dose | Administration | Preparation | Pump |
+|---|---|---:|---|---|---|
+| Normal | source Normal bucket | 12 g/day | one 4 g bag over 8 h | 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml | 31.3 mL/h |
+| Severe renal dysfunction | source severe renal dysfunction bucket | 8 g/day | one 4 g bag over 24 h | 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml | 20.8 mL/h |
+| Anuria/IHD | anuria or IHD | 4 g/day | one 4 g bag over 24 h | 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml | 10.4 mL/h |
+| CRRT | CRRT | 12 g/day | one 4 g bag over 8 h | 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml | 31.3 mL/h |
+| Step-up dose | only if TDM suggests low levels | 16 g/day | one 4 g bag over 6 h | 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml | 41.6 mL/h |
+
+The uploaded table does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+
+## SELECTION_RULES
+
+selection_mode: priority_rules
+
+RULE: IHD
+  IF: ihd == true
+  PRIORITY: 100
+  SELECT: ANURIA_IHD
+
+RULE: CRRT
+  IF: crrt == true
+  PRIORITY: 90
+  SELECT: CRRT
+
+RULE: DEFAULT
+  IF: no_selection_input_supplied == true
+  PRIORITY: 1
+  SELECT: DEFAULT_ANSWER
+
+## SELECTED_OUTPUTS
+
+### NORMAL
+
+type: dosing_tier
+display_name_hu: Normal
+display_name_en: Normal
+dose: 12 g/day
+when: source Normal bucket
+administration: one 4 g bag over 8 h
+preparation: 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml
+pump: 31.3 mL/h
+
+### SEVERE_RENAL_DYSFUNCTION
+
+type: dosing_tier
+display_name_hu: severe renal dysfunction
+display_name_en: severe renal dysfunction
+dose: 8 g/day
+when: source severe renal dysfunction bucket
+administration: one 4 g bag over 24 h
+preparation: 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml
+pump: 20.8 mL/h
+
+### ANURIA_IHD
+
+type: dosing_tier
+display_name_hu: Anuria/IHD
+display_name_en: Anuria/IHD
+dose: 4 g/day
+when: anuria or IHD
+administration: one 4 g bag over 24 h
+preparation: 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml
+pump: 10.4 mL/h
+
+### CRRT
+
+type: dosing_tier
+display_name_hu: CRRT
+display_name_en: CRRT
+dose: 12 g/day
+when: CRRT
+administration: one 4 g bag over 8 h
+preparation: 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml
+pump: 31.3 mL/h
+
+### STEP_UP_DOSE
+
+type: dosing_tier
+display_name_hu: Step-up dose
+display_name_en: Step-up dose
+dose: 16 g/day
+when: only if TDM suggests low levels
+administration: one 4 g bag over 6 h
+preparation: 4 g in 250 mL NaCl 0.9%; source concentration text: 16m/ml
+pump: 41.6 mL/h
+
+## LINKS
+
+(none)
+
+## INFO_BLOCKS
+
+### source_scope
+
+This protocol contains only the dosing, preparation, administration time, and pump settings from the uploaded DOCX table.
+The source does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+
+### administration
+
+Use only the preparation and pump settings listed in DEFAULT_ANSWER or SELECTED_OUTPUTS.
+Do not invent alternative dilutions, infusion durations, or pump rates.
+
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- ampicillin dosing outside the uploaded table rows
+- numeric GFR cutoff mapping for Normal, severe renal dysfunction, or Step-up dose
+- Step-up dose unless TDM suggests low levels
+- alternative antibiotics, duration, toxicity management, or indication advice from this protocol
+
+## SAFETY_RULES
+
+- This is an open dosing-table protocol: broad drug requests may return DEFAULT_ANSWER.
+- IHD and CRRT can be selected when explicitly supplied.
+- If numeric GFR is supplied, do not map it to a non-CRRT/non-IHD tier unless a local validated cutoff is added later.
+
+## OUTPUT_TEMPLATES
+
+### FINAL_SELECTED_HU
+
+Ampicillin - renal tier: {display_name_hu}
+- dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### FINAL_SELECTED_EN
+
+Ampicillin - renal tier: {display_name_en}
+- dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### INFO_ANSWER
+
+Answer only from the selected INFO_BLOCK.
+Do not add dosing outside the uploaded table.
+
+## DEFAULT_FOOTER
+
+Step-up dose is only for low exposure suggested by TDM. Numeric GFR cutoffs are not specified in the uploaded table unless explicitly shown in a row.

@@ -1,0 +1,212 @@
+﻿# PENICILLIN_G
+
+## METADATA
+
+protocol_id: penicillin
+protocol_name: Penicillin G renal dosing table
+source_label: uploaded antibiotic renal dosing DOCX - penicillin
+canonical_name: penicillin G
+protocol_type: drug_dosing_protocol
+answer_mode: default_then_selected_output
+selection_mode: priority_rules
+allows_dosing: yes
+dosing_requires_link: no
+default_dose_allowed: yes
+version: 0.2
+last_reviewed: unknown
+owner: ID team
+status: draft
+
+## ALIASES
+
+- penicillin G
+- benzylpenicillin
+- benzyl penicillin
+- penicillin g dose
+- benzylpenicillin dose
+
+## INTENTS
+
+default_request:
+- penicillin G
+- benzylpenicillin
+
+selection_request:
+- CRRT
+- renal
+- vesefunkcio
+
+dosing_request:
+- dose
+- dosing
+- adag
+- dozis
+- mennyi
+- table
+- dosing table
+- pump
+- infusion
+- perfuzor
+
+info_request:
+- preparation
+- dilution
+- oldas
+- administration
+
+link_request:
+(none)
+
+## INPUT_SLOTS
+
+required_for_selection:
+(none)
+
+required_for_dosing:
+(none)
+
+optional_modifiers:
+- crrt
+- renal_function
+
+forwardable_slots:
+(none)
+
+## SLOT_SCHEMA
+
+(none)
+
+## DEFAULT_ANSWER
+
+### HU
+
+Penicillin G dosing table:
+
+| Tier | When | Daily dose | Administration | Preparation | Pump |
+|---|---|---:|---|---|---|
+| Normal | source Normal bucket | 24 ME/day | one 6 ME syringe over 6 h | 6 million units in 50 mL NaCl 0.9% -> 0.12 MU/mL | 8.4 mL/h |
+| Severe renal dysfunction | source severe renal dysfunction bucket | 12 ME/day | one 6 ME syringe over 12 h | 6 million units in 50 mL NaCl 0.9% -> 0.12 MU/mL | 4.2 mL/h |
+| CRRT | CRRT | 24 ME/day | one 6 ME syringe over 6 h | 6 million units in 50 mL NaCl 0.9% -> 0.12 MU/mL | 8.4 mL/h |
+
+The source step-up row is not shown as a separate Step-up dose because it is the same daily dose as Normal.
+The uploaded table does not define numeric GFR cutoffs for Normal or severe renal dysfunction.
+
+### EN
+
+Penicillin G dosing table:
+
+| Tier | When | Daily dose | Administration | Preparation | Pump |
+|---|---|---:|---|---|---|
+| Normal | source Normal bucket | 24 ME/day | one 6 ME syringe over 6 h | 6 million units in 50 mL NaCl 0.9% -> 0.12 MU/mL | 8.4 mL/h |
+| Severe renal dysfunction | source severe renal dysfunction bucket | 12 ME/day | one 6 ME syringe over 12 h | 6 million units in 50 mL NaCl 0.9% -> 0.12 MU/mL | 4.2 mL/h |
+| CRRT | CRRT | 24 ME/day | one 6 ME syringe over 6 h | 6 million units in 50 mL NaCl 0.9% -> 0.12 MU/mL | 8.4 mL/h |
+
+The source step-up row is not shown as a separate Step-up dose because it is the same daily dose as Normal.
+The uploaded table does not define numeric GFR cutoffs for Normal or severe renal dysfunction.
+
+## SELECTION_RULES
+
+selection_mode: priority_rules
+
+RULE: CRRT
+  IF: crrt == true
+  PRIORITY: 90
+  SELECT: CRRT
+
+RULE: DEFAULT
+  IF: no_selection_input_supplied == true
+  PRIORITY: 1
+  SELECT: DEFAULT_ANSWER
+
+## SELECTED_OUTPUTS
+
+### NORMAL
+
+type: dosing_tier
+display_name_hu: Normal
+display_name_en: Normal
+dose: 24 ME/day
+when: source Normal bucket
+administration: one 6 ME syringe over 6 h
+preparation: 6 million units in 50 mL NaCl 0.9% -> 0.12 MU/mL
+pump: 8.4 mL/h
+
+### SEVERE_RENAL_DYSFUNCTION
+
+type: dosing_tier
+display_name_hu: severe renal dysfunction
+display_name_en: severe renal dysfunction
+dose: 12 ME/day
+when: source severe renal dysfunction bucket
+administration: one 6 ME syringe over 12 h
+preparation: 6 million units in 50 mL NaCl 0.9% -> 0.12 MU/mL
+pump: 4.2 mL/h
+
+### CRRT
+
+type: dosing_tier
+display_name_hu: CRRT
+display_name_en: CRRT
+dose: 24 ME/day
+when: CRRT
+administration: one 6 ME syringe over 6 h
+preparation: 6 million units in 50 mL NaCl 0.9% -> 0.12 MU/mL
+pump: 8.4 mL/h
+
+## LINKS
+
+(none)
+
+## INFO_BLOCKS
+
+### source_scope
+
+This protocol contains only the dosing, preparation, administration time, and pump settings from the uploaded DOCX table.
+The source does not define numeric GFR cutoffs for Normal or severe renal dysfunction.
+
+### administration
+
+Use only the preparation and pump settings listed in DEFAULT_ANSWER or SELECTED_OUTPUTS.
+Do not invent alternative dilutions, infusion durations, or pump rates.
+
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- penicillin G dosing outside the uploaded table rows
+- numeric GFR cutoff mapping for Normal or severe renal dysfunction
+- alternative antibiotics, duration, toxicity management, or indication advice from this protocol
+
+## SAFETY_RULES
+
+- This is an open dosing-table protocol: broad drug requests may return DEFAULT_ANSWER.
+- CRRT can be selected when explicitly supplied.
+- The bare alias "penicillin" is intentionally not listed to avoid routing all penicillin-family queries here.
+
+## OUTPUT_TEMPLATES
+
+### FINAL_SELECTED_HU
+
+Penicillin G - renal tier: {display_name_hu}
+- dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### FINAL_SELECTED_EN
+
+Penicillin G - renal tier: {display_name_en}
+- dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### INFO_ANSWER
+
+Answer only from the selected INFO_BLOCK.
+Do not add dosing outside the uploaded table.
+
+## DEFAULT_FOOTER
+
+Numeric GFR cutoffs are not specified in the uploaded table unless explicitly shown in a row.

@@ -2,7 +2,7 @@
 protocol_linter.py — Protocol file linter for the hospital bot.
 
 Usage (CLI):
-    python -m protocol_linter                     # lint protocols/*.txt
+    python -m protocol_linter                     # lint protocols/**/*.txt
     python -m protocol_linter path/to/file.txt    # lint specific files
 
 All checks are WARNING-level only; the bot starts regardless.
@@ -754,7 +754,7 @@ def run_linter(
     all_aliases: dict[str, list[tuple[str, str]]] = {}
 
     files = sorted(
-        f for f in glob.glob(os.path.join(proto_dir, "*.txt"))
+        f for f in glob.glob(os.path.join(proto_dir, "**", "*.txt"), recursive=True)
         if os.path.basename(f) not in SKIP_FILES
     )
     if extra_files:

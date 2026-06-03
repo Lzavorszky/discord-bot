@@ -89,8 +89,8 @@ forwardable_slots:
 SLOT: lvot_diameter
   type: number
   unit: mm_or_cm
-  clinical_min: 5
-  clinical_max: 40
+  clinical_min: 10
+  clinical_max: 30
   out_of_clinical_policy: ask_confirmation
 
 SLOT: lvot_csa
@@ -102,14 +102,14 @@ SLOT: lvot_csa
 
 SLOT: lvot_vti
   type: number
-  unit: mm_or_cm
+  unit: cm
   clinical_min: 1
-  clinical_max: 100
+  clinical_max: 30
   out_of_clinical_policy: ask_confirmation
 
 SLOT: av_vti
   type: number
-  unit: mm_or_cm
+  unit: cm
   clinical_min: 1
   clinical_max: 300
   out_of_clinical_policy: ask_confirmation

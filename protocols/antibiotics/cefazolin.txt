@@ -1,0 +1,223 @@
+﻿# CEFAZOLIN
+
+## METADATA
+
+protocol_id: cefazolin
+protocol_name: Cefazolin renal dosing table
+source_label: uploaded antibiotic renal dosing DOCX - cefazolin
+canonical_name: cefazolin
+protocol_type: drug_dosing_protocol
+answer_mode: default_then_selected_output
+selection_mode: priority_rules
+allows_dosing: yes
+dosing_requires_link: no
+default_dose_allowed: yes
+version: 0.2
+last_reviewed: unknown
+owner: ID team
+status: draft
+
+## ALIASES
+
+- cefazolin
+- cefazolin dose
+- cefazolin dosing
+- cefazolin iv
+
+## INTENTS
+
+default_request:
+- cefazolin
+
+selection_request:
+- CRRT
+- renal
+- vesefunkcio
+
+dosing_request:
+- dose
+- dosing
+- adag
+- dozis
+- mennyi
+- table
+- dosing table
+- pump
+- infusion
+- perfuzor
+
+info_request:
+- preparation
+- dilution
+- oldas
+- administration
+
+link_request:
+(none)
+
+## INPUT_SLOTS
+
+required_for_selection:
+(none)
+
+required_for_dosing:
+(none)
+
+optional_modifiers:
+- crrt
+- renal_function
+- tdm_low_level
+
+forwardable_slots:
+(none)
+
+## SLOT_SCHEMA
+
+(none)
+
+## DEFAULT_ANSWER
+
+### HU
+
+Cefazolin dosing table:
+
+| Tier | When | Daily dose | Administration | Preparation | Pump |
+|---|---|---:|---|---|---|
+| Normal | source Normal bucket | 6 g/day | one 2 g syringe over 8 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 6.3 mL/h |
+| Severe renal dysfunction | source severe renal dysfunction bucket | 2 g/day | one 2 g syringe over 24 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 2.1 mL/h |
+| CRRT | CRRT | 6 g/day | one 2 g syringe over 6 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 8.4 mL/h |
+| Step-up dose | only if TDM suggests low levels | 8 g/day | one 2 g syringe over 6 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 8.4 mL/h |
+
+The uploaded table does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+
+### EN
+
+Cefazolin dosing table:
+
+| Tier | When | Daily dose | Administration | Preparation | Pump |
+|---|---|---:|---|---|---|
+| Normal | source Normal bucket | 6 g/day | one 2 g syringe over 8 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 6.3 mL/h |
+| Severe renal dysfunction | source severe renal dysfunction bucket | 2 g/day | one 2 g syringe over 24 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 2.1 mL/h |
+| CRRT | CRRT | 6 g/day | one 2 g syringe over 6 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 8.4 mL/h |
+| Step-up dose | only if TDM suggests low levels | 8 g/day | one 2 g syringe over 6 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 8.4 mL/h |
+
+The uploaded table does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+
+## SELECTION_RULES
+
+selection_mode: priority_rules
+
+RULE: CRRT
+  IF: crrt == true
+  PRIORITY: 90
+  SELECT: CRRT
+
+RULE: DEFAULT
+  IF: no_selection_input_supplied == true
+  PRIORITY: 1
+  SELECT: DEFAULT_ANSWER
+
+## SELECTED_OUTPUTS
+
+### NORMAL
+
+type: dosing_tier
+display_name_hu: Normal
+display_name_en: Normal
+dose: 6 g/day
+when: source Normal bucket
+administration: one 2 g syringe over 8 h
+preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
+pump: 6.3 mL/h
+
+### SEVERE_RENAL_DYSFUNCTION
+
+type: dosing_tier
+display_name_hu: severe renal dysfunction
+display_name_en: severe renal dysfunction
+dose: 2 g/day
+when: source severe renal dysfunction bucket
+administration: one 2 g syringe over 24 h
+preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
+pump: 2.1 mL/h
+
+### CRRT
+
+type: dosing_tier
+display_name_hu: CRRT
+display_name_en: CRRT
+dose: 6 g/day
+when: CRRT
+administration: one 2 g syringe over 6 h
+preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
+pump: 8.4 mL/h
+
+### STEP_UP_DOSE
+
+type: dosing_tier
+display_name_hu: Step-up dose
+display_name_en: Step-up dose
+dose: 8 g/day
+when: only if TDM suggests low levels
+administration: one 2 g syringe over 6 h
+preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
+pump: 8.4 mL/h
+
+## LINKS
+
+(none)
+
+## INFO_BLOCKS
+
+### source_scope
+
+This protocol contains only the dosing, preparation, administration time, and pump settings from the uploaded DOCX table.
+The source does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+
+### administration
+
+Use only the preparation and pump settings listed in DEFAULT_ANSWER or SELECTED_OUTPUTS.
+Do not invent alternative dilutions, infusion durations, or pump rates.
+
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- cefazolin dosing outside the uploaded table rows
+- numeric GFR cutoff mapping for Normal, severe renal dysfunction, or Step-up dose
+- Step-up dose unless TDM suggests low levels
+- alternative antibiotics, duration, toxicity management, or indication advice from this protocol
+
+## SAFETY_RULES
+
+- This is an open dosing-table protocol: broad drug requests may return DEFAULT_ANSWER.
+- CRRT can be selected when explicitly supplied.
+- If numeric GFR is supplied, do not map it to a non-CRRT tier unless a local validated cutoff is added later.
+
+## OUTPUT_TEMPLATES
+
+### FINAL_SELECTED_HU
+
+Cefazolin - renal tier: {display_name_hu}
+- dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### FINAL_SELECTED_EN
+
+Cefazolin - renal tier: {display_name_en}
+- dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### INFO_ANSWER
+
+Answer only from the selected INFO_BLOCK.
+Do not add dosing outside the uploaded table.
+
+## DEFAULT_FOOTER
+
+Step-up dose is only for low exposure suggested by TDM. Numeric GFR cutoffs are not specified in the uploaded table unless explicitly shown in a row.

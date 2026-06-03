@@ -1,0 +1,247 @@
+﻿# FOSFOMYCIN
+
+## METADATA
+
+protocol_id: fosfomycin
+protocol_name: Fosfomycin renal dosing table
+source_label: uploaded antibiotic renal dosing DOCX - fosfomycin
+canonical_name: fosfomycin
+protocol_type: drug_dosing_protocol
+answer_mode: default_then_selected_output
+selection_mode: priority_rules
+allows_dosing: yes
+dosing_requires_link: no
+default_dose_allowed: yes
+version: 0.2
+last_reviewed: unknown
+owner: ID team
+status: draft
+
+## ALIASES
+
+- fosfomycin
+- fosfomycin dose
+- fosfomycin dosing
+- fosfomycin iv
+- fosfomycin intravenous
+
+## INTENTS
+
+default_request:
+- fosfomycin
+
+selection_request:
+- CRRT
+- IHD
+- dialysis
+- anuria
+- renal
+- vesefunkcio
+
+dosing_request:
+- dose
+- dosing
+- adag
+- dozis
+- mennyi
+- table
+- dosing table
+- pump
+- infusion
+- bolus
+
+info_request:
+- preparation
+- dilution
+- oldas
+- administration
+
+link_request:
+(none)
+
+## INPUT_SLOTS
+
+required_for_selection:
+(none)
+
+required_for_dosing:
+(none)
+
+optional_modifiers:
+- crrt
+- ihd
+- renal_function
+- tdm_low_level
+
+forwardable_slots:
+(none)
+
+## SLOT_SCHEMA
+
+(none)
+
+## DEFAULT_ANSWER
+
+### HU
+
+Fosfomycin dosing table:
+
+| Tier | When | Daily dose | Administration | Preparation | Pump |
+|---|---|---:|---|---|---|
+| Normal | source Normal bucket | 16 g/day | one 8 g dose over 12 h | 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL | 16.6 mL/h |
+| Severe renal dysfunction | source severe renal dysfunction bucket | source daily dose not specified | bolus; source settings cell says bolus 8 g | 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL | bolus |
+| Anuria/IHD | anuria or IHD | 4 g after IHD; none on non-dialysis days | after IHD | 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL | bolus |
+| CRRT | CRRT | 12 g/day | one 8 g dose over 12 h | 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL | 16.6 mL/h |
+| Step-up dose | only if TDM suggests low levels | 24 g/day | one 8 g dose over 8 h | 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL | 25 mL/h |
+
+The uploaded table does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+
+### EN
+
+Fosfomycin dosing table:
+
+| Tier | When | Daily dose | Administration | Preparation | Pump |
+|---|---|---:|---|---|---|
+| Normal | source Normal bucket | 16 g/day | one 8 g dose over 12 h | 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL | 16.6 mL/h |
+| Severe renal dysfunction | source severe renal dysfunction bucket | source daily dose not specified | bolus; source settings cell says bolus 8 g | 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL | bolus |
+| Anuria/IHD | anuria or IHD | 4 g after IHD; none on non-dialysis days | after IHD | 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL | bolus |
+| CRRT | CRRT | 12 g/day | one 8 g dose over 12 h | 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL | 16.6 mL/h |
+| Step-up dose | only if TDM suggests low levels | 24 g/day | one 8 g dose over 8 h | 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL | 25 mL/h |
+
+The uploaded table does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+
+## SELECTION_RULES
+
+selection_mode: priority_rules
+
+RULE: IHD
+  IF: ihd == true
+  PRIORITY: 100
+  SELECT: ANURIA_IHD
+
+RULE: CRRT
+  IF: crrt == true
+  PRIORITY: 90
+  SELECT: CRRT
+
+RULE: DEFAULT
+  IF: no_selection_input_supplied == true
+  PRIORITY: 1
+  SELECT: DEFAULT_ANSWER
+
+## SELECTED_OUTPUTS
+
+### NORMAL
+
+type: dosing_tier
+display_name_hu: Normal
+display_name_en: Normal
+dose: 16 g/day
+when: source Normal bucket
+administration: one 8 g dose over 12 h
+preparation: 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL
+pump: 16.6 mL/h
+
+### SEVERE_RENAL_DYSFUNCTION
+
+type: dosing_tier
+display_name_hu: severe renal dysfunction
+display_name_en: severe renal dysfunction
+dose: source daily dose not specified
+when: source severe renal dysfunction bucket
+administration: bolus; source settings cell says bolus 8 g
+preparation: 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL
+pump: bolus
+
+### ANURIA_IHD
+
+type: dosing_tier
+display_name_hu: Anuria/IHD
+display_name_en: Anuria/IHD
+dose: 4 g after IHD; none on non-dialysis days
+when: anuria or IHD
+administration: after IHD
+preparation: 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL
+pump: bolus
+
+### CRRT
+
+type: dosing_tier
+display_name_hu: CRRT
+display_name_en: CRRT
+dose: 12 g/day
+when: CRRT
+administration: one 8 g dose over 12 h
+preparation: 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL
+pump: 16.6 mL/h
+
+### STEP_UP_DOSE
+
+type: dosing_tier
+display_name_hu: Step-up dose
+display_name_en: Step-up dose
+dose: 24 g/day
+when: only if TDM suggests low levels
+administration: one 8 g dose over 8 h
+preparation: 8 g in 200 mL glucose or water for injection; not saline; -> 40 mg/mL
+pump: 25 mL/h
+
+## LINKS
+
+(none)
+
+## INFO_BLOCKS
+
+### source_scope
+
+This protocol contains only the dosing, preparation, administration time, and pump settings from the uploaded DOCX table.
+The source does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+
+### administration
+
+Use glucose or water for injection for fosfomycin preparation; the source explicitly says not saline.
+Use only the preparation and pump settings listed in DEFAULT_ANSWER or SELECTED_OUTPUTS.
+Do not invent alternative dilutions, infusion durations, or pump rates.
+
+## RESTRICTED_OUTPUTS
+
+Never provide:
+- fosfomycin dosing outside the uploaded table rows
+- numeric GFR cutoff mapping for Normal, severe renal dysfunction, or Step-up dose
+- Step-up dose unless TDM suggests low levels
+- alternative antibiotics, duration, toxicity management, or indication advice from this protocol
+
+## SAFETY_RULES
+
+- This is an open dosing-table protocol: broad drug requests may return DEFAULT_ANSWER.
+- IHD and CRRT can be selected when explicitly supplied.
+- If numeric GFR is supplied, do not map it to a non-CRRT/non-IHD tier unless a local validated cutoff is added later.
+
+## OUTPUT_TEMPLATES
+
+### FINAL_SELECTED_HU
+
+Fosfomycin - renal tier: {display_name_hu}
+- dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### FINAL_SELECTED_EN
+
+Fosfomycin - renal tier: {display_name_en}
+- dose: {dose}
+- when: {when}
+- administration: {administration}
+- preparation: {preparation}
+- pump: {pump}
+
+### INFO_ANSWER
+
+Answer only from the selected INFO_BLOCK.
+Do not add dosing outside the uploaded table.
+
+## DEFAULT_FOOTER
+
+Step-up dose is only for low exposure suggested by TDM. Fosfomycin source preparation says glucose or water for injection, not saline. Numeric GFR cutoffs are not specified in the uploaded table unless explicitly shown in a row.

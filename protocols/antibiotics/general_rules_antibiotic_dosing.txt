@@ -4,7 +4,7 @@
 
 protocol_name: General antibiotic dosing rules supplement
 source_label: General rules
-protocol_file: protocols/general_rules_antibiotic_dosing.txt
+protocol_file: protocols/antibiotics/general_rules_antibiotic_dosing.txt
 protocol_id: general_rules_antibiotic_dosing
 protocol_type: general_rules_protocol
 answer_mode: info_only
