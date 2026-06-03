@@ -2296,6 +2296,10 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
             "cap.txt",
             "vancomycin.txt",
             "body_size_calculators.txt",
+            "periop_gyogyszerek.txt",
+            "steroid_equivalence.txt",
+            "echo_cardiac_output.txt",
+            "echo_ava.txt",
         ]:
             rel_path = os.path.join("protocols", filename)
             abs_path = os.path.join(self.PROTO_DIR, filename)
@@ -2764,6 +2768,72 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
             self.b.normalize_path(active["protocol_file"]),
             "protocols/body_size_calculators.txt",
         )
+
+    def test_asa_short_entry_alias_routes_to_aspirin_periop_entry(self):
+        chat_id = self._chat_id("asa_periop")
+        answer = self._ask_without_rag_or_llm("ASA before surgery", chat_id)
+
+        self.assertIn("Aspirin; acetylsalicylic acid; ASA", answer)
+        self.assertIn("Usually no need to omit", answer)
+        self.assertIn("Omit only if high bleeding risk", answer)
+        trace = self._last_trace()
+        self._assert_trace_selected_protocol(
+            trace,
+            "periop_gyogyszerek",
+            "protocols/periop_gyogyszerek.txt",
+            "Perioperative medications + antithrombotics",
+        )
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_periop_info")
+
+    def test_implicit_echo_ava_inputs_route_to_ava_calculator(self):
+        chat_id = self._chat_id("implicit_echo_ava")
+        answer = self._ask_without_rag_or_llm(
+            "Calculate AVA LVOT VTI 20cm, AV VTI 80cm LVOT diam 18mm",
+            chat_id,
+        )
+
+        self.assertIn("Echo AVA by continuity equation", answer)
+        self.assertIn("AVA: 0.64 cm2", answer)
+        trace = self._last_trace()
+        self._assert_trace_selected_protocol(
+            trace,
+            "echo_ava",
+            "protocols/echo_ava.txt",
+            "Echo AVA",
+        )
+        self.assertEqual(trace["selection_output_key"], "calculated_ava")
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_selection")
+
+    def test_implicit_echo_cardiac_output_inputs_route_when_hr_present(self):
+        chat_id = self._chat_id("implicit_echo_co")
+        answer = self._ask_without_rag_or_llm("LVOT VTI 20cm LVOT diam 18mm HR 70", chat_id)
+
+        self.assertIn("Echo LVOT stroke volume", answer)
+        self.assertIn("Cardiac output:", answer)
+        trace = self._last_trace()
+        self._assert_trace_selected_protocol(
+            trace,
+            "echo_cardiac_output",
+            "protocols/echo_cardiac_output.txt",
+            "Echo cardiac output",
+        )
+        self.assertEqual(trace["selection_output_key"], "calculated_co")
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_selection")
+
+    def test_dexa_routes_to_dexamethasone_steroid_equivalence(self):
+        chat_id = self._chat_id("dexa_equivalence")
+        answer = self._ask_without_rag_or_llm("dexa 6 mg equivalent", chat_id)
+
+        self.assertIn("Steroid equivalence for 6 mg dexamethasone", answer)
+        self.assertIn("| hydrocortisone | 160 mg |", answer)
+        trace = self._last_trace()
+        self._assert_trace_selected_protocol(
+            trace,
+            "steroid_equivalence",
+            "protocols/steroid_equivalence.txt",
+            "Steroid equivalence table",
+        )
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_steroid_equivalence")
 
     def test_unsupported_syndrome_block_trace_fields_are_complete(self):
         chat_id = self._chat_id("trace_unsupported_block")

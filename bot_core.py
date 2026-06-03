@@ -584,6 +584,13 @@ def _is_obvious_nonclinical_message(question):
 
 _EXPLICIT_HEIGHT_CM_RE = re.compile(r"\b\d+(?:\.\d+)?\s*cm\b", re.IGNORECASE)
 _EXPLICIT_WEIGHT_KG_RE = re.compile(r"\b\d+(?:\.\d+)?\s*kg\b", re.IGNORECASE)
+_ECHO_LVOT_VTI_RE = re.compile(r"\blvot\s+vti\s*[:=]?\s*\d+(?:\.\d+)?\s*(?:mm|cm)\b", re.IGNORECASE)
+_ECHO_LVOT_DIAMETER_RE = re.compile(
+    r"\blvot\s+(?:diam(?:eter)?|d)\s*[:=]?\s*\d+(?:\.\d+)?\s*(?:mm|cm)\b",
+    re.IGNORECASE,
+)
+_ECHO_AV_VTI_RE = re.compile(r"\b(?:av|aortic(?:\s+valve)?)\s+vti\s*[:=]?\s*\d+(?:\.\d+)?\s*(?:mm|cm)\b", re.IGNORECASE)
+_ECHO_CO_INTENT_RE = re.compile(r"\b(?:cardiac\s+output|heart\s*rate|hr|co)\b", re.IGNORECASE)
 
 
 def _looks_like_body_size_input(question):
@@ -618,6 +625,56 @@ def _implicit_body_size_recognized(question):
         "score": 100,
         "implicit": "body_size_input",
     }
+
+
+def _implicit_echo_calculator_recognized(question):
+    text = question or ""
+    has_lvot_inputs = bool(_ECHO_LVOT_VTI_RE.search(text) and _ECHO_LVOT_DIAMETER_RE.search(text))
+    if not has_lvot_inputs:
+        return None
+
+    if _ECHO_AV_VTI_RE.search(text):
+        recognized = _recognized_for_protocol_id("echo_ava")
+        if recognized:
+            recognized = dict(recognized)
+            recognized.update({
+                "matched_alias": "echo AVA input signature",
+                "confidence": "high",
+                "score": 100,
+                "implicit": "echo_ava_inputs",
+            })
+            return recognized
+
+    if _ECHO_CO_INTENT_RE.search(text):
+        recognized = _recognized_for_protocol_id("echo_cardiac_output")
+        if recognized:
+            recognized = dict(recognized)
+            recognized.update({
+                "matched_alias": "echo cardiac output input signature",
+                "confidence": "high",
+                "score": 100,
+                "implicit": "echo_cardiac_output_inputs",
+            })
+            return recognized
+
+    return None
+
+
+def _normalized_question_with_recognized(question, recognized):
+    return (
+        question
+        + f"\n\nRecognized term: {recognized.get('display', '')}"
+        + f"\nCanonical term: {recognized.get('canonical', recognized.get('display', ''))}"
+    )
+
+
+def _apply_implicit_protocol_recognition(question, recognized):
+    if recognized is not None and recognized.get("confidence") == "exact":
+        return recognized, None
+    implicit = _implicit_body_size_recognized(question) or _implicit_echo_calculator_recognized(question)
+    if not implicit:
+        return recognized, None
+    return implicit, _normalized_question_with_recognized(question, implicit)
 
 
 
@@ -2662,6 +2719,9 @@ _PERIOP_SKIP_TERMS = {
     "target glucose in the perioperative period",
     "other endocrine medications",
 }
+_PERIOP_SHORT_ENTRY_TERMS = {
+    "asa",
+}
 
 _PERIOP_MODIFIER_FOLLOWUP_RE = re.compile(
     r"\b(?:epidural|spinal|neuraxial|regional\s+an(?:a|e)esth|catheter|"
@@ -2702,7 +2762,7 @@ _STEROID_EQUIVALENCE_DATA = {
         "reference_mg": 1.5,
         "activity": "30:0",
         "duration": "36-54 h",
-        "aliases": ["dexamethasone", "dexamethason"],
+        "aliases": ["dexamethasone", "dexamethason", "dexa"],
     },
     "hydrocortisone": {
         "display": "hydrocortisone",
@@ -2759,7 +2819,7 @@ def _periop_entry_terms(header):
             continue
         folded = _ascii_fold(term)
         compact = re.sub(r"[^a-z0-9]+", " ", folded).strip()
-        if len(re.sub(r"[^a-z0-9]+", "", compact)) < 4:
+        if len(re.sub(r"[^a-z0-9]+", "", compact)) < 4 and compact not in _PERIOP_SHORT_ENTRY_TERMS:
             continue
         if compact in _PERIOP_SKIP_TERMS:
             continue
@@ -3148,14 +3208,9 @@ def _ask_ai_impl(question, chat_id):
     unsupported_matched_term = unsupported_hit.get("matched_term") if unsupported_hit else None
     unsupported_message = unsupported_hit.get("message") if unsupported_hit else None
     normalized_question, recognized = normalize_question(question)
-    implicit_body_size = _implicit_body_size_recognized(question)
-    if implicit_body_size and (recognized is None or recognized.get("confidence") != "exact"):
-        recognized = implicit_body_size
-        normalized_question = (
-            question
-            + f"\n\nRecognized term: {recognized.get('display', '')}"
-            + f"\nCanonical term: {recognized.get('canonical', recognized.get('display', ''))}"
-        )
+    recognized, implicit_normalized_question = _apply_implicit_protocol_recognition(question, recognized)
+    if implicit_normalized_question:
+        normalized_question = implicit_normalized_question
     if forced_recognized:
         recognized = forced_recognized
         normalized_question = (
@@ -3734,6 +3789,12 @@ def build_debug_trace(debug_question, chat_id):
     unsupported_matched_term = unsupported_hit.get("matched_term") if unsupported_hit else None
     unsupported_message = unsupported_hit.get("message") if unsupported_hit else None
     normalized_question, fresh_recognized = normalize_question(debug_question)
+    fresh_recognized, implicit_normalized_question = _apply_implicit_protocol_recognition(
+        debug_question,
+        fresh_recognized,
+    )
+    if implicit_normalized_question:
+        normalized_question = implicit_normalized_question
     state = get_chat_state(chat_id)
     state_before = _format_state_snapshot(state)
     active = state.get("active_recognized")

@@ -576,19 +576,45 @@ Do not calculate CHA2DS2-VASc, thromboembolic risk, bleeding risk, renal categor
 PERIOPERATIVE_CONTEXT_REQUIRED: yes.
 
 Aspirin; acetylsalicylic acid; ASA; acetilszalicilsav; Acizalep; Asactal; Astrix; Kardegic:
-Usually no need to omit. Source note: if used for primary prevention and no history of stroke, ACS, or vascular disease, stop it. In especially increased bleeding risk, omit 7 days.
+Usually no need to omit.
+Omit only if high bleeding risk: spinal, intracranial, ophtalmic surgery, TURP
 
 Clopidogrel; Atrombin; Clopidep; Egitromb; Kardogrel:
-Omit 5 days before surgery. Omit 5 days before spinal/epidural anesthesia. Epidural catheter: forbidden. After puncture or epidural catheter removal: 6 hours if loading dose.
+Some surgeries do not need omission e.g. vascular and acute procedures, consult surgeon if in doubt.
+Omit 5 days before surgery, spinal/epidural anesthesia.
+
+If no coronary stent -> omit
+If coronary stent and older than 3 months/12 weeks -> omit
+Coronary stent 6-12 week old -> interventional cardiologist and surgeon to decide
+coronary stent less than 5 week old -> do not omit, unless expert consult
+
+Epidural catheter: forbidden.
+After puncture or epidural catheter removal: 6 hours if loading dose.
+
 
 Ticlopidine; ticlopidin; Aclotin; Ipaton; Ticlid:
 Omit 10 days before surgery. Omit 10 days before spinal/epidural anesthesia. Epidural catheter: forbidden. After puncture or catheter removal: 6 hours if loading dose.
 
+If no coronary stent -> omit
+If coronary stent and older than 3 months/12 weeks -> omit
+Coronary stent 6-12 week old -> interventional cardiologist and surgeon to decide
+coronary stent less than 5 week old -> do not omit, unless expert consult
+
 Prasugrel; Efient:
 Omit 7 days before surgery. Omit 7 days before spinal/epidural anesthesia. Epidural catheter: forbidden. After puncture or catheter removal: 6 hours if loading dose.
 
+If no coronary stent -> omit
+If coronary stent and older than 3 months/12 weeks -> omit
+Coronary stent 6-12 week old -> interventional cardiologist and surgeon to decide
+coronary stent less than 5 week old -> do not omit, unless expert consult
+
 Ticagrelor; Brilique:
 Source conflict: the overview table says omit 5 days before surgery, while the detailed antiplatelet table says omit 3 days before surgery and 5 days before spinal/epidural anesthesia. Do not give a definitive single timing without local review. Epidural catheter: forbidden. After puncture or catheter removal: 6 hours if loading dose.
+
+If no coronary stent -> omit
+If coronary stent and older than 3 months/12 weeks -> omit
+Coronary stent 6-12 week old -> interventional cardiologist and surgeon to decide
+coronary stent less than 5 week old -> do not omit, unless expert consult
 
 Cangrelor; Kengreal:
 Omit 3 hours before surgery. Omit 3 hours before spinal/epidural anesthesia. Epidural catheter: forbidden. After puncture or catheter removal: 8 hours.

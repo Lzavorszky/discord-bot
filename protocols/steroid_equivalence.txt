@@ -35,6 +35,8 @@ status: draft
 - methylprednisolone conversion
 - dexamethasone equivalent
 - dexamethasone conversion
+- dexa equivalent
+- dexa conversion
 - prednisolone equivalent
 - prednisolone conversion
 - fludrocortisone equivalent

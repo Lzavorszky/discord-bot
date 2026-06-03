@@ -191,5 +191,3 @@ Return normalized inputs, LVOT CSA, stroke volume, HR, and cardiac output.
 Please provide LVOT diameter and LVOT VTI, with units mm or cm. Add HR if you want cardiac output.
 
 ## DEFAULT_FOOTER
-
-Calculator output only; verify echo measurement quality before clinical interpretation.
