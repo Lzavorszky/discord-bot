@@ -168,24 +168,14 @@ Agilus:
 
 selection_mode: priority_rules
 
-RULE: FULL_GUIDELINE
-  IF: protocol_requested == true
-  PRIORITY: 100
-  SELECT: FULL_GUIDELINE
-
 RULE: DEFAULT
   IF: no_selection_input_supplied == true
   PRIORITY: 1
-  SELECT: FULL_GUIDELINE
+  SELECT: DEFAULT_ANSWER
 
 ## SELECTED_OUTPUTS
 
-### FULL_GUIDELINE
-
-type: full_guideline_text
-display_name_hu: Dantrolén malignus hyperthermia protokoll
-display_name_en: Dantrolene malignant hyperthermia protocol
-response_hu: Return the full Hungarian guideline text from DEFAULT_ANSWER. Do not shorten into options.
+(none)
 
 ## LINKS
 
@@ -227,7 +217,11 @@ For all requests:
 
 ### FINAL_SELECTED_HU
 
-Return the full Hungarian guideline text from DEFAULT_ANSWER.
+(none)
+
+### FINAL_SELECTED_EN
+
+(none)
 
 ### INFO_ANSWER
 

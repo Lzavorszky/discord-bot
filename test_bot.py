@@ -1492,6 +1492,26 @@ class TestPriorityRulesEngine(unittest.TestCase):
         rendered = se.render_selected_output(parsed, result, lang="en")
         self.assertIn("4 g/day", rendered)
 
+    def test_dantrolene_dose_returns_full_guideline_text(self):
+        parsed = _s9_load("dantrolene_mh.txt")
+        result = se.run_selection(parsed, {})
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        self.assertTrue(result.default_used)
+        self.assertIn("Dantrium", rendered)
+        self.assertIn("Agilus", rendered)
+        self.assertIn("Oldat elk", rendered)
+        self.assertNotIn("FULL_GUIDELINE", rendered)
+        self.assertNotIn("Return the full Hungarian guideline text", rendered)
+
+    def test_dantrolene_weight_still_returns_full_guideline_text(self):
+        parsed = _s9_load("dantrolene_mh.txt")
+        result = se.run_selection(parsed, {"body_weight_kg": 80.0})
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        self.assertTrue(result.default_used)
+        self.assertIn("80 kg: 10 ampulla", rendered)
+        self.assertIn("80 kg: 32 ml", rendered)
+        self.assertNotIn("FULL_GUIDELINE", rendered)
+
     def test_ampsul_no_renal_returns_default(self):
         parsed = _s9_load("ampsul.txt")
         result = se.run_selection(parsed, {})
