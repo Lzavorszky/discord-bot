@@ -36,6 +36,17 @@ import retrieval as retrieval_helpers
 import state as state_helpers
 import numpy as np
 from openai import OpenAI
+from rota_lookup import (
+    STATUS_CONFIGURATION_ERROR,
+    STATUS_FOUND,
+    STATUS_MULTIPLE_MATCHES,
+    STATUS_NOT_FOUND,
+    STATUS_PERMISSION_ERROR,
+    STATUS_SHEET_ERROR,
+    lookup_oncall,
+    normalize_role as normalize_rota_role,
+    parse_date_input as parse_rota_date_input,
+)
 from routing import AnswerEnvelope, TurnContext
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
@@ -4059,6 +4070,63 @@ async def handle_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _safe_reply_chunks(update, answer)
 
 
+ONCALL_USAGE = "Usage: /oncall <date> <role>\nExample: /oncall tomorrow \u00c9g\u00e9s"
+ROTA_UNAVAILABLE_MESSAGE = "Rota lookup is unavailable. Check Google Sheets configuration."
+
+
+def _is_rota_allowed(user_id: int) -> bool:
+    return bool(ALLOWED_USER_IDS) and user_id in ALLOWED_USER_IDS
+
+
+def _format_oncall_result(result, date_value, role_label):
+    separator = "\u2014"
+    if result.status == STATUS_FOUND:
+        source = result.source or "rota"
+        return (
+            f"{date_value.isoformat()} {separator} {result.role or role_label}\n"
+            f"- {result.assignment}\n\n"
+            f"Source: {source}"
+        )
+    if result.status == STATUS_MULTIPLE_MATCHES:
+        return (
+            f"Multiple rota entries found for {date_value.isoformat()} {separator} {role_label}. "
+            "Please check the rota sheet."
+        )
+    if result.status in {STATUS_CONFIGURATION_ERROR, STATUS_PERMISSION_ERROR, STATUS_SHEET_ERROR}:
+        return ROTA_UNAVAILABLE_MESSAGE
+    if result.status == STATUS_NOT_FOUND:
+        return f"No rota entry found for {date_value.isoformat()} {separator} {role_label}."
+    return ROTA_UNAVAILABLE_MESSAGE
+
+
+async def handle_oncall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = _effective_user_id(update)
+    if not _is_rota_allowed(user_id):
+        await _reply_unauthorized(update)
+        return
+
+    args = list(getattr(context, "args", None) or [])
+    if len(args) < 2:
+        await _safe_reply_text(update, ONCALL_USAGE)
+        return
+
+    try:
+        date_value = parse_rota_date_input(args[0])
+    except ValueError:
+        await _safe_reply_text(update, ONCALL_USAGE)
+        return
+
+    role_text = " ".join(args[1:]).strip()
+    if not role_text:
+        await _safe_reply_text(update, ONCALL_USAGE)
+        return
+
+    role_label = normalize_rota_role(role_text)
+    await _safe_send_action(update, "typing")
+    result = lookup_oncall(date_value, role_text)
+    await _safe_reply_text(update, _format_oncall_result(result, date_value, role_label))
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -4139,10 +4207,11 @@ def main():
     app.add_handler(CommandHandler("reset", handle_reset))
     app.add_handler(CommandHandler("clear", handle_reset))
     app.add_handler(CommandHandler("debug", handle_debug))
+    app.add_handler(CommandHandler("oncall", handle_oncall))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Bot is running.")
-    print("Commands: /whoami, /protocols, /version, /reset, /clear, /debug <query>.")
+    print("Commands: /whoami, /protocols, /version, /reset, /clear, /debug <query>, /oncall <date> <role>.")
     app.run_polling()
 
 

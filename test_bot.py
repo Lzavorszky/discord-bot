@@ -1,5 +1,5 @@
 """
-Session 1 tests — deployment and output hygiene.
+Session 1 tests - deployment and output hygiene.
 Run: python test_bot.py
 """
 
@@ -15,6 +15,26 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 # Allow importing from protocols/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "protocols"))
+
+TEST_ROOT = os.path.dirname(__file__)
+TEST_PROTOCOL_DIR = os.path.join(TEST_ROOT, "protocols")
+
+
+def protocol_fixture_path(filename):
+    """Resolve protocol test fixtures after the antibiotics folder split."""
+    direct = os.path.join(TEST_PROTOCOL_DIR, filename)
+    if os.path.exists(direct):
+        return direct
+    for root, _dirs, files in os.walk(TEST_PROTOCOL_DIR):
+        if filename in files:
+            return os.path.join(root, filename)
+    raise FileNotFoundError(filename)
+
+
+def protocol_fixture_relpath(filename):
+    path = protocol_fixture_path(filename)
+    rel = os.path.relpath(path, TEST_ROOT)
+    return rel.replace(os.sep, "/")
 
 # Provide dummy env vars so the module loads without crashing
 os.environ.setdefault("TELEGRAM_TOKEN", "dummy")
@@ -96,7 +116,7 @@ class TestFooterPlacement(unittest.TestCase):
 
     def test_finalize_safety_footer_before_source(self):
         if not self.SAFETY:
-            self.skipTest("SAFETY_FOOTER is empty — nothing to check")
+            self.skipTest("SAFETY_FOOTER is empty - nothing to check")
         result = self._finalize("Some answer text.")
         lines = result.splitlines()
         src_idx = next((i for i, l in enumerate(lines) if l.startswith("Source:")), None)
@@ -133,7 +153,7 @@ class TestFooterPlacement(unittest.TestCase):
 
     def test_clean_safety_footer_before_source(self):
         if not self.SAFETY:
-            self.skipTest("SAFETY_FOOTER is empty — nothing to check")
+            self.skipTest("SAFETY_FOOTER is empty - nothing to check")
         result = self._clean("Some answer text.")
         lines = result.splitlines()
         src_idx = next((i for i, l in enumerate(lines) if l.startswith("Source:")), None)
@@ -388,15 +408,15 @@ class TestPostprocessModule(unittest.TestCase):
 
 
 class TestNewSchemaParser(unittest.TestCase):
-    """New-schema panels must be parsed explicitly — not land in free_form."""
+    """New-schema panels must be parsed explicitly - not land in free_form."""
 
     PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
 
     def _parse(self, filename):
         import protocol_parser as pp
-        return pp.parse_protocol_file(os.path.join(self.PROTO_DIR, filename))
+        return pp.parse_protocol_file(protocol_fixture_path(filename))
 
-    # ── New panels are recognised (not in free_form) ─────────────────────────
+    # New panels are recognised (not in free_form)
 
     def test_cap_new_panels_not_in_free_form(self):
         p = self._parse("cap.txt")
@@ -435,7 +455,7 @@ class TestNewSchemaParser(unittest.TestCase):
         self.assertEqual(schema["body_weight_kg"]["supported_max"], 100.0)
         self.assertEqual(schema["gfr"]["clinical_max"], 250.0)
 
-    # ── Old-schema file still loads cleanly ──────────────────────────────────
+    # Old-schema file still loads cleanly
 
     def test_legacy_file_loads(self):
         p = self._parse("general_rules_antibiotic_dosing.txt")
@@ -449,7 +469,7 @@ class TestNewSchemaParser(unittest.TestCase):
         self.assertIn("general_rules", p["info_blocks"])
         self.assertFalse(p["treatment_pathways"])
 
-    # ── METADATA parsing ─────────────────────────────────────────────────────
+    # METADATA parsing
 
     def test_metadata_keys_parsed(self):
         p = self._parse("cap.txt")
@@ -471,7 +491,7 @@ class TestLinksParser(unittest.TestCase):
 
     def _parse(self, filename):
         import protocol_parser as pp
-        return pp.parse_protocol_file(os.path.join(self.PROTO_DIR, filename))
+        return pp.parse_protocol_file(protocol_fixture_path(filename))
 
     def test_cap_links_parsed(self):
         p = self._parse("cap.txt")
@@ -485,7 +505,7 @@ class TestLinksParser(unittest.TestCase):
         p = pp.parse_protocol_file(os.path.join(self.PROTO_DIR, "cap.txt"))
         link = p["links"]["ceftriaxone_dosing"]
         self.assertEqual(link.get("target_protocol_id"), "ceftriaxone")
-        self.assertEqual(link.get("target_file"), "protocols/ceftriaxone.txt")
+        self.assertEqual(link.get("target_file"), "protocols/antibiotics/ceftriaxone.txt")
         self.assertIn(
             "Ceftriaxone dosing",
             link.get("target_missing_behavior", ""),
@@ -511,7 +531,7 @@ class TestLinksParser(unittest.TestCase):
                            "CAP should have more than one LINK entry")
 
     def test_meropenem_links_none(self):
-        """meropenem.txt has LINKS: (none) — should parse to empty dict."""
+        """meropenem.txt has LINKS: (none) - should parse to empty dict."""
         p = self._parse("meropenem.txt")
         self.assertEqual(p["links"], {},
                          "meropenem LINKS (none) should parse to empty dict")
@@ -546,7 +566,7 @@ class TestAnswerModeValidation(unittest.TestCase):
 
     def _parse(self, filename):
         import protocol_parser as pp
-        return pp.parse_protocol_file(os.path.join(self.PROTO_DIR, filename))
+        return pp.parse_protocol_file(protocol_fixture_path(filename))
 
     def test_valid_answer_mode_no_warning(self):
         p = self._parse("cap.txt")
@@ -1173,7 +1193,7 @@ class TestLinterOnRealFiles(unittest.TestCase):
         self.assertTrue(len(broad) > 0, "Expected at least one broad_alias warning")
 
     def test_governance_warnings_cleared(self):
-        """Session 6: all protocols now have governance metadata — no missing_governance warnings."""
+        """Session 6: all protocols now have governance metadata - no missing_governance warnings."""
         result = self._run()
         gov = [i for i in result.issues if i.code == "missing_governance"]
         self.assertEqual(gov, [], f"Unexpected missing_governance warnings: {gov}")
@@ -1220,7 +1240,7 @@ class TestIntentClassifier(unittest.TestCase):
 
     def test_reset_classified(self):
         import telegram_bot as b
-        for q in ["new patient", "reset", "new case", "új beteg"]:
+        for q in ["new patient", "reset", "new case", "\u00faj beteg"]:
             self.assertEqual(b.classify_intent(q), "reset",
                              f"Expected reset for {q!r}")
 
@@ -1264,25 +1284,25 @@ class TestDosingShortcut(unittest.TestCase):
             f"Should mention drug names, got: {result}"
         )
 
-    def test_single_drug_no_link_returns_not_available(self):
-        """CAP -> dose? -> ceftriaxone protocol missing -> fallback message."""
+    def test_single_drug_missing_target_returns_not_available(self):
+        """CAP -> dose? -> amoxicillin protocol missing -> fallback message."""
         import telegram_bot as b
-        # Use CAP protocol file path (has LINKS with ceftriaxone but target missing)
-        cap_file = os.path.join(os.path.dirname(__file__), "protocols", "cap.txt")
+        cap_file = protocol_fixture_path("cap.txt")
         # Load the protocol so PROTOCOL_PARSED_BY_FILE is populated
-        parsed = b._parse_protocol_text(open(cap_file).read(), path=cap_file)
+        with open(cap_file, encoding="utf-8") as f:
+            parsed = b._parse_protocol_text(f.read(), path=cap_file)
         norm_path = b.normalize_path(cap_file)
         b.PROTOCOL_PARSED_BY_FILE[norm_path] = parsed
 
-        state = self._make_state(["ceftriaxone"], active_file=cap_file)
+        state = self._make_state(["amoxicillin"], active_file=cap_file)
         result = b._handle_dosing_shortcut(state, "dose?", None)
         self.assertIsNotNone(result, "Should return a message when dosing protocol missing")
         self.assertNotIn("Source:", result, "Shortcut result should not contain Source line yet")
-        # Should mention ceftriaxone not available OR return target_missing_behavior
+        # Should mention amoxicillin not available OR return target_missing_behavior
         lower = result.lower()
         self.assertTrue(
-            "ceftriaxone" in lower or "not specified" in lower or "not available" in lower,
-            f"Should reference ceftriaxone unavailability, got: {result}"
+            "amoxicillin" in lower or "not specified" in lower or "not available" in lower,
+            f"Should reference amoxicillin unavailability, got: {result}"
         )
 
     def test_single_drug_no_protocol_context(self):
@@ -1411,7 +1431,7 @@ class TestStateManagement(unittest.TestCase):
 
         # Simulate fresh meropenem recognition
         mero_recognized = {
-            "protocol_file": "protocols/meropenem.txt",
+            "protocol_file": "protocols/antibiotics/meropenem.txt",
             "display": "meropenem",
             "source_label": "meropenem",
             "confidence": "exact",
@@ -1444,7 +1464,7 @@ _S9_PROTO_DIR = os.path.join(os.path.dirname(__file__), "protocols")
 
 def _s9_load(filename):
     import protocol_parser as pp
-    return pp.parse_protocol_file(os.path.join(_S9_PROTO_DIR, filename))
+    return pp.parse_protocol_file(protocol_fixture_path(filename))
 
 
 class TestPriorityRulesEngine(unittest.TestCase):
@@ -1455,10 +1475,10 @@ class TestPriorityRulesEngine(unittest.TestCase):
         self.assertTrue(result.default_used)
         self.assertFalse(result.no_match)
 
-    def test_meropenem_gfr_gt_90_selects_magas(self):
+    def test_meropenem_gfr_gt_90_selects_NORMAL(self):
         parsed = _s9_load("meropenem.txt")
         result = se.run_selection(parsed, {"gfr": 95.0})
-        self.assertEqual(result.output_key, "MAGAS")
+        self.assertEqual(result.output_key, "NORMAL")
 
     def test_meropenem_crrt_selects_crrt(self):
         parsed = _s9_load("meropenem.txt")
@@ -1468,17 +1488,17 @@ class TestPriorityRulesEngine(unittest.TestCase):
     def test_meropenem_ihd_selects_ihd(self):
         parsed = _s9_load("meropenem.txt")
         result = se.run_selection(parsed, {"ihd": True})
-        self.assertEqual(result.output_key, "IHD")
+        self.assertEqual(result.output_key, "SEVERE_AKI")
 
-    def test_meropenem_gfr_45_selects_atlagos(self):
+    def test_meropenem_gfr_45_selects_NORMAL(self):
         parsed = _s9_load("meropenem.txt")
         result = se.run_selection(parsed, {"gfr": 45.0})
-        self.assertEqual(result.output_key, "ATLAGOS")
+        self.assertEqual(result.output_key, "NORMAL")
 
-    def test_meropenem_gfr_lt_20_selects_csokkentett(self):
+    def test_meropenem_gfr_lt_20_selects_SEVERE_AKI(self):
         parsed = _s9_load("meropenem.txt")
         result = se.run_selection(parsed, {"gfr": 15.0})
-        self.assertEqual(result.output_key, "CSOKKENTETT")
+        self.assertEqual(result.output_key, "SEVERE_AKI")
 
     def test_meropenem_default_renders_text(self):
         parsed = _s9_load("meropenem.txt")
@@ -1490,7 +1510,7 @@ class TestPriorityRulesEngine(unittest.TestCase):
         parsed = _s9_load("meropenem.txt")
         result = se.run_selection(parsed, {"gfr": 95.0})
         rendered = se.render_selected_output(parsed, result, lang="en")
-        self.assertIn("4 g/day", rendered)
+        self.assertIn("3 g/day", rendered)
 
     def test_dantrolene_dose_returns_full_guideline_text(self):
         parsed = _s9_load("dantrolene_mh.txt")
@@ -1866,7 +1886,7 @@ class TestSession13AliasCleanup(unittest.TestCase):
     def test_broad_carbapenem_no_longer_routes_to_meropenem(self):
         self.assertNotEqual(
             self._recognized_file("carbapenem"),
-            bot.normalize_path("protocols/meropenem.txt"),
+            bot.normalize_path("protocols/antibiotics/meropenem.txt"),
         )
 
     def test_hap_vap_aliases_do_not_route_to_cap(self):
@@ -1934,40 +1954,40 @@ def _routing_fake_chat_response(text):
 
 GOLDEN_ROUTING_CASES = [
     {
-        "name": "meropenem_gfr_45_atlagos",
+        "name": "meropenem_gfr_45_NORMAL",
         "input_turns": ["meropenem dose GFR 45"],
-        "expected_protocol_file": "protocols/meropenem.txt",
+        "expected_protocol_file": "protocols/antibiotics/meropenem.txt",
         "expected_protocol_id": "meropenem",
-        "expected_selected_output_key": "ATLAGOS",
+        "expected_selected_output_key": "NORMAL",
         "expected_slots": {"gfr": 45.0},
         "expected_deterministic_or_llm": "deterministic_selection",
         "expected_llm_called": False,
-        "expected_source_label": "meropenem",
+        "expected_source_label": "uploaded antibiotic renal dosing DOCX - meropenem",
         "expected_unsupported_syndrome": None,
         "expected_unsupported_action": None,
         "expected_answer_fragments": [
-            "Meropenem - renal base tier: STANDARD",
+            "Meropenem - renal tier: Normal",
             "3 g/day",
-            "Source: meropenem",
+            "Source: uploaded antibiotic renal dosing DOCX - meropenem",
         ],
         "forbidden_answer_fragments": ["No uploaded protocol supports"],
     },
     {
         "name": "meropenem_then_gfr_30_carried_context",
         "input_turns": ["meropenem", "GFR 30"],
-        "expected_protocol_file": "protocols/meropenem.txt",
+        "expected_protocol_file": "protocols/antibiotics/meropenem.txt",
         "expected_protocol_id": "meropenem",
-        "expected_selected_output_key": "ATLAGOS",
+        "expected_selected_output_key": "NORMAL",
         "expected_slots": {"gfr": 30.0},
         "expected_deterministic_or_llm": "deterministic_selection",
         "expected_llm_called": False,
-        "expected_source_label": "meropenem",
+        "expected_source_label": "uploaded antibiotic renal dosing DOCX - meropenem",
         "expected_unsupported_syndrome": None,
         "expected_unsupported_action": None,
         "expected_answer_fragments": [
-            "Meropenem - renal base tier: STANDARD",
+            "Meropenem - renal tier: Normal",
             "3 g/day",
-            "Source: meropenem",
+            "Source: uploaded antibiotic renal dosing DOCX - meropenem",
         ],
         "forbidden_answer_fragments": ["No uploaded protocol supports"],
     },
@@ -2010,19 +2030,19 @@ GOLDEN_ROUTING_CASES = [
     {
         "name": "vap_plus_meropenem_gfr_40_ignores_unsupported",
         "input_turns": ["VAP patient, meropenem dose GFR 40"],
-        "expected_protocol_file": "protocols/meropenem.txt",
+        "expected_protocol_file": "protocols/antibiotics/meropenem.txt",
         "expected_protocol_id": "meropenem",
-        "expected_selected_output_key": "ATLAGOS",
+        "expected_selected_output_key": "NORMAL",
         "expected_slots": {"gfr": 40.0},
         "expected_deterministic_or_llm": "deterministic_selection",
         "expected_llm_called": False,
-        "expected_source_label": "meropenem",
+        "expected_source_label": "uploaded antibiotic renal dosing DOCX - meropenem",
         "expected_unsupported_syndrome": "vap",
         "expected_unsupported_action": "ignored_explicit_drug",
         "expected_answer_fragments": [
-            "Meropenem - renal base tier: STANDARD",
+            "Meropenem - renal tier: Normal",
             "3 g/day",
-            "Source: meropenem",
+            "Source: uploaded antibiotic renal dosing DOCX - meropenem",
         ],
         "forbidden_answer_fragments": ["No uploaded protocol supports"],
     },
@@ -2064,7 +2084,7 @@ GOLDEN_ROUTING_CASES = [
             "TMP/SMX Steno BSI 70 kg GFR 60",
             "not 70kg but 150kg",
         ],
-        "expected_protocol_file": "protocols/tmpsmx.txt",
+        "expected_protocol_file": "protocols/antibiotics/tmpsmx.txt",
         "expected_protocol_id": "tmpsmx",
         "expected_selected_output_key": "HIGH_DOSE_GFR_GT_30_OR_CRRT",
         "expected_slots": {
@@ -2107,19 +2127,19 @@ GOLDEN_ROUTING_CASES = [
     {
         "name": "casual_out_of_scope_with_active_protocol_confirmation_prompt",
         "input_turns": ["meropenem GFR 45", "how are you?"],
-        "expected_protocol_file": "protocols/meropenem.txt",
+        "expected_protocol_file": "protocols/antibiotics/meropenem.txt",
         "expected_protocol_id": "meropenem",
         "expected_selected_output_key": None,
         "expected_slots": {"gfr": 45.0},
         "expected_deterministic_or_llm": "deterministic_confirmation",
         "expected_llm_called": False,
-        "expected_source_label": "meropenem",
+        "expected_source_label": "uploaded antibiotic renal dosing DOCX - meropenem",
         "expected_unsupported_syndrome": None,
         "expected_unsupported_action": None,
         "expected_answer_fragments": [
             "not sure this message belongs",
             "Reply yes",
-            "Source: meropenem",
+            "Source: uploaded antibiotic renal dosing DOCX - meropenem",
         ],
         "forbidden_answer_fragments": ["No active clinical protocol is selected"],
     },
@@ -2179,8 +2199,8 @@ class TestGoldenRoutingCases(unittest.TestCase):
             "vancomycin.txt",
             "body_size_calculators.txt",
         ]:
-            rel_path = os.path.join("protocols", filename)
-            abs_path = os.path.join(self.PROTO_DIR, filename)
+            rel_path = protocol_fixture_relpath(filename)
+            abs_path = protocol_fixture_path(filename)
             with open(abs_path, encoding="utf-8") as f:
                 text = f.read()
             b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(rel_path)] = pp._parse_protocol_text(
@@ -2321,8 +2341,8 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
             "echo_cardiac_output.txt",
             "echo_ava.txt",
         ]:
-            rel_path = os.path.join("protocols", filename)
-            abs_path = os.path.join(self.PROTO_DIR, filename)
+            rel_path = protocol_fixture_relpath(filename)
+            abs_path = protocol_fixture_path(filename)
             with open(abs_path, encoding="utf-8") as f:
                 text = f.read()
             b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(rel_path)] = pp._parse_protocol_text(
@@ -2412,7 +2432,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         state = self.b.get_chat_state(chat_id)
         active = state.get("active_recognized")
         self.assertIsNotNone(active, "Fresh deterministic drug query must activate protocol context.")
-        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/antibiotics/meropenem.txt")
         self.assertEqual(state["collected_slots"].get("gfr"), 45.0)
         self.assertIn("Source:", answer)
         self.assertIn("meropenem", answer.lower())
@@ -2427,12 +2447,12 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         state = self.b.get_chat_state(chat_id)
         active = state.get("active_recognized")
         self.assertIsNotNone(active)
-        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/antibiotics/meropenem.txt")
         self.assertEqual(state["collected_slots"].get("gfr"), 30.0)
         self.assertIn("Source:", answer)
         self.assertIn("meropenem", answer.lower())
         logged = self.mock_log.call_args.kwargs
-        self.assertEqual(self.b.normalize_path(logged["recognized"]["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(self.b.normalize_path(logged["recognized"]["protocol_file"]), "protocols/antibiotics/meropenem.txt")
         self.assertEqual(logged["retrieved_chunks"], [])
 
     def test_blocked_respiratory_syndromes_without_supported_drug_do_not_recommend_antibiotics(self):
@@ -2478,7 +2498,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         state = self.b.get_chat_state(chat_id)
         active = state.get("active_recognized")
         self.assertIsNotNone(active)
-        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/antibiotics/meropenem.txt")
         self.assertEqual(state["collected_slots"].get("gfr"), 40.0)
         self.assertIn("Source:", answer)
         self.assertIn("meropenem", answer.lower())
@@ -2512,7 +2532,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self._ask_without_rag_or_llm("not 70kg but 150kg", chat_id)
 
         active = state.get("active_recognized")
-        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/tmpsmx.txt")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/antibiotics/tmpsmx.txt")
         self.assertEqual(state["collected_slots"].get("body_weight_kg"), 150.0)
         self.assertEqual(state["collected_slots"].get("gfr"), 60.0)
         self.assertIn("steno", state["collected_slots"].get("indication", "").lower())
@@ -2538,7 +2558,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self._ask_without_rag_or_llm("actually GFR 40", chat_id)
 
         active = state.get("active_recognized")
-        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/antibiotics/meropenem.txt")
         self.assertEqual(state["collected_slots"].get("gfr"), 40.0)
 
     def test_ml_per_min_correction_updates_active_protocol_gfr(self):
@@ -2577,7 +2597,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
 
         self.assertNotIn("gfr", state["collected_slots"])
         active = state.get("active_recognized")
-        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/antibiotics/meropenem.txt")
 
     def test_correction_does_not_switch_protocol_without_explicit_alias(self):
         chat_id = self._chat_id("correction_no_switch")
@@ -2588,7 +2608,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self._ask_without_rag_or_llm("actually GFR 40", chat_id)
 
         active = state.get("active_recognized")
-        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/tmpsmx.txt")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/antibiotics/tmpsmx.txt")
         self.assertEqual(state["collected_slots"].get("gfr"), 40.0)
         self.assertEqual(state["collected_slots"].get("body_weight_kg"), 70.0)
 
@@ -2672,10 +2692,10 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         state = self.b.get_chat_state(chat_id)
         active = state.get("active_recognized")
         self.assertIsNotNone(active)
-        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/antibiotics/meropenem.txt")
         self.assertEqual(state["collected_slots"].get("gfr"), 45.0)
-        self.assertIn("Meropenem - renal base tier", answer)
-        self.assertIn("Source: meropenem", answer)
+        self.assertIn("Meropenem - renal tier", answer)
+        self.assertIn("Source: uploaded antibiotic renal dosing DOCX - meropenem", answer)
 
     @unittest.skipUnless(bot.RAPIDFUZZ_AVAILABLE, "rapidfuzz not installed")
     def test_blocked_respiratory_typos_do_not_fuzzy_route_to_cap(self):
@@ -2702,10 +2722,10 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         active = state.get("active_recognized")
         self.assertIsNotNone(active)
         self.assertEqual(active.get("confidence"), "high")
-        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/antibiotics/meropenem.txt")
         self.assertEqual(state["collected_slots"].get("gfr"), 45.0)
-        self.assertIn("Meropenem - renal base tier", answer)
-        self.assertIn("Source: meropenem", answer)
+        self.assertIn("Meropenem - renal tier", answer)
+        self.assertIn("Source: uploaded antibiotic renal dosing DOCX - meropenem", answer)
 
     @unittest.skipUnless(bot.RAPIDFUZZ_AVAILABLE, "rapidfuzz not installed")
     def test_misspelled_clinical_pneumonia_can_match_cap_safely(self):
@@ -2722,11 +2742,11 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self.assertIn("Source:", answer)
         self.assertIn("meropenem", answer.lower())
         logged = self.mock_log.call_args.kwargs
-        self.assertEqual(self.b.normalize_path(logged["recognized"]["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(self.b.normalize_path(logged["recognized"]["protocol_file"]), "protocols/antibiotics/meropenem.txt")
         self.assertEqual(logged["retrieved_chunks"], [])
         trace = logged["trace"]
         self.assertEqual(trace["selected_protocol_id"], "meropenem")
-        self.assertEqual(trace["selection_output_key"], "MAGAS")
+        self.assertEqual(trace["selection_output_key"], "NORMAL")
         self.assertEqual(trace["deterministic_or_llm"], "deterministic_selection")
         self.assertFalse(trace["llm_called"])
         self.assertEqual(trace["slots"]["gfr"], 95.0)
@@ -2738,13 +2758,13 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         logged = self._last_logged()
         trace = logged["trace"]
         self._assert_trace_selected_protocol(
-            trace, "meropenem", "protocols/meropenem.txt", "meropenem"
+            trace, "meropenem", "protocols/antibiotics/meropenem.txt", "uploaded antibiotic renal dosing DOCX - meropenem"
         )
         self.assertEqual(logged["retrieved_chunks"], [])
         self.assertEqual(trace["retrieved_chunks"], [])
         self.assertEqual(trace["protocol_type"], "drug_dosing_protocol")
-        self.assertEqual(trace["selection_output_key"], "MAGAS")
-        self.assertEqual(trace["selected_output_key"], "MAGAS")
+        self.assertEqual(trace["selection_output_key"], "NORMAL")
+        self.assertEqual(trace["selected_output_key"], "NORMAL")
         self.assertEqual(trace["selection_mode"], "priority_rules")
         self.assertEqual(trace["missing_slots"], [])
         self.assertEqual(trace["slots"], {"gfr": 95.0})
@@ -2753,11 +2773,11 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self.assertIsNone(trace["unsupported_syndrome"])
         self.assertIsNone(trace["unsupported_action"])
         self.assertIsNone(trace["blocked_reason"])
-        self.assertIn("Meropenem - renal base tier", trace["final_body"])
+        self.assertIn("Meropenem - renal tier", trace["final_body"])
         self.assertEqual(trace["final_answer"], answer)
         self.assertEqual(
             self.b.normalize_path(trace["active_after"]["protocol_file"]),
-            "protocols/meropenem.txt",
+            "protocols/antibiotics/meropenem.txt",
         )
         self.assertEqual(trace["turn_context"]["protocol_slots_after"], {"gfr": 95.0})
 
@@ -2779,7 +2799,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self._ask_without_rag_or_llm("meropenem", chat_id)
         self.mock_log.reset_mock()
 
-        answer = self._ask_without_rag_or_llm("150cm magas, 100kg súly", chat_id)
+        answer = self._ask_without_rag_or_llm("150cm NORMAL, 100kg s\u00faly", chat_id)
 
         self.assertIn("Body size calculations for 100 kg, 150 cm", answer)
         self.assertNotIn("Meropenem gyors", answer)
@@ -2885,9 +2905,9 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
 
         trace = self._last_trace()
         self._assert_trace_selected_protocol(
-            trace, "meropenem", "protocols/meropenem.txt", "meropenem"
+            trace, "meropenem", "protocols/antibiotics/meropenem.txt", "uploaded antibiotic renal dosing DOCX - meropenem"
         )
-        self.assertEqual(trace["selection_output_key"], "ATLAGOS")
+        self.assertEqual(trace["selection_output_key"], "NORMAL")
         self.assertEqual(trace["selection_mode"], "priority_rules")
         self.assertEqual(trace["slots"]["gfr"], 40.0)
         self.assertEqual(trace["deterministic_or_llm"], "deterministic_selection")
@@ -2899,7 +2919,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self.assertIsNone(trace["blocked_reason"])
         self.assertEqual(trace["turn_context"]["unsupported_syndrome"], "vap")
         self.assertEqual(trace["turn_context"]["protocol_slots_after"]["gfr"], 40.0)
-        self.assertIn("Source: meropenem", answer)
+        self.assertIn("Source: uploaded antibiotic renal dosing DOCX - meropenem", answer)
         self.assertNotIn("No uploaded protocol supports", answer)
 
     def test_deterministic_missing_and_out_of_bounds_cases_do_not_call_rag_or_llm(self):
@@ -2932,7 +2952,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
 
                 trace = self._last_trace()
                 self._assert_trace_selected_protocol(
-                    trace, "tmpsmx", "protocols/tmpsmx.txt", "TMP/SMX"
+                    trace, "tmpsmx", "protocols/antibiotics/tmpsmx.txt", "TMP/SMX"
                 )
                 self.assertEqual(trace["deterministic_or_llm"], "deterministic_selection")
                 self.assertFalse(trace["llm_called"])
@@ -2977,9 +2997,9 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
 
         yes_answer = self._ask_without_rag_or_llm("yes", yes_chat_id)
         yes_trace = self._last_trace()
-        self.assertIn("Meropenem - renal base tier", yes_answer)
+        self.assertIn("Meropenem - renal tier", yes_answer)
         self._assert_trace_selected_protocol(
-            yes_trace, "meropenem", "protocols/meropenem.txt", "meropenem"
+            yes_trace, "meropenem", "protocols/antibiotics/meropenem.txt", "uploaded antibiotic renal dosing DOCX - meropenem"
         )
         self.assertEqual(yes_trace["deterministic_or_llm"], "deterministic_selection")
         self.assertFalse(yes_trace["llm_called"])
@@ -3052,7 +3072,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
     def test_no_match_out_of_scope_does_not_claim_selected_protocol(self):
         chat_id = self._chat_id("out_of_scope")
         fake_chunks = [{
-            "source": "protocols/meropenem.txt",
+            "source": "protocols/antibiotics/meropenem.txt",
             "source_label": "meropenem",
             "text": "## DEFAULT_ANSWER\nMeropenem dosing text",
             "similarity": 0.01,
@@ -3085,12 +3105,12 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self.assertIn("Unsupported key: vap", debug)
         self.assertIn("Unsupported matched term: vap", debug)
         self.assertIn("Unsupported action: ignored_explicit_drug", debug)
-        self.assertIn("Selection output: ATLAGOS", debug)
+        self.assertIn("Selection output: NORMAL", debug)
 
     def _install_protocol_for_debug(self, filename):
         import protocol_parser as pp
-        path = os.path.join("protocols", filename)
-        parsed = pp.parse_protocol_file(os.path.join(self.PROTO_DIR, filename))
+        path = protocol_fixture_relpath(filename)
+        parsed = pp.parse_protocol_file(protocol_fixture_path(filename))
         self.b.PROTOCOL_PARSED_BY_FILE[self.b.normalize_path(path)] = parsed
         return path, parsed
 
@@ -3203,7 +3223,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self._ask_without_rag_or_llm("dose?", chat_id)
 
         active = state.get("active_recognized")
-        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/meropenem.txt")
+        self.assertEqual(self.b.normalize_path(active["protocol_file"]), "protocols/antibiotics/meropenem.txt")
         meropenem_slots = self._protocol_slots(state, "meropenem")
         self.assertEqual(meropenem_slots, {"gfr": 40.0})
         biofire_slots = self._protocol_slots(state, "BioFire")
@@ -3233,8 +3253,8 @@ class TestPeriopSteroidSplit(unittest.TestCase):
             "periop_steroids.txt",
             "steroid_equivalence.txt",
         ]:
-            rel_path = os.path.join("protocols", filename)
-            with open(os.path.join(self.PROTO_DIR, filename), encoding="utf-8") as f:
+            rel_path = protocol_fixture_relpath(filename)
+            with open(protocol_fixture_path(filename), encoding="utf-8") as f:
                 text = f.read()
             parsed = pp._parse_protocol_text(text, path=rel_path)
             b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(rel_path)] = parsed
@@ -3329,8 +3349,8 @@ class TestSession10DebugCommands(unittest.TestCase):
     def _install_protocol(self, filename):
         import telegram_bot as b
         import protocol_parser as pp
-        path = os.path.join("protocols", filename)
-        parsed = pp.parse_protocol_file(os.path.join(self.PROTO_DIR, filename))
+        path = protocol_fixture_relpath(filename)
+        parsed = pp.parse_protocol_file(protocol_fixture_path(filename))
         b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(path)] = parsed
         return path, parsed
 
@@ -3341,21 +3361,21 @@ class TestSession10DebugCommands(unittest.TestCase):
         self.assertIn("meropenem", output)
         self.assertIn("drug_dosing_protocol", output)
         self.assertIn("draft", output)
-        self.assertIn("0.1", output)
+        self.assertIn("0.3", output)
 
     def test_version_uses_protocol_versions_when_available(self):
         import telegram_bot as b
         self._install_protocol("meropenem.txt")
         output = b.format_version_output()
         self.assertIn("Bot version:", output)
-        self.assertIn("Protocol library version: 0.1", output)
+        self.assertIn("Protocol library version: 0.3", output)
 
     def test_debug_trace_explains_fresh_alias_without_prompt_echo(self):
         import telegram_bot as b
         self._install_protocol("meropenem.txt")
         b.load_aliases(os.path.join("protocols", "aliases.json"))
         fake_chunks = [{
-            "source": "protocols/meropenem.txt",
+            "source": "protocols/antibiotics/meropenem.txt",
             "source_label": "meropenem",
             "text": "## DEFAULT_ANSWER\nProtocol dosing text",
             "similarity": 0.9876,
@@ -3366,7 +3386,7 @@ class TestSession10DebugCommands(unittest.TestCase):
         self.assertIn("Matched alias: meropenem", output)
         self.assertIn("Protocol type: drug_dosing_protocol", output)
         self.assertIn("Deterministic/LLM source: deterministic selection_engine", output)
-        self.assertIn("File: protocols/meropenem.txt", output)
+        self.assertIn("File: protocols/antibiotics/meropenem.txt", output)
         self.assertIn("Section: DEFAULT_ANSWER", output)
         self.assertNotIn("private patient details", output)
         self.assertNotIn("Preview:", output)
@@ -3630,3 +3650,6 @@ class TestRuntimeFailureBoundaries(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+

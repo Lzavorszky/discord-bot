@@ -37,6 +37,10 @@ async def handle_debug(update, context):
     return await _core.handle_debug(update, context)
 
 
+async def handle_oncall(update, context):
+    return await _core.handle_oncall(update, context)
+
+
 async def handle_message(update, context):
     return await _core.handle_message(update, context)
 
@@ -58,6 +62,7 @@ __all__ = [
     "handle_version",
     "handle_reload",
     "handle_debug",
+    "handle_oncall",
     "handle_message",
     "main",
 ]
