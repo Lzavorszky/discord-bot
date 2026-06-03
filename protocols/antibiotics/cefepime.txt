@@ -12,7 +12,7 @@ selection_mode: priority_rules
 allows_dosing: yes
 dosing_requires_link: no
 default_dose_allowed: yes
-version: 0.2
+version: 0.3
 last_reviewed: unknown
 owner: ID team
 status: draft
@@ -32,7 +32,12 @@ default_request:
 - cefepim
 
 selection_request:
+- GFR
+- eGFR
+- CrCl
 - CRRT
+- IHD
+- dialysis
 - renal
 - vesefunkcio
 
@@ -66,16 +71,21 @@ required_for_dosing:
 (none)
 
 optional_modifiers:
+- gfr
 - crrt
-- renal_function
-- tdm_low_level
+- ihd
 
 forwardable_slots:
 (none)
 
 ## SLOT_SCHEMA
 
-(none)
+SLOT: gfr
+  type: number
+  unit: mL/min
+  clinical_min: 0
+  clinical_max: 250
+  out_of_clinical_policy: ask_confirmation
 
 ## DEFAULT_ANSWER
 
@@ -83,40 +93,51 @@ forwardable_slots:
 
 Cefepime dosing table:
 
-| Tier | When | Daily dose | Administration | Preparation | Pump |
-|---|---|---:|---|---|---|
-| Normal | source Normal bucket | 4 g/day | one 2 g syringe over 12 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 4.2 mL/h |
-| Severe renal dysfunction | source severe renal dysfunction bucket | 1 g/day | source note: 2 x 1 dose / 12 h | reduced-dose preparation note below | 4.2 mL/h |
-| CRRT | CRRT | 3 g/day | one 2 g syringe over 16 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 3.2 mL/h |
-| Step-up dose | only if TDM suggests low levels | 8 g/day | one 2 g syringe over 6 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 8.4 mL/h |
+| Tier | When | Daily dose | Administration |
+|---|---|---:|---|
+| Normal | GFR 20+ | 4 g/day | 2 g/50 mL, 4.2 mL/h |
+| Severe AKI | GFR <20 or IHD | 1 g/day | 0.5 g/50 mL, 4.2 mL/h |
+| CRRT | CRRT | 3 g/day | 2 g/50 mL, 3.2 mL/h |
 
-Reduced-dose preparation note from source: dissolve the 1 g ampoule in 20 mL NaCl 0.9%, withdraw half (10 mL), dilute further to 50 mL, giving a 500 mg/50 mL syringe over 12 h. Label the remaining ampoule with date/name, refrigerate, and prepare the second 50 mL syringe after 12 h.
-
-The uploaded table does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+| Step-up dose | low levels | 6 g/day | 2 g/50 mL, 6.4 mL/h |
 
 ### EN
 
 Cefepime dosing table:
 
-| Tier | When | Daily dose | Administration | Preparation | Pump |
-|---|---|---:|---|---|---|
-| Normal | source Normal bucket | 4 g/day | one 2 g syringe over 12 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 4.2 mL/h |
-| Severe renal dysfunction | source severe renal dysfunction bucket | 1 g/day | source note: 2 x 1 dose / 12 h | reduced-dose preparation note below | 4.2 mL/h |
-| CRRT | CRRT | 3 g/day | one 2 g syringe over 16 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 3.2 mL/h |
-| Step-up dose | only if TDM suggests low levels | 8 g/day | one 2 g syringe over 6 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 8.4 mL/h |
+| Tier | When | Daily dose | Administration |
+|---|---|---:|---|
+| Normal | GFR 20+ | 4 g/day | 2 g/50 mL, 4.2 mL/h |
+| Severe AKI | GFR <20 or IHD | 1 g/day | 0.5 g/50 mL, 4.2 mL/h |
+| CRRT | CRRT | 3 g/day | 2 g/50 mL, 3.2 mL/h |
 
-Reduced-dose preparation note from source: dissolve the 1 g ampoule in 20 mL NaCl 0.9%, withdraw half (10 mL), dilute further to 50 mL, giving a 500 mg/50 mL syringe over 12 h. Label the remaining ampoule with date/name, refrigerate, and prepare the second 50 mL syringe after 12 h.
+| Step-up dose | low levels | 6 g/day | 2 g/50 mL, 6.4 mL/h |
 
-The uploaded table does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+Reduced-dose preparation: dissolve 1 g in 20 mL NaCl 0.9%, withdraw 10 mL, dilute to 50 mL for a 0.5 g/50 mL syringe.
 
 ## SELECTION_RULES
 
 selection_mode: priority_rules
 
+RULE: IHD_AS_SEVERE_AKI
+  IF: ihd == true
+  PRIORITY: 100
+  SELECT: SEVERE_AKI
+
 RULE: CRRT
   IF: crrt == true
-  PRIORITY: 90
+  PRIORITY: 95
   SELECT: CRRT
+
+RULE: NORMAL_GFR_GE_20
+  IF: gfr >= 20
+  PRIORITY: 70
+  SELECT: NORMAL
+
+RULE: SEVERE_AKI_GFR_LT_20
+  IF: gfr < 20
+  PRIORITY: 60
+  SELECT: SEVERE_AKI
 
 RULE: DEFAULT
   IF: no_selection_input_supplied == true
@@ -131,21 +152,17 @@ type: dosing_tier
 display_name_hu: Normal
 display_name_en: Normal
 dose: 4 g/day
-when: source Normal bucket
-administration: one 2 g syringe over 12 h
-preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
-pump: 4.2 mL/h
+when: GFR 20+
+administration: 2 g/50 mL, 4.2 mL/h
 
-### SEVERE_RENAL_DYSFUNCTION
+### SEVERE_AKI
 
 type: dosing_tier
-display_name_hu: severe renal dysfunction
-display_name_en: severe renal dysfunction
+display_name_hu: Severe AKI
+display_name_en: Severe AKI
 dose: 1 g/day
-when: source severe renal dysfunction bucket
-administration: source note: 2 x 1 dose / 12 h
-preparation: reduced-dose preparation; see DEFAULT_ANSWER note
-pump: 4.2 mL/h
+when: GFR <20 or IHD
+administration: 0.5 g/50 mL, 4.2 mL/h
 
 ### CRRT
 
@@ -154,20 +171,7 @@ display_name_hu: CRRT
 display_name_en: CRRT
 dose: 3 g/day
 when: CRRT
-administration: one 2 g syringe over 16 h
-preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
-pump: 3.2 mL/h
-
-### STEP_UP_DOSE
-
-type: dosing_tier
-display_name_hu: Step-up dose
-display_name_en: Step-up dose
-dose: 8 g/day
-when: only if TDM suggests low levels
-administration: one 2 g syringe over 6 h
-preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
-pump: 8.4 mL/h
+administration: 2 g/50 mL, 3.2 mL/h
 
 ## LINKS
 
@@ -177,27 +181,23 @@ pump: 8.4 mL/h
 
 ### source_scope
 
-This protocol contains only the dosing, preparation, administration time, pump settings, and reduced-dose preparation note from the uploaded DOCX table.
-The source does not define numeric GFR cutoffs for Normal, severe renal dysfunction, or Step-up dose.
+This is an open dosing-table protocol. Broad drug requests may return DEFAULT_ANSWER. If GFR, CRRT, or IHD is supplied, deterministic selection may return the matching tier.
+
 
 ### administration
 
-Use only the preparation and pump settings listed in DEFAULT_ANSWER or SELECTED_OUTPUTS.
-Do not invent alternative dilutions, infusion durations, or pump rates.
+Administration is intentionally compact for mobile viewing: dose/dilution and pump rate are kept in one line. Do not invent alternative dilutions, infusion durations, or pump rates.
 
 ## RESTRICTED_OUTPUTS
 
 Never provide:
-- cefepime dosing outside the uploaded table rows
-- numeric GFR cutoff mapping for Normal, severe renal dysfunction, or Step-up dose
-- Step-up dose unless TDM suggests low levels
+- cefepime dosing outside the listed table rows
 - alternative antibiotics, duration, toxicity management, or indication advice from this protocol
 
 ## SAFETY_RULES
 
-- This is an open dosing-table protocol: broad drug requests may return DEFAULT_ANSWER.
-- CRRT can be selected when explicitly supplied.
-- If numeric GFR is supplied, do not map it to a non-CRRT tier unless a local validated cutoff is added later.
+- For drugs without a separate anuria/IHD row, IHD maps to Severe AKI.
+- If renal data conflict, IHD has highest priority, then CRRT, then numeric GFR.
 
 ## OUTPUT_TEMPLATES
 
@@ -207,8 +207,6 @@ Cefepime - renal tier: {display_name_hu}
 - dose: {dose}
 - when: {when}
 - administration: {administration}
-- preparation: {preparation}
-- pump: {pump}
 
 ### FINAL_SELECTED_EN
 
@@ -216,14 +214,12 @@ Cefepime - renal tier: {display_name_en}
 - dose: {dose}
 - when: {when}
 - administration: {administration}
-- preparation: {preparation}
-- pump: {pump}
 
 ### INFO_ANSWER
 
 Answer only from the selected INFO_BLOCK.
-Do not add dosing outside the uploaded table.
+Do not add dosing outside the table.
 
 ## DEFAULT_FOOTER
 
-Step-up dose is only for low exposure suggested by TDM. Numeric GFR cutoffs are not specified in the uploaded table unless explicitly shown in a row.
+Numeric GFR cutoffs follow this protocol table. Do not use doses outside this protocol.

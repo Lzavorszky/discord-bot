@@ -922,6 +922,8 @@ _BOOL_SLOTS = {
     "aspiration_event":re.compile(r"\b(aspiration|aspiratio)\b", re.IGNORECASE),
     "copd_exacerbation":re.compile(r"\bCOPD\b", re.IGNORECASE),
     "atypical_suspicion":re.compile(r"\b(atypical|atipusos)\b", re.IGNORECASE),
+    "cns_infection":   re.compile(r"\b(CNS|meningitis|brain\s+abscess|central\s+nervous\s+system)\b", re.IGNORECASE),
+    "tdm_low_level":   re.compile(r"\b(low\s+(?:level|levels|exposure)|subtherapeutic|TDM\s+(?:low|below))\b", re.IGNORECASE),
 }
 _PATIENT_STATUS_MAP = [
     (re.compile(r"\b(intubat(?:ed|alt)|mechanically.vent(?:ilated)?)\b", re.IGNORECASE), "intubated"),

@@ -12,7 +12,7 @@ selection_mode: priority_rules
 allows_dosing: yes
 dosing_requires_link: no
 default_dose_allowed: yes
-version: 0.2
+version: 0.3
 last_reviewed: unknown
 owner: ID team
 status: draft
@@ -37,7 +37,6 @@ selection_request:
 - CRRT
 - IHD
 - dialysis
-- anuria
 - renal
 - vesefunkcio
 
@@ -74,8 +73,6 @@ optional_modifiers:
 - gfr
 - crrt
 - ihd
-- renal_function
-- tdm_low_level
 
 forwardable_slots:
 (none)
@@ -95,35 +92,31 @@ SLOT: gfr
 
 Cefiderocol dosing table:
 
-| Tier | When | Daily dose | Administration | Preparation | Pump |
-|---|---|---:|---|---|---|
-| Normal | GFR 30-90 | 6 g/day | one 2 g syringe over 8 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 6.3 mL/h |
-| Severe renal dysfunction | GFR <30 | 3 g/day | one 2 g syringe over 16 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 3.1 mL/h |
-| Anuria/IHD | anuria or IHD | 1.5 g/day | source row lists anuria/IHD under reduced dosing | source note: 1 g/50 mL dilution | 3.1 mL/h |
-| CRRT | CRRT | 6 g/day | one 2 g syringe over 8 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 6.3 mL/h |
-| Step-up dose | only if TDM suggests low levels | 8 g/day | one 2 g syringe over 6 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 8.4 mL/h |
+| Tier | When | Daily dose | Administration |
+|---|---|---:|---|
+| Normal | GFR 30-90 | 6 g/day | 2 g/50 mL, 6.3 mL/h |
+| Severe AKI | GFR <30 | 3 g/day | 2 g/50 mL, 3.1 mL/h |
+| Anuria/IHD | anuria or IHD | 1.5 g/day | 1 g/50 mL, 3.1 mL/h |
+| CRRT | CRRT | 6 g/day | 2 g/50 mL, 6.3 mL/h |
 
-The uploaded table defines GFR 30-90 and GFR <30 rows, but does not define a numeric cutoff for Step-up dose.
 
 ### EN
 
 Cefiderocol dosing table:
 
-| Tier | When | Daily dose | Administration | Preparation | Pump |
-|---|---|---:|---|---|---|
-| Normal | GFR 30-90 | 6 g/day | one 2 g syringe over 8 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 6.3 mL/h |
-| Severe renal dysfunction | GFR <30 | 3 g/day | one 2 g syringe over 16 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 3.1 mL/h |
-| Anuria/IHD | anuria or IHD | 1.5 g/day | source row lists anuria/IHD under reduced dosing | source note: 1 g/50 mL dilution | 3.1 mL/h |
-| CRRT | CRRT | 6 g/day | one 2 g syringe over 8 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 6.3 mL/h |
-| Step-up dose | only if TDM suggests low levels | 8 g/day | one 2 g syringe over 6 h | 2 g in 50 mL NaCl 0.9% -> 40 mg/mL | 8.4 mL/h |
+| Tier | When | Daily dose | Administration |
+|---|---|---:|---|
+| Normal | GFR 30-90 | 6 g/day | 2 g/50 mL, 6.3 mL/h |
+| Severe AKI | GFR <30 | 3 g/day | 2 g/50 mL, 3.1 mL/h |
+| Anuria/IHD | anuria or IHD | 1.5 g/day | 1 g/50 mL, 3.1 mL/h |
+| CRRT | CRRT | 6 g/day | 2 g/50 mL, 6.3 mL/h |
 
-The uploaded table defines GFR 30-90 and GFR <30 rows, but does not define a numeric cutoff for Step-up dose.
 
 ## SELECTION_RULES
 
 selection_mode: priority_rules
 
-RULE: IHD
+RULE: ANURIA_IHD
   IF: ihd == true
   PRIORITY: 100
   SELECT: ANURIA_IHD
@@ -138,10 +131,10 @@ RULE: NORMAL_GFR_30_TO_90
   PRIORITY: 80
   SELECT: NORMAL
 
-RULE: SEVERE_RENAL_DYSFUNCTION_GFR_LT_30
+RULE: SEVERE_AKI_GFR_LT_30
   IF: gfr < 30
-  PRIORITY: 70
-  SELECT: SEVERE_RENAL_DYSFUNCTION
+  PRIORITY: 60
+  SELECT: SEVERE_AKI
 
 RULE: DEFAULT
   IF: no_selection_input_supplied == true
@@ -157,20 +150,16 @@ display_name_hu: Normal
 display_name_en: Normal
 dose: 6 g/day
 when: GFR 30-90
-administration: one 2 g syringe over 8 h
-preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
-pump: 6.3 mL/h
+administration: 2 g/50 mL, 6.3 mL/h
 
-### SEVERE_RENAL_DYSFUNCTION
+### SEVERE_AKI
 
 type: dosing_tier
-display_name_hu: severe renal dysfunction
-display_name_en: severe renal dysfunction
+display_name_hu: Severe AKI
+display_name_en: Severe AKI
 dose: 3 g/day
 when: GFR <30
-administration: one 2 g syringe over 16 h
-preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
-pump: 3.1 mL/h
+administration: 2 g/50 mL, 3.1 mL/h
 
 ### ANURIA_IHD
 
@@ -179,9 +168,7 @@ display_name_hu: Anuria/IHD
 display_name_en: Anuria/IHD
 dose: 1.5 g/day
 when: anuria or IHD
-administration: source row lists anuria/IHD under reduced dosing
-preparation: source note: 1 g/50 mL dilution
-pump: 3.1 mL/h
+administration: 1 g/50 mL, 3.1 mL/h
 
 ### CRRT
 
@@ -190,20 +177,7 @@ display_name_hu: CRRT
 display_name_en: CRRT
 dose: 6 g/day
 when: CRRT
-administration: one 2 g syringe over 8 h
-preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
-pump: 6.3 mL/h
-
-### STEP_UP_DOSE
-
-type: dosing_tier
-display_name_hu: Step-up dose
-display_name_en: Step-up dose
-dose: 8 g/day
-when: only if TDM suggests low levels
-administration: one 2 g syringe over 6 h
-preparation: 2 g in 50 mL NaCl 0.9% -> 40 mg/mL
-pump: 8.4 mL/h
+administration: 2 g/50 mL, 6.3 mL/h
 
 ## LINKS
 
@@ -213,28 +187,23 @@ pump: 8.4 mL/h
 
 ### source_scope
 
-This protocol contains only the dosing, preparation, administration time, and pump settings from the uploaded DOCX table.
-The source explicitly names GFR 30-90, GFR <30, anuria/IHD, and CRRT rows.
-The source does not define a numeric cutoff for Step-up dose.
+This is an open dosing-table protocol. Broad drug requests may return DEFAULT_ANSWER. If GFR, CRRT, or IHD is supplied, deterministic selection may return the matching tier.
+
 
 ### administration
 
-Use only the preparation and pump settings listed in DEFAULT_ANSWER or SELECTED_OUTPUTS.
-Do not invent alternative dilutions, infusion durations, or pump rates.
+Administration is intentionally compact for mobile viewing: dose/dilution and pump rate are kept in one line. Do not invent alternative dilutions, infusion durations, or pump rates.
 
 ## RESTRICTED_OUTPUTS
 
 Never provide:
-- cefiderocol dosing outside the uploaded table rows
-- numeric GFR cutoff mapping for Step-up dose
-- Step-up dose unless TDM suggests low levels
+- cefiderocol dosing outside the listed table rows
 - alternative antibiotics, duration, toxicity management, or indication advice from this protocol
 
 ## SAFETY_RULES
 
-- This is an open dosing-table protocol: broad drug requests may return DEFAULT_ANSWER.
-- IHD, CRRT, GFR 30-90, and GFR <30 can be selected because they are explicit in the uploaded row.
-- If GFR is above 90 without an explicit Step-up/TDM indication, show DEFAULT_ANSWER rather than selecting Step-up dose.
+- For drugs without a separate anuria/IHD row, IHD maps to Severe AKI.
+- If renal data conflict, IHD has highest priority, then CRRT, then numeric GFR.
 
 ## OUTPUT_TEMPLATES
 
@@ -244,8 +213,6 @@ Cefiderocol - renal tier: {display_name_hu}
 - dose: {dose}
 - when: {when}
 - administration: {administration}
-- preparation: {preparation}
-- pump: {pump}
 
 ### FINAL_SELECTED_EN
 
@@ -253,14 +220,12 @@ Cefiderocol - renal tier: {display_name_en}
 - dose: {dose}
 - when: {when}
 - administration: {administration}
-- preparation: {preparation}
-- pump: {pump}
 
 ### INFO_ANSWER
 
 Answer only from the selected INFO_BLOCK.
-Do not add dosing outside the uploaded table.
+Do not add dosing outside the table.
 
 ## DEFAULT_FOOTER
 
-Step-up dose is only for low exposure suggested by TDM. Numeric GFR cutoffs are not specified in the uploaded table unless explicitly shown in a row.
+Numeric GFR cutoffs follow this protocol table. Do not use doses outside this protocol.
