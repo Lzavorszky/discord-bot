@@ -351,7 +351,7 @@ LINK: ceftriaxone_dosing
   link_type: antimicrobial_dosing
   when_selected_item: ceftriaxone
   target_protocol_id: ceftriaxone
-  target_file: protocols/ceftriaxone.txt
+  target_file: protocols/antibiotics/ceftriaxone.txt
   target_missing_behavior: Ceftriaxone dosing is not specified in the uploaded protocols.
   trigger_intents:
     - dosing_request
@@ -377,7 +377,7 @@ LINK: clarithromycin_dosing
   link_type: antimicrobial_dosing
   when_selected_item: clarithromycin
   target_protocol_id: clarithromycin
-  target_file: protocols/clarithromycin.txt
+  target_file: protocols/antibiotics/clarithromycin.txt
   target_missing_behavior: Clarithromycin dosing is not specified in the uploaded protocols.
   trigger_intents:
     - dosing_request
@@ -403,7 +403,7 @@ LINK: levofloxacin_dosing
   link_type: antimicrobial_dosing
   when_selected_item: levofloxacin
   target_protocol_id: levofloxacin
-  target_file: protocols/levofloxacin.txt
+  target_file: protocols/antibiotics/levofloxacin.txt
   target_missing_behavior: Levofloxacin dosing is not specified in the uploaded protocols.
   trigger_intents:
     - dosing_request
@@ -481,7 +481,7 @@ LINK: oseltamivir_dosing
   link_type: antiviral_dosing
   when_selected_item: oseltamivir
   target_protocol_id: oseltamivir
-  target_file: protocols/oseltamivir.txt
+  target_file: protocols/antibiotics/oseltamivir.txt
   target_missing_behavior: Oseltamivir dosing is not specified in the uploaded protocols.
   trigger_intents:
     - dosing_request

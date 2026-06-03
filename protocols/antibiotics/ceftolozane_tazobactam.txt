@@ -96,6 +96,7 @@ Ceftolozane/tazobactam dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2/1 g once | start continuous infusion immediately |
 | Normal | GFR 50+ | 9 g/day | 1/0.5 g/50 mL, 12.5 mL/h |
 | Normal | GFR 20-50 | 4.5 g/day | 1/0.5 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <20 | 3 g/day | 1/0.5 g/50 mL, 4.2 mL/h |
@@ -109,6 +110,7 @@ Ceftolozane/tazobactam dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2/1 g once | start continuous infusion immediately |
 | Normal | GFR 50+ | 9 g/day | 1/0.5 g/50 mL, 12.5 mL/h |
 | Normal | GFR 20-50 | 4.5 g/day | 1/0.5 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <20 | 3 g/day | 1/0.5 g/50 mL, 4.2 mL/h |

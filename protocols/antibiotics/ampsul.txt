@@ -112,24 +112,32 @@ SLOT: gfr
 
 ### HU
 
-Ampicillin/sulbactam 
-- GFR >=60: sulbactam 9 g/nap + ampicillin 18 g/nap
-- GFR 30-60: sulbactam 6 g/nap + ampicillin 12 g/nap
-- GFR 15-30: sulbactam 3 g/nap + ampicillin 6 g/nap
-- GFR <15: sulbactam 2 g/nap + ampicillin 4 g/nap
-- IHD: sulbactam 1.5 g/nap + ampicillin 3 g/nap
-- CRRT: sulbactam 9 g/nap + ampicillin 18 g/nap
+Ampicillin/sulbactam dosing table:
+
+| Tier | When | Dose |
+|---|---|---:|
+| Loading | start of therapy | sulbactam/ampicillin 1.5/3 g once, then start continuous infusion immediately |
+| Normal | GFR >=60 | sulbactam 9 g/day + ampicillin 18 g/day |
+| GFR 30-60 | GFR 30-60 | sulbactam 6 g/day + ampicillin 12 g/day |
+| GFR 15-30 | GFR 15-30 | sulbactam 3 g/day + ampicillin 6 g/day |
+| GFR <15 | GFR <15 | sulbactam 2 g/day + ampicillin 4 g/day |
+| IHD | IHD | sulbactam 1.5 g/day + ampicillin 3 g/day |
+| CRRT | CRRT | sulbactam 9 g/day + ampicillin 18 g/day |
 
 Pontos tierhez kuldd: GFR/eGFR/CrCl, CRRT vagy IHD.
 
 ### EN
 
-Ampicillin/sulbactam - quick renal table
-- CRRT or GFR >=60: sulbactam 9 g/day + ampicillin 18 g/day
-- GFR 30-60: sulbactam 6 g/day + ampicillin 12 g/day
-- GFR 15-30: sulbactam 3 g/day + ampicillin 6 g/day
-- GFR <15: sulbactam 2 g/day + ampicillin 4 g/day
-- IHD: sulbactam 1.5 g/day + ampicillin 3 g/day
+Ampicillin/sulbactam dosing table:
+
+| Tier | When | Dose |
+|---|---|---:|
+| Loading | start of therapy | sulbactam/ampicillin 1.5/3 g once, then start continuous infusion immediately |
+| Normal | CRRT or GFR >=60 | sulbactam 9 g/day + ampicillin 18 g/day |
+| GFR 30-60 | GFR 30-60 | sulbactam 6 g/day + ampicillin 12 g/day |
+| GFR 15-30 | GFR 15-30 | sulbactam 3 g/day + ampicillin 6 g/day |
+| GFR <15 | GFR <15 | sulbactam 2 g/day + ampicillin 4 g/day |
+| IHD | IHD | sulbactam 1.5 g/day + ampicillin 3 g/day |
 
 For exact tier selection send: GFR/eGFR/CrCl, CRRT or IHD.
 

@@ -95,6 +95,7 @@ Ceftazidime dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 6 g/day | 2 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <20 or IHD | 2 g/day | 2 g/50 mL, 2.1 mL/h |
 | CRRT | CRRT | 6 g/day | 2 g/50 mL, 6.3 mL/h |
@@ -107,6 +108,7 @@ Ceftazidime dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 6 g/day | 2 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <20 or IHD | 2 g/day | 2 g/50 mL, 2.1 mL/h |
 | CRRT | CRRT | 6 g/day | 2 g/50 mL, 6.3 mL/h |

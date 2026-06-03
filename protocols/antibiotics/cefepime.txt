@@ -95,6 +95,7 @@ Cefepime dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 4 g/day | 2 g/50 mL, 4.2 mL/h |
 | Severe AKI | GFR <20 or IHD | 1 g/day | 0.5 g/50 mL, 4.2 mL/h |
 | CRRT | CRRT | 3 g/day | 2 g/50 mL, 3.2 mL/h |
@@ -107,6 +108,7 @@ Cefepime dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 4 g/day | 2 g/50 mL, 4.2 mL/h |
 | Severe AKI | GFR <20 or IHD | 1 g/day | 0.5 g/50 mL, 4.2 mL/h |
 | CRRT | CRRT | 3 g/day | 2 g/50 mL, 3.2 mL/h |

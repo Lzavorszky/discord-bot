@@ -94,6 +94,7 @@ Cefiderocol dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2 g once | start continuous infusion immediately |
 | Normal | GFR 30-90 | 6 g/day | 2 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <30 | 3 g/day | 2 g/50 mL, 3.1 mL/h |
 | Anuria/IHD | anuria or IHD | 1.5 g/day | 1 g/50 mL, 3.1 mL/h |
@@ -106,6 +107,7 @@ Cefiderocol dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2 g once | start continuous infusion immediately |
 | Normal | GFR 30-90 | 6 g/day | 2 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <30 | 3 g/day | 2 g/50 mL, 3.1 mL/h |
 | Anuria/IHD | anuria or IHD | 1.5 g/day | 1 g/50 mL, 3.1 mL/h |

@@ -924,6 +924,8 @@ _BOOL_SLOTS = {
     "atypical_suspicion":re.compile(r"\b(atypical|atipusos)\b", re.IGNORECASE),
     "cns_infection":   re.compile(r"\b(CNS|meningitis|brain\s+abscess|central\s+nervous\s+system)\b", re.IGNORECASE),
     "tdm_low_level":   re.compile(r"\b(low\s+(?:level|levels|exposure)|subtherapeutic|TDM\s+(?:low|below))\b", re.IGNORECASE),
+    "septic_shock":   re.compile(r"\b(septic\s+shock|szeptikus\s+sokk)\b", re.IGNORECASE),
+    "hypoalbuminemia": re.compile(r"\b(albumin\s*(?:<|below|under)\s*30|albumin\s+30-|hypoalbumin(?:emia|aemia)?)\b", re.IGNORECASE),
 }
 _PATIENT_STATUS_MAP = [
     (re.compile(r"\b(intubat(?:ed|alt)|mechanically.vent(?:ilated)?)\b", re.IGNORECASE), "intubated"),

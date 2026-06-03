@@ -103,6 +103,7 @@ Meropenem dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 1 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 3 g/day | 1 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <20 or IHD | 1 g/day | 0.5 g/50 mL, 4.2 mL/h |
 | CRRT | CRRT | 3 g/day | 1 g/50 mL, 6.3 mL/h |
@@ -116,6 +117,7 @@ Meropenem dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 1 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 3 g/day | 1 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <20 or IHD | 1 g/day | 0.5 g/50 mL, 4.2 mL/h |
 | CRRT | CRRT | 3 g/day | 1 g/50 mL, 6.3 mL/h |

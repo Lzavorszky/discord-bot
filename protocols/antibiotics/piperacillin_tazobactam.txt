@@ -99,6 +99,7 @@ Tazocin / piperacillin-tazobactam dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 4.5 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 18 g/day | 4.5 g/50 mL, 8.4 mL/h |
 | Severe AKI | GFR <20 or IHD | 9 g/day | 4.5 g/50 mL, 4.2 mL/h |
 | CRRT | CRRT | 13.5 g/day | 4.5 g/50 mL, 6.3 mL/h |
@@ -111,6 +112,7 @@ Tazocin / piperacillin-tazobactam dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 4.5 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 18 g/day | 4.5 g/50 mL, 8.4 mL/h |
 | Severe AKI | GFR <20 or IHD | 9 g/day | 4.5 g/50 mL, 4.2 mL/h |
 | CRRT | CRRT | 13.5 g/day | 4.5 g/50 mL, 6.3 mL/h |

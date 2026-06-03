@@ -94,6 +94,7 @@ Ampicillin dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 4 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 12 g/day | 4 g/250 mL, 31.3 mL/h |
 | Severe AKI | GFR <20 | 8 g/day | 4 g/250 mL, 20.8 mL/h |
 | Anuria/IHD | anuria or IHD | 4 g/day | 4 g/250 mL, 10.4 mL/h |
@@ -107,6 +108,7 @@ Ampicillin dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 4 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 12 g/day | 4 g/250 mL, 31.3 mL/h |
 | Severe AKI | GFR <20 | 8 g/day | 4 g/250 mL, 20.8 mL/h |
 | Anuria/IHD | anuria or IHD | 4 g/day | 4 g/250 mL, 10.4 mL/h |
@@ -247,3 +249,4 @@ Do not add dosing outside the table.
 ## DEFAULT_FOOTER
 
 Numeric GFR cutoffs follow this protocol table. Do not use doses outside this protocol.
+These doses are for severe invasive infections; for routine infections or prophylaxis use textbook dosing.

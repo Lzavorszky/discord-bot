@@ -93,10 +93,10 @@ Cefazolin dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 6 g/day | 2 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <20 or IHD | 2 g/day | 2 g/50 mL, 2.1 mL/h |
 | CRRT | CRRT | 6 g/day | 2 g/50 mL, 8.4 mL/h |
-
 | Step-up dose | low levels, CNS infection | 8 g/day | 2 g/50 mL, 8.4 mL/h |
 
 
@@ -106,10 +106,10 @@ Cefazolin dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 6 g/day | 2 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <20 or IHD | 2 g/day | 2 g/50 mL, 2.1 mL/h |
 | CRRT | CRRT | 6 g/day | 2 g/50 mL, 8.4 mL/h |
-
 | Step-up dose | low levels, CNS infection | 8 g/day | 2 g/50 mL, 8.4 mL/h |
 
 
@@ -221,3 +221,5 @@ Do not add dosing outside the table.
 ## DEFAULT_FOOTER
 
 Numeric GFR cutoffs follow this protocol table. Do not use doses outside this protocol.
+These doses are for severe invasive infections; for routine infections or prophylaxis use textbook dosing.
+For CNS infection, use high-dose cefazolin where appropriate, e.g. 8 g/24 h.

@@ -101,6 +101,7 @@ Ceftazidime/avibactam dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2/0.5 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 7.5 g/day | 2/0.5 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <20 | 2.5 g/day | 1/0.24 g/50 mL, 2.1 mL/h |
 | Anuria/IHD | anuria or IHD | 1.25 g/day | 1/0.24 g/50 mL q48h, 2.1 mL/h |
@@ -115,6 +116,7 @@ Ceftazidime/avibactam dosing table:
 
 | Tier | When | Daily dose | Administration |
 |---|---|---:|---|
+| Loading | start of therapy | 2/0.5 g once | start continuous infusion immediately |
 | Normal | GFR 20+ | 7.5 g/day | 2/0.5 g/50 mL, 6.3 mL/h |
 | Severe AKI | GFR <20 | 2.5 g/day | 1/0.24 g/50 mL, 2.1 mL/h |
 | Anuria/IHD | anuria or IHD | 1.25 g/day | 1/0.24 g/50 mL q48h, 2.1 mL/h |
