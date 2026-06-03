@@ -83,6 +83,30 @@
         "vancomycin tdm",
         "vankomicin"
       ]
+    },
+    "dantrolene": {
+      "canonical": "dantrolene",
+      "display": "Dantrolene / dantrolén",
+      "source_label": "MALIGNUS HYPERTHERMIA DANTROLEN PDF",
+      "protocol_file": "protocols/dantrolene_mh.txt",
+      "aliases": [
+        "dantrolene",
+        "dantrolen",
+        "dantrolén",
+        "dantrium",
+        "agilus",
+        "malignant hyperthermia",
+        "malignant hyperthermia dantrolene",
+        "malignus hyperthermia dantrolene",
+        "malignus hyperthermia dantrolen",
+        "malignus hyperthermia dantrolén",
+        "malignus hyperthermia",
+        "malignus hipertermia",
+        "malignus hypertermia",
+        "mh dantrolene",
+        "mh dantrolen",
+        "mh dantrolén"
+      ]
     }
   },
   "conditions": {
