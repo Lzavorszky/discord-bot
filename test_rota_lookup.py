@@ -332,6 +332,28 @@ class TestRotaLookup(unittest.TestCase):
         self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
         self.assertEqual(result.assignment, "14 \u00c9g\u00e9s: IVE\nS\u00fcrg\u0151s: SAD, HAM")
 
+    def test_napirota_summary_merges_duplicate_date_blocks(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.04"],
+                        ["", "Nappali munka", "cs\u00fct\u00f6rt\u00f6k"],
+                        ["", "14 \u00c9g\u00e9s", "ZLR"],
+                        ["", "24. h\u00e9t", "2026.06.04"],
+                        ["", "Nappali munka", "cs\u00fct\u00f6rt\u00f6k"],
+                        ["", "Aneszt1", "KUA"],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_daily_summary(date(2026, 6, 4), service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "14 \u00c9g\u00e9s: ZLR\nAneszt1: KUA")
+
     def test_hosszu_summary_returns_unique_staff_list(self):
         service = _FakeSheetsService(
             [
@@ -351,6 +373,28 @@ class TestRotaLookup(unittest.TestCase):
         )
 
         result = rota_lookup.lookup_long_summary(date(2026, 6, 5), service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "ZLR, ZKA, PAT")
+
+    def test_hosszu_summary_merges_duplicate_date_blocks(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.04"],
+                        ["", "Hossz\u00fa", ""],
+                        ["", "Aneszt hossz\u00fa 1", "ZLR, ZKA"],
+                        ["", "24. h\u00e9t", "2026.06.04"],
+                        ["", "Hossz\u00fa", ""],
+                        ["", "Sz\u00edvseb hossz\u00fa", "PAT, ZLR"],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_long_summary(date(2026, 6, 4), service=service)
 
         self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
         self.assertEqual(result.assignment, "ZLR, ZKA, PAT")

@@ -617,6 +617,54 @@ def _result_from_matches(date_value: date, role: str, matches: list[RotaMatch]) 
     )
 
 
+def _summary_result_from_matches(date_value: date, role: str, matches: list[RotaMatch]) -> RotaResult:
+    if not matches:
+        return RotaResult(STATUS_NOT_FOUND, date_value, role)
+
+    lines: list[str] = []
+    seen = set()
+    for match in matches:
+        for line in str(match.assignment or "").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            key = _role_key(line)
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append(line)
+
+    if not lines:
+        return RotaResult(STATUS_NOT_FOUND, date_value, role, matches=tuple(matches))
+
+    return RotaResult(
+        STATUS_FOUND,
+        date_value,
+        role,
+        assignment="\n".join(lines),
+        source=matches[0].source,
+        matches=tuple(matches),
+    )
+
+
+def _staff_list_result_from_matches(date_value: date, role: str, matches: list[RotaMatch]) -> RotaResult:
+    if not matches:
+        return RotaResult(STATUS_NOT_FOUND, date_value, role)
+
+    assignment = _join_staff_tokens(match.assignment for match in matches)
+    if not assignment:
+        return RotaResult(STATUS_NOT_FOUND, date_value, role, matches=tuple(matches))
+
+    return RotaResult(
+        STATUS_FOUND,
+        date_value,
+        role,
+        assignment=assignment,
+        source=matches[0].source,
+        matches=tuple(matches),
+    )
+
+
 def lookup_rota(
     date_value: date,
     role: str,
@@ -698,7 +746,7 @@ def lookup_daily_summary(
     )
     if error_status:
         return RotaResult(error_status, date_value, "Napi rota")
-    return _result_from_matches(date_value, "Napi rota", matches)
+    return _summary_result_from_matches(date_value, "Napi rota", matches)
 
 
 def lookup_long_summary(
@@ -722,7 +770,7 @@ def lookup_long_summary(
     )
     if error_status:
         return RotaResult(error_status, date_value, "Hossz\u00fa")
-    return _result_from_matches(date_value, "Hossz\u00fa", matches)
+    return _staff_list_result_from_matches(date_value, "Hossz\u00fa", matches)
 
 
 def lookup_oncall_summary(
@@ -740,7 +788,7 @@ def lookup_oncall_summary(
     )
     if error_status:
         return RotaResult(error_status, date_value, "\u00dcgyelet")
-    return _result_from_matches(date_value, "\u00dcgyelet", matches)
+    return _summary_result_from_matches(date_value, "\u00dcgyelet", matches)
 
 
 def lookup_daily_person(
