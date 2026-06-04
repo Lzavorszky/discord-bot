@@ -43,7 +43,11 @@ from rota_lookup import (
     STATUS_NOT_FOUND,
     STATUS_PERMISSION_ERROR,
     STATUS_SHEET_ERROR,
-    lookup_oncall,
+    lookup_daily_summary,
+    lookup_daily_person,
+    lookup_long_summary,
+    lookup_oncall_summary,
+    lookup_role_locations,
     normalize_role as normalize_rota_role,
     parse_date_input as parse_rota_date_input,
 )
@@ -4070,21 +4074,41 @@ async def handle_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _safe_reply_chunks(update, answer)
 
 
-ONCALL_USAGE = "Usage: /oncall <date> <role>\nExample: /oncall tomorrow \u00c9g\u00e9s"
+ROTAHELY_USAGE = "Usage: /rotahely <date> <role>\nExample: /rotahely tomorrow \u00c9g\u00e9s"
+NAPIROTA_USAGE = "Usage: /napirota <date>\nExample: /napirota tomorrow"
+HOSSZU_USAGE = "Usage: /hosszu <date>\nExample: /hosszu tomorrow"
+UGYELET_USAGE = "Usage: /ugyelet <date>\nExample: /ugyelet tomorrow"
+HOLVAGYOK_USAGE = "Usage: /holvagyok <date> <name>\nExample: /holvagyok tomorrow IVE"
 ROTA_UNAVAILABLE_MESSAGE = "Rota lookup is unavailable. Check Google Sheets configuration."
+ROTA_COMMANDS_TEXT = (
+    "Rota commands:\n"
+    "/napirota <date>\n"
+    "/hosszu <date>\n"
+    "/ugyelet <date>\n"
+    "/rotahely <date> <role>\n"
+    "/holvagyok <date> <name>\n\n"
+    "Dates: today, tomorrow, ma, holnap, 2026-06-05, 2026.06.05"
+)
 
 
 def _is_rota_allowed(user_id: int) -> bool:
     return bool(ALLOWED_USER_IDS) and user_id in ALLOWED_USER_IDS
 
 
-def _format_oncall_result(result, date_value, role_label):
+def _format_rota_assignment(assignment, *, bullets=True):
+    lines = [line.strip() for line in str(assignment or "").splitlines() if line.strip()]
+    if bullets:
+        return "\n".join(f"- {line}" for line in lines)
+    return "\n".join(lines)
+
+
+def _format_rota_result(result, date_value, role_label, not_found_noun="rota entry", *, bullets=True):
     separator = "\u2014"
     if result.status == STATUS_FOUND:
         source = result.source or "rota"
         return (
             f"{date_value.isoformat()} {separator} {result.role or role_label}\n"
-            f"- {result.assignment}\n\n"
+            f"{_format_rota_assignment(result.assignment, bullets=bullets)}\n\n"
             f"Source: {source}"
         )
     if result.status == STATUS_MULTIPLE_MATCHES:
@@ -4095,11 +4119,15 @@ def _format_oncall_result(result, date_value, role_label):
     if result.status in {STATUS_CONFIGURATION_ERROR, STATUS_PERMISSION_ERROR, STATUS_SHEET_ERROR}:
         return ROTA_UNAVAILABLE_MESSAGE
     if result.status == STATUS_NOT_FOUND:
-        return f"No rota entry found for {date_value.isoformat()} {separator} {role_label}."
+        return f"No {not_found_noun} found for {date_value.isoformat()} {separator} {role_label}."
     return ROTA_UNAVAILABLE_MESSAGE
 
 
-async def handle_oncall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _safe_reply_text(update, ROTA_COMMANDS_TEXT)
+
+
+async def _handle_rota_role_command(update, context, usage, lookup_func, not_found_noun="rota entry", *, bullets=True):
     user_id = _effective_user_id(update)
     if not _is_rota_allowed(user_id):
         await _reply_unauthorized(update)
@@ -4107,24 +4135,125 @@ async def handle_oncall(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     args = list(getattr(context, "args", None) or [])
     if len(args) < 2:
-        await _safe_reply_text(update, ONCALL_USAGE)
+        await _safe_reply_text(update, usage)
         return
 
     try:
         date_value = parse_rota_date_input(args[0])
     except ValueError:
-        await _safe_reply_text(update, ONCALL_USAGE)
+        await _safe_reply_text(update, usage)
         return
 
     role_text = " ".join(args[1:]).strip()
     if not role_text:
-        await _safe_reply_text(update, ONCALL_USAGE)
+        await _safe_reply_text(update, usage)
         return
 
     role_label = normalize_rota_role(role_text)
     await _safe_send_action(update, "typing")
-    result = lookup_oncall(date_value, role_text)
-    await _safe_reply_text(update, _format_oncall_result(result, date_value, role_label))
+    result = lookup_func(date_value, role_text)
+    await _safe_reply_text(
+        update,
+        _format_rota_result(result, date_value, role_label, not_found_noun, bullets=bullets),
+    )
+
+
+async def handle_rotahely(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await _handle_rota_role_command(
+        update,
+        context,
+        ROTAHELY_USAGE,
+        lookup_role_locations,
+        "rota assignment",
+    )
+
+
+async def _handle_rota_date_command(update, context, usage, lookup_func, title, *, bullets):
+    user_id = _effective_user_id(update)
+    if not _is_rota_allowed(user_id):
+        await _reply_unauthorized(update)
+        return
+
+    args = list(getattr(context, "args", None) or [])
+    if len(args) != 1:
+        await _safe_reply_text(update, usage)
+        return
+
+    try:
+        date_value = parse_rota_date_input(args[0])
+    except ValueError:
+        await _safe_reply_text(update, usage)
+        return
+
+    await _safe_send_action(update, "typing")
+    result = lookup_func(date_value)
+    await _safe_reply_text(
+        update,
+        _format_rota_result(result, date_value, title, "rota assignment", bullets=bullets),
+    )
+
+
+async def handle_napirota(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await _handle_rota_date_command(
+        update,
+        context,
+        NAPIROTA_USAGE,
+        lookup_daily_summary,
+        "Napi rota",
+        bullets=True,
+    )
+
+
+async def handle_hosszu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await _handle_rota_date_command(
+        update,
+        context,
+        HOSSZU_USAGE,
+        lookup_long_summary,
+        "Hossz\u00fa",
+        bullets=False,
+    )
+
+
+async def handle_ugyelet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await _handle_rota_date_command(
+        update,
+        context,
+        UGYELET_USAGE,
+        lookup_oncall_summary,
+        "\u00dcgyelet",
+        bullets=False,
+    )
+
+
+async def handle_holvagyok(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = _effective_user_id(update)
+    if not _is_rota_allowed(user_id):
+        await _reply_unauthorized(update)
+        return
+
+    args = list(getattr(context, "args", None) or [])
+    if len(args) < 2:
+        await _safe_reply_text(update, HOLVAGYOK_USAGE)
+        return
+
+    try:
+        date_value = parse_rota_date_input(args[0])
+    except ValueError:
+        await _safe_reply_text(update, HOLVAGYOK_USAGE)
+        return
+
+    person_text = " ".join(args[1:]).strip()
+    if not person_text:
+        await _safe_reply_text(update, HOLVAGYOK_USAGE)
+        return
+
+    await _safe_send_action(update, "typing")
+    result = lookup_daily_person(date_value, person_text)
+    await _safe_reply_text(
+        update,
+        _format_rota_result(result, date_value, person_text, "daily assignment"),
+    )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4207,11 +4336,21 @@ def main():
     app.add_handler(CommandHandler("reset", handle_reset))
     app.add_handler(CommandHandler("clear", handle_reset))
     app.add_handler(CommandHandler("debug", handle_debug))
-    app.add_handler(CommandHandler("oncall", handle_oncall))
+    app.add_handler(CommandHandler("commands", handle_commands))
+    app.add_handler(CommandHandler("help", handle_commands))
+    app.add_handler(CommandHandler("rotahely", handle_rotahely))
+    app.add_handler(CommandHandler("napirota", handle_napirota))
+    app.add_handler(CommandHandler("hosszu", handle_hosszu))
+    app.add_handler(CommandHandler("ugyelet", handle_ugyelet))
+    app.add_handler(CommandHandler("holvagyok", handle_holvagyok))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Bot is running.")
-    print("Commands: /whoami, /protocols, /version, /reset, /clear, /debug <query>, /oncall <date> <role>.")
+    print(
+        "Commands: /whoami, /protocols, /version, /reset, /clear, /debug <query>, "
+        "/commands, /rotahely <date> <role>, /napirota <date>, /hosszu <date>, "
+        "/ugyelet <date>, /holvagyok <date> <name>."
+    )
     app.run_polling()
 
 

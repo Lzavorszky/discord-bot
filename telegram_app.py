@@ -37,8 +37,28 @@ async def handle_debug(update, context):
     return await _core.handle_debug(update, context)
 
 
-async def handle_oncall(update, context):
-    return await _core.handle_oncall(update, context)
+async def handle_commands(update, context):
+    return await _core.handle_commands(update, context)
+
+
+async def handle_rotahely(update, context):
+    return await _core.handle_rotahely(update, context)
+
+
+async def handle_napirota(update, context):
+    return await _core.handle_napirota(update, context)
+
+
+async def handle_hosszu(update, context):
+    return await _core.handle_hosszu(update, context)
+
+
+async def handle_ugyelet(update, context):
+    return await _core.handle_ugyelet(update, context)
+
+
+async def handle_holvagyok(update, context):
+    return await _core.handle_holvagyok(update, context)
 
 
 async def handle_message(update, context):
@@ -62,7 +82,12 @@ __all__ = [
     "handle_version",
     "handle_reload",
     "handle_debug",
-    "handle_oncall",
+    "handle_commands",
+    "handle_rotahely",
+    "handle_napirota",
+    "handle_hosszu",
+    "handle_ugyelet",
+    "handle_holvagyok",
     "handle_message",
     "main",
 ]

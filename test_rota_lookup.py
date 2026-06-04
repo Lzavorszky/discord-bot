@@ -136,7 +136,7 @@ class TestRotaLookup(unittest.TestCase):
             ]
         )
 
-        result = rota_lookup.lookup_oncall(date(2026, 6, 5), "eges", service=service)
+        result = rota_lookup.lookup_rota(date(2026, 6, 5), "eges", service=service)
 
         self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
         self.assertEqual(result.assignment, "ABC")
@@ -155,10 +155,261 @@ class TestRotaLookup(unittest.TestCase):
             ]
         )
 
-        result = rota_lookup.lookup_oncall(date(2026, 6, 5), "ugyeletvezeto", service=service)
+        result = rota_lookup.lookup_rota(date(2026, 6, 5), "ugyeletvezeto", service=service)
 
         self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
         self.assertEqual(result.assignment, "LEAD")
+
+    def test_numeric_prefixed_eges_row_returns_assignment(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "Nappali munka", "p\u00e9ntek"],
+                        ["", "14 \u00c9g\u00e9s", "IVE"],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_daily_rota(date(2026, 6, 5), "\u00e9g\u00e9s", service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "IVE")
+
+    def test_napi_vezeto_matches_ugyeletvezeto_alias(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "Nappali munka", "p\u00e9ntek"],
+                        ["", "Napi vezet\u0151", "LEAD"],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_daily_rota(date(2026, 6, 5), "ugyeletvezeto", service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "LEAD")
+
+    def test_multi_row_aneszt_ugyelet_combines_assignments(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "\u00dcgyeletek", ""],
+                        ["", "Aneszt \u00fcgyelet 1", "VBA"],
+                        ["", "Aneszt \u00fcgyelet 2", "KKA"],
+                        ["", "Aneszt \u00fcgyelet 3", ""],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_oncall(date(2026, 6, 5), "aneszt ugyelet", service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "Aneszt \u00fcgyelet 1: VBA\nAneszt \u00fcgyelet 2: KKA")
+
+    def test_oncall_uses_only_ugyeletek_section(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "Nappali munka", "p\u00e9ntek"],
+                        ["", "S\u00fcrg\u0151s", "DAY"],
+                        ["", "Hossz\u00fa", ""],
+                        ["", "Aneszt hossz\u00fa 1", "LONG"],
+                        ["", "\u00dcgyeletek", ""],
+                        ["", "S\u00fcrg\u0151s", "CALL"],
+                        ["", "T\u00e1voll\u00e9tek", ""],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_oncall(date(2026, 6, 5), "surgos", service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "CALL")
+
+    def test_daily_rota_uses_only_nappali_section(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "Nappali munka", "p\u00e9ntek"],
+                        ["", "S\u00fcrg\u0151s", "DAY"],
+                        ["", "\u00dcgyeletek", ""],
+                        ["", "S\u00fcrg\u0151s", "CALL"],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_daily_rota(date(2026, 6, 5), "surgos", service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "DAY")
+
+    def test_long_rota_uses_hosszu_section(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "Nappali munka", "p\u00e9ntek"],
+                        ["", "Aneszt1", "DAY"],
+                        ["", "Hossz\u00fa", ""],
+                        ["", "Aneszt hossz\u00fa 1", "LONG1"],
+                        ["", "Aneszt hossz\u00fa 2", "LONG2"],
+                        ["", "\u00dcgyeletek", ""],
+                        ["", "Aneszt \u00fcgyelet 1", "CALL"],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_long_rota(date(2026, 6, 5), "aneszt", service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "Aneszt hossz\u00fa 1: LONG1\nAneszt hossz\u00fa 2: LONG2")
+
+    def test_holvagyok_finds_person_in_daily_section_only(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "Nappali munka", "p\u00e9ntek"],
+                        ["", "14 \u00c9g\u00e9s", "IVE"],
+                        ["", "S\u00fcrg\u0151s", "SAD, HAM"],
+                        ["", "\u00dcgyeletek", ""],
+                        ["", "Aneszt1", "IVE"],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_daily_person(date(2026, 6, 5), "IVE", service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "14 \u00c9g\u00e9s: IVE")
+
+    def test_napirota_summary_returns_daily_label_lines(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "Nappali munka", "p\u00e9ntek"],
+                        ["", "14 \u00c9g\u00e9s", "IVE"],
+                        ["", "S\u00fcrg\u0151s", "SAD, HAM"],
+                        ["", "Hossz\u00fa", ""],
+                        ["", "Aneszt hossz\u00fa 1", "LONG"],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_daily_summary(date(2026, 6, 5), service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "14 \u00c9g\u00e9s: IVE\nS\u00fcrg\u0151s: SAD, HAM")
+
+    def test_hosszu_summary_returns_unique_staff_list(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "Nappali munka", "p\u00e9ntek"],
+                        ["", "14 \u00c9g\u00e9s", "DAY"],
+                        ["", "Hossz\u00fa", ""],
+                        ["", "Aneszt hossz\u00fa 1", "ZLR, ZKA"],
+                        ["", "Sz\u00edvseb hossz\u00fa", "PAT, ZLR"],
+                        ["", "\u00dcgyeletek", ""],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_long_summary(date(2026, 6, 5), service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "ZLR, ZKA, PAT")
+
+    def test_ugyelet_summary_returns_grouped_lines(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "\u00dcgyeletek", ""],
+                        ["", "Multi ITO1", "ZKA"],
+                        ["", "Multi ITO2", "MPE"],
+                        ["", "S\u00fcrg\u0151s", "KFM"],
+                        ["", "Sz\u00edvseb ITO", "SAD"],
+                        ["", "Aneszt1", "KUA"],
+                        ["", "Aneszt2", "OTM"],
+                        ["", "Aneszt3", "TPE"],
+                        ["", "Szub", "SUB"],
+                        ["", "II. th.", "II"],
+                        ["", "Sz\u00edv.telefon", "TEL1"],
+                        ["", "TEL", "TEL2"],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_oncall_summary(date(2026, 6, 5), service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(
+            result.assignment,
+            "ITO: ZKA, MPE, KFM\n"
+            "Sz\u00edv: SAD\n"
+            "M\u0171t\u0151: KUA, OTM\n"
+            "Telefon: TPE, SUB, II, TEL1, TEL2",
+        )
+
+    def test_rotahely_returns_matching_role_locations(self):
+        service = _FakeSheetsService(
+            [
+                (
+                    "2026",
+                    [
+                        ["", "23. h\u00e9t", "2026.06.05"],
+                        ["", "Nappali munka", "p\u00e9ntek"],
+                        ["", "S\u00fcrg\u0151s", "DAY"],
+                        ["", "\u00dcgyeletek", ""],
+                        ["", "S\u00fcrg\u0151s", "CALL"],
+                    ],
+                )
+            ]
+        )
+
+        result = rota_lookup.lookup_role_locations(date(2026, 6, 5), "surgos", service=service)
+
+        self.assertEqual(result.status, rota_lookup.STATUS_FOUND)
+        self.assertEqual(result.assignment, "Napi - S\u00fcrg\u0151s: DAY\n\u00dcgyelet - S\u00fcrg\u0151s: CALL")
 
     def test_empty_cell_returns_not_found(self):
         service = _FakeSheetsService(
@@ -185,7 +436,7 @@ class TestRotaLookup(unittest.TestCase):
             ]
         )
 
-        result = rota_lookup.lookup_oncall(date(2026, 6, 5), "eges", service=service)
+        result = rota_lookup.lookup_rota(date(2026, 6, 5), "eges", service=service)
 
         self.assertEqual(result.status, rota_lookup.STATUS_MULTIPLE_MATCHES)
 
@@ -205,7 +456,7 @@ class TestRotaLookup(unittest.TestCase):
         self.assertNotIn("not-json-secret-value", "\n".join(problems))
 
 
-class TestOncallHandler(unittest.IsolatedAsyncioTestCase):
+class TestRotaCommandHandler(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.old_allowed = set(bot.ALLOWED_USER_IDS)
 
@@ -215,7 +466,7 @@ class TestOncallHandler(unittest.IsolatedAsyncioTestCase):
     async def test_rota_handler_refuses_access_when_allowlist_is_empty(self):
         bot.ALLOWED_USER_IDS = set()
         message = types.SimpleNamespace(
-            text="/oncall today eges",
+            text="/rotahely today eges",
             chat=types.SimpleNamespace(send_action=AsyncMock()),
             reply_text=AsyncMock(),
         )
@@ -226,8 +477,8 @@ class TestOncallHandler(unittest.IsolatedAsyncioTestCase):
         )
         context = types.SimpleNamespace(args=["today", "eges"])
 
-        with patch.object(bot, "lookup_oncall") as lookup_mock:
-            await bot.handle_oncall(update, context)
+        with patch.object(bot, "lookup_role_locations") as lookup_mock:
+            await bot.handle_rotahely(update, context)
 
         lookup_mock.assert_not_called()
         message.reply_text.assert_awaited()

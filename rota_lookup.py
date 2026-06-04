@@ -31,6 +31,10 @@ STATUS_CONFIGURATION_ERROR = "configuration_error"
 STATUS_PERMISSION_ERROR = "permission_error"
 STATUS_SHEET_ERROR = "sheet_error"
 
+SECTION_DAILY = "daily"
+SECTION_LONG = "long"
+SECTION_ONCALL = "oncall"
+
 EGES = "\u00c9g\u00e9s"
 UGYELETVEZETO = "\u00dcgyeletvezet\u0151"
 ANESZT_UGYELET = "Aneszt \u00fcgyelet"
@@ -105,13 +109,23 @@ ROLE_ALIASES = {
     "eges": EGES,
     _role_key(UGYELETVEZETO): UGYELETVEZETO,
     "ugyeletvezeto": UGYELETVEZETO,
+    "napi vezeto": UGYELETVEZETO,
     _role_key(ANESZT_UGYELET): ANESZT_UGYELET,
     "aneszt": ANESZT_UGYELET,
     "aneszt ugyelet": ANESZT_UGYELET,
     _role_key(SZIVSEB_UGYELET): SZIVSEB_UGYELET,
+    "szivseb": SZIVSEB_UGYELET,
     "szivseb ugyelet": SZIVSEB_UGYELET,
     _role_key(SURGOS_UGYELET): SURGOS_UGYELET,
+    "surgos": SURGOS_UGYELET,
     "surgos ugyelet": SURGOS_UGYELET,
+}
+
+SECTION_MARKERS = {
+    "nappali munka": SECTION_DAILY,
+    "hosszu": SECTION_LONG,
+    "ugyeletek": SECTION_ONCALL,
+    "tavolletek": "away",
 }
 
 
@@ -218,42 +232,322 @@ def _get_cell(rows, row_index: int, column_index: int) -> str:
     return str(row[column_index]).strip()
 
 
-def _row_contains_role(row, requested_role: str) -> bool:
-    requested_key = _role_key(normalize_role(requested_role))
+def _is_real_assignment(value: str) -> bool:
+    return bool(value and value.strip() and value.strip() not in {"-", "/"})
+
+
+def _label_key(value: str) -> str:
+    key = _role_key(value)
+    key = re.sub(r"^\d+\s+", "", key)
+    key = re.sub(r"\s+\d+$", "", key)
+    return key.strip()
+
+
+def _row_label(row) -> str:
+    # In the rota export, labels are in column B. Fall back to any non-empty
+    # cell so the parser remains usable if the sheet shifts later.
+    if row and len(row) > 1 and str(row[1]).strip():
+        return str(row[1]).strip()
     for cell in row or []:
-        if _role_key(normalize_role(str(cell))) == requested_key:
-            return True
+        if str(cell).strip():
+            return str(cell).strip()
+    return ""
+
+
+def _candidate_row_labels(row) -> list[str]:
+    labels: list[str] = []
+    if row and len(row) > 1 and str(row[1]).strip():
+        labels.append(str(row[1]).strip())
+    for cell in row or []:
+        value = str(cell).strip()
+        if value and value not in labels:
+            labels.append(value)
+    return labels
+
+
+def _row_has_any_date(row) -> bool:
+    return any(_parse_sheet_date_cell(cell) is not None for cell in row or [])
+
+
+def _next_date_row_index(rows, start_row_index: int) -> int:
+    for row_index in range(start_row_index + 1, len(rows)):
+        if _row_has_any_date(rows[row_index]):
+            return row_index
+    return len(rows)
+
+
+def _section_for_label(label: str) -> str | None:
+    return SECTION_MARKERS.get(_label_key(label))
+
+
+def _nearest_section(rows, row_index: int) -> str:
+    for previous_index in range(row_index - 1, -1, -1):
+        section = _section_for_label(_row_label(rows[previous_index] or []))
+        if section:
+            return section
+    return ""
+
+
+def _label_matches_role(label: str, canonical: str, section: str) -> bool:
+    key = _label_key(label)
+    requested_key = _role_key(canonical)
+
+    if key == requested_key:
+        return True
+    if ROLE_ALIASES.get(key) == canonical:
+        return True
+    if requested_key == "eges" and key == "eges":
+        return True
+    if requested_key == "aneszt ugyelet" and key.startswith("aneszt ugyelet"):
+        return True
+    if requested_key == "aneszt ugyelet" and section == SECTION_ONCALL and key.startswith("aneszt"):
+        return True
+    if requested_key == "aneszt ugyelet" and section == SECTION_LONG and key.startswith("aneszt hosszu"):
+        return True
+    if requested_key == "szivseb ugyelet" and section == SECTION_ONCALL and key.startswith("szivseb"):
+        return True
+    if requested_key == "szivseb ugyelet" and section == SECTION_LONG and key.startswith("szivseb hosszu"):
+        return True
+    if requested_key == "surgos ugyelet" and section == SECTION_ONCALL and key == "surgos":
+        return True
     return False
 
 
-def _find_tab_matches(rows, tab_title: str, requested_date: date, requested_role: str) -> list[RotaMatch]:
-    matches: list[RotaMatch] = []
+def _matching_row_label(rows, row_index: int, requested_role: str) -> str | None:
+    row = rows[row_index] or []
+    canonical = normalize_role(requested_role)
+    section = _nearest_section(rows, row_index)
+    for label in _candidate_row_labels(row):
+        if _label_matches_role(label, canonical, section):
+            return label
+    return None
 
+
+def _iter_date_columns(rows, requested_date: date):
     for date_row_index, row in enumerate(rows):
         for date_column_index, cell in enumerate(row or []):
-            if _parse_sheet_date_cell(cell) != requested_date:
+            if _parse_sheet_date_cell(cell) == requested_date:
+                yield date_row_index, date_column_index, _next_date_row_index(rows, date_row_index)
+
+
+def _section_bounds(rows, block_start: int, block_end: int, section: str | None) -> tuple[int, int]:
+    if section is None:
+        return block_start + 1, block_end
+
+    start = None
+    for row_index in range(block_start + 1, block_end):
+        row_section = _section_for_label(_row_label(rows[row_index] or []))
+        if row_section == section:
+            start = row_index + 1
+            break
+    if start is None:
+        return block_end, block_end
+
+    end = block_end
+    for row_index in range(start, block_end):
+        if _section_for_label(_row_label(rows[row_index] or [])):
+            end = row_index
+            break
+    return start, end
+
+
+def _find_tab_matches(
+    rows,
+    tab_title: str,
+    requested_date: date,
+    requested_role: str,
+    *,
+    section: str | None = None,
+) -> list[RotaMatch]:
+    matches: list[RotaMatch] = []
+
+    for date_row_index, date_column_index, block_end in _iter_date_columns(rows, requested_date):
+        first_role_row, last_role_row = _section_bounds(rows, date_row_index, block_end, section)
+        row_assignments: list[tuple[str, str, int]] = []
+        for role_row_index in range(first_role_row, last_role_row):
+            matched_label = _matching_row_label(rows, role_row_index, requested_role)
+            if not matched_label:
                 continue
+            assignment = _get_cell(rows, role_row_index, date_column_index)
+            if assignment:
+                row_assignments.append((matched_label, assignment, role_row_index))
 
-            # Human rota blocks usually have a date row followed by role rows.
-            # The bounded scan avoids drifting into unrelated repeated blocks.
-            first_role_row = date_row_index + 1
-            last_role_row = min(len(rows), date_row_index + 41)
-            for role_row_index in range(first_role_row, last_role_row):
-                role_row = rows[role_row_index] or []
-                if not _row_contains_role(role_row, requested_role):
-                    continue
-                assignment = _get_cell(rows, role_row_index, date_column_index)
-                if assignment:
-                    matches.append(
-                        RotaMatch(
-                            assignment=assignment,
-                            source=tab_title,
-                            row_index=role_row_index,
-                            column_index=date_column_index,
-                        )
-                    )
-                break
+        if row_assignments:
+            if len(row_assignments) == 1:
+                assignment = row_assignments[0][1]
+                row_index = row_assignments[0][2]
+            else:
+                assignment = "\n".join(
+                    f"{label}: {assignment}"
+                    for label, assignment, _row_index in row_assignments
+                )
+                row_index = row_assignments[0][2]
+            matches.append(
+                RotaMatch(
+                    assignment=assignment,
+                    source=tab_title,
+                    row_index=row_index,
+                    column_index=date_column_index,
+                )
+            )
 
+    return matches
+
+
+def _assignment_contains_person(assignment: str, person: str) -> bool:
+    assignment_key = _role_key(assignment)
+    person_key = _role_key(person)
+    if not person_key:
+        return False
+    tokens = [token for token in re.split(r"\s+", assignment_key) if token]
+    return person_key in tokens
+
+
+def _find_person_daily_matches(rows, tab_title: str, requested_date: date, person: str) -> list[RotaMatch]:
+    matches: list[RotaMatch] = []
+    for date_row_index, date_column_index, block_end in _iter_date_columns(rows, requested_date):
+        first_role_row, last_role_row = _section_bounds(rows, date_row_index, block_end, SECTION_DAILY)
+        for role_row_index in range(first_role_row, last_role_row):
+            assignment = _get_cell(rows, role_row_index, date_column_index)
+            if not _assignment_contains_person(assignment, person):
+                continue
+            label = _row_label(rows[role_row_index] or [])
+            matches.append(
+                RotaMatch(
+                    assignment=f"{label}: {assignment}",
+                    source=tab_title,
+                    row_index=role_row_index,
+                    column_index=date_column_index,
+                )
+            )
+    return matches
+
+
+def _section_rows(rows, date_row_index: int, block_end: int, section: str, date_column_index: int):
+    first_role_row, last_role_row = _section_bounds(rows, date_row_index, block_end, section)
+    for row_index in range(first_role_row, last_role_row):
+        label = _row_label(rows[row_index] or [])
+        assignment = _get_cell(rows, row_index, date_column_index)
+        if label and _is_real_assignment(assignment):
+            yield label, assignment, row_index
+
+
+def _find_section_summary_matches(
+    rows,
+    tab_title: str,
+    requested_date: date,
+    section: str,
+    *,
+    include_labels: bool,
+) -> list[RotaMatch]:
+    matches: list[RotaMatch] = []
+    for date_row_index, date_column_index, block_end in _iter_date_columns(rows, requested_date):
+        section_rows = list(_section_rows(rows, date_row_index, block_end, section, date_column_index))
+        if not section_rows:
+            continue
+        if include_labels:
+            assignment = "\n".join(f"{label}: {value}" for label, value, _row_index in section_rows)
+        else:
+            assignment = _join_staff_tokens(value for _label, value, _row_index in section_rows)
+        if assignment:
+            matches.append(
+                RotaMatch(
+                    assignment=assignment,
+                    source=tab_title,
+                    row_index=section_rows[0][2],
+                    column_index=date_column_index,
+                )
+            )
+    return matches
+
+
+def _staff_tokens(value: str) -> list[str]:
+    tokens: list[str] = []
+    for part in str(value or "").split(","):
+        token = part.strip()
+        if _is_real_assignment(token):
+            tokens.append(token)
+    return tokens
+
+
+def _join_staff_tokens(values) -> str:
+    seen = set()
+    tokens: list[str] = []
+    for value in values:
+        for token in _staff_tokens(value):
+            key = _role_key(token)
+            if key and key not in seen:
+                seen.add(key)
+                tokens.append(token)
+    return ", ".join(tokens)
+
+
+def _find_role_location_matches(rows, tab_title: str, requested_date: date, requested_role: str) -> list[RotaMatch]:
+    matches: list[RotaMatch] = []
+    for date_row_index, date_column_index, block_end in _iter_date_columns(rows, requested_date):
+        row_assignments: list[tuple[str, str, int]] = []
+        for row_index in range(date_row_index + 1, block_end):
+            matched_label = _matching_row_label(rows, row_index, requested_role)
+            if not matched_label:
+                continue
+            assignment = _get_cell(rows, row_index, date_column_index)
+            if _is_real_assignment(assignment):
+                section = _nearest_section(rows, row_index)
+                prefix = {
+                    SECTION_DAILY: "Napi",
+                    SECTION_LONG: "Hossz\u00fa",
+                    SECTION_ONCALL: "\u00dcgyelet",
+                }.get(section, "Rota")
+                row_assignments.append((f"{prefix} - {matched_label}", assignment, row_index))
+
+        if row_assignments:
+            assignment = "\n".join(
+                f"{label}: {assignment}"
+                for label, assignment, _row_index in row_assignments
+            )
+            matches.append(
+                RotaMatch(
+                    assignment=assignment,
+                    source=tab_title,
+                    row_index=row_assignments[0][2],
+                    column_index=date_column_index,
+                )
+            )
+    return matches
+
+
+def _find_oncall_summary_matches(rows, tab_title: str, requested_date: date) -> list[RotaMatch]:
+    matches: list[RotaMatch] = []
+    for date_row_index, date_column_index, block_end in _iter_date_columns(rows, requested_date):
+        by_label: dict[str, str] = {}
+        first_row_index = None
+        for label, assignment, row_index in _section_rows(rows, date_row_index, block_end, SECTION_ONCALL, date_column_index):
+            by_label[_label_key(label)] = assignment
+            if first_row_index is None:
+                first_row_index = row_index
+
+        if not by_label:
+            continue
+
+        def values_for(*labels):
+            return [by_label[label] for label in labels if by_label.get(label)]
+
+        lines = [
+            "ITO: " + _join_staff_tokens(values_for("multi ito1", "multi ito2", "surgos")),
+            "Sz\u00edv: " + _join_staff_tokens(values_for("szivseb ito")),
+            "M\u0171t\u0151: " + _join_staff_tokens(values_for("aneszt1", "aneszt2")),
+            "Telefon: " + _join_staff_tokens(values_for("aneszt3", "szub", "ii th", "sziv telefon", "tel")),
+        ]
+        assignment = "\n".join(line for line in lines if not line.endswith(": "))
+        if assignment:
+            matches.append(
+                RotaMatch(
+                    assignment=assignment,
+                    source=tab_title,
+                    row_index=first_row_index or date_row_index,
+                    column_index=date_column_index,
+                )
+            )
     return matches
 
 
@@ -266,19 +560,10 @@ def _is_permission_error(exc: Exception) -> bool:
         return False
 
 
-def lookup_oncall(
-    date_value: date,
-    role: str,
-    *,
-    service=None,
-    spreadsheet_id: str | None = None,
-    used_range: str = DEFAULT_USED_RANGE,
-) -> RotaResult:
-    """Look up one rota assignment across all worksheet tabs."""
-    canonical_role = normalize_role(role)
+def _lookup_matches(match_builder, *, service=None, spreadsheet_id: str | None = None, used_range: str = DEFAULT_USED_RANGE):
     spreadsheet_id = spreadsheet_id or os.getenv("ROTA_SPREADSHEET_ID", "").strip()
     if not spreadsheet_id:
-        return RotaResult(STATUS_CONFIGURATION_ERROR, date_value, canonical_role)
+        return STATUS_CONFIGURATION_ERROR, []
 
     try:
         sheets_service = service or build_sheets_service()
@@ -298,47 +583,197 @@ def lookup_oncall(
                 .execute()
             )
             rows = values_response.get("values", [])
-            all_matches.extend(_find_tab_matches(rows, tab_title, date_value, canonical_role))
+            all_matches.extend(match_builder(rows, tab_title))
     except RotaConfigurationError:
-        return RotaResult(STATUS_CONFIGURATION_ERROR, date_value, canonical_role)
+        return STATUS_CONFIGURATION_ERROR, []
     except Exception as exc:
         status = STATUS_PERMISSION_ERROR if _is_permission_error(exc) else STATUS_SHEET_ERROR
-        return RotaResult(status, date_value, canonical_role)
+        return status, []
 
-    if not all_matches:
-        return RotaResult(STATUS_NOT_FOUND, date_value, canonical_role)
+    return None, all_matches
 
-    distinct_assignments = {match.assignment for match in all_matches}
+
+def _result_from_matches(date_value: date, role: str, matches: list[RotaMatch]) -> RotaResult:
+    if not matches:
+        return RotaResult(STATUS_NOT_FOUND, date_value, role)
+
+    distinct_assignments = {match.assignment for match in matches}
     if len(distinct_assignments) > 1:
         return RotaResult(
             STATUS_MULTIPLE_MATCHES,
             date_value,
-            canonical_role,
-            matches=tuple(all_matches),
+            role,
+            matches=tuple(matches),
         )
 
-    first_match = all_matches[0]
+    first_match = matches[0]
     return RotaResult(
         STATUS_FOUND,
         date_value,
-        canonical_role,
+        role,
         assignment=first_match.assignment,
         source=first_match.source,
-        matches=tuple(all_matches),
+        matches=tuple(matches),
     )
 
 
-def _diagnose(argv: list[str]) -> int:
-    if len(argv) < 3:
-        print('Usage: python rota_lookup.py <date> "<role>"')
-        return 2
-    try:
-        requested_date = parse_date_input(argv[1])
-    except ValueError:
-        print("Invalid date.")
-        return 2
+def lookup_rota(
+    date_value: date,
+    role: str,
+    *,
+    section: str | None = None,
+    service=None,
+    spreadsheet_id: str | None = None,
+    used_range: str = DEFAULT_USED_RANGE,
+) -> RotaResult:
+    """Look up one role assignment in a named rota section across all tabs."""
+    canonical_role = normalize_role(role)
+    error_status, matches = _lookup_matches(
+        lambda rows, tab_title: _find_tab_matches(
+            rows,
+            tab_title,
+            date_value,
+            canonical_role,
+            section=section,
+        ),
+        service=service,
+        spreadsheet_id=spreadsheet_id,
+        used_range=used_range,
+    )
+    if error_status:
+        return RotaResult(error_status, date_value, canonical_role)
+    return _result_from_matches(date_value, canonical_role, matches)
 
-    result = lookup_oncall(requested_date, " ".join(argv[2:]))
+
+def lookup_oncall(date_value: date, role: str, **kwargs) -> RotaResult:
+    return lookup_rota(date_value, role, section=SECTION_ONCALL, **kwargs)
+
+
+def lookup_daily_rota(date_value: date, role: str, **kwargs) -> RotaResult:
+    return lookup_rota(date_value, role, section=SECTION_DAILY, **kwargs)
+
+
+def lookup_long_rota(date_value: date, role: str, **kwargs) -> RotaResult:
+    return lookup_rota(date_value, role, section=SECTION_LONG, **kwargs)
+
+
+def lookup_role_locations(
+    date_value: date,
+    role: str,
+    *,
+    service=None,
+    spreadsheet_id: str | None = None,
+    used_range: str = DEFAULT_USED_RANGE,
+) -> RotaResult:
+    canonical_role = normalize_role(role)
+    error_status, matches = _lookup_matches(
+        lambda rows, tab_title: _find_role_location_matches(rows, tab_title, date_value, canonical_role),
+        service=service,
+        spreadsheet_id=spreadsheet_id,
+        used_range=used_range,
+    )
+    if error_status:
+        return RotaResult(error_status, date_value, canonical_role)
+    return _result_from_matches(date_value, canonical_role, matches)
+
+
+def lookup_daily_summary(
+    date_value: date,
+    *,
+    service=None,
+    spreadsheet_id: str | None = None,
+    used_range: str = DEFAULT_USED_RANGE,
+) -> RotaResult:
+    error_status, matches = _lookup_matches(
+        lambda rows, tab_title: _find_section_summary_matches(
+            rows,
+            tab_title,
+            date_value,
+            SECTION_DAILY,
+            include_labels=True,
+        ),
+        service=service,
+        spreadsheet_id=spreadsheet_id,
+        used_range=used_range,
+    )
+    if error_status:
+        return RotaResult(error_status, date_value, "Napi rota")
+    return _result_from_matches(date_value, "Napi rota", matches)
+
+
+def lookup_long_summary(
+    date_value: date,
+    *,
+    service=None,
+    spreadsheet_id: str | None = None,
+    used_range: str = DEFAULT_USED_RANGE,
+) -> RotaResult:
+    error_status, matches = _lookup_matches(
+        lambda rows, tab_title: _find_section_summary_matches(
+            rows,
+            tab_title,
+            date_value,
+            SECTION_LONG,
+            include_labels=False,
+        ),
+        service=service,
+        spreadsheet_id=spreadsheet_id,
+        used_range=used_range,
+    )
+    if error_status:
+        return RotaResult(error_status, date_value, "Hossz\u00fa")
+    return _result_from_matches(date_value, "Hossz\u00fa", matches)
+
+
+def lookup_oncall_summary(
+    date_value: date,
+    *,
+    service=None,
+    spreadsheet_id: str | None = None,
+    used_range: str = DEFAULT_USED_RANGE,
+) -> RotaResult:
+    error_status, matches = _lookup_matches(
+        lambda rows, tab_title: _find_oncall_summary_matches(rows, tab_title, date_value),
+        service=service,
+        spreadsheet_id=spreadsheet_id,
+        used_range=used_range,
+    )
+    if error_status:
+        return RotaResult(error_status, date_value, "\u00dcgyelet")
+    return _result_from_matches(date_value, "\u00dcgyelet", matches)
+
+
+def lookup_daily_person(
+    date_value: date,
+    person: str,
+    *,
+    service=None,
+    spreadsheet_id: str | None = None,
+    used_range: str = DEFAULT_USED_RANGE,
+) -> RotaResult:
+    person_label = str(person or "").strip()
+    error_status, matches = _lookup_matches(
+        lambda rows, tab_title: _find_person_daily_matches(rows, tab_title, date_value, person_label),
+        service=service,
+        spreadsheet_id=spreadsheet_id,
+        used_range=used_range,
+    )
+    if error_status:
+        return RotaResult(error_status, date_value, person_label)
+    if not matches:
+        return RotaResult(STATUS_NOT_FOUND, date_value, person_label)
+    assignment = "\n".join(match.assignment for match in matches)
+    return RotaResult(
+        STATUS_FOUND,
+        date_value,
+        person_label,
+        assignment=assignment,
+        source=matches[0].source,
+        matches=tuple(matches),
+    )
+
+
+def _print_cli_result(result: RotaResult) -> int:
     if result.status == STATUS_FOUND:
         print(f"{result.date_value.isoformat()} - {result.role}")
         print(f"- {result.assignment}")
@@ -354,6 +789,19 @@ def _diagnose(argv: list[str]) -> int:
         return 1
     print(result.status)
     return 1
+
+
+def _diagnose(argv: list[str]) -> int:
+    if len(argv) < 3:
+        print('Usage: python rota_lookup.py <date> "<role>"')
+        return 2
+    try:
+        requested_date = parse_date_input(argv[1])
+    except ValueError:
+        print("Invalid date.")
+        return 2
+
+    return _print_cli_result(lookup_oncall(requested_date, " ".join(argv[2:])))
 
 
 if __name__ == "__main__":
