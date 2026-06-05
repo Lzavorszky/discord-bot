@@ -51,6 +51,7 @@ from rota_lookup import (
     normalize_role as normalize_rota_role,
     parse_date_input as parse_rota_date_input,
 )
+from nursing_rota_lookup import lookup_nursing_rota
 from routing import AnswerEnvelope, TurnContext
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
@@ -4079,6 +4080,7 @@ NAPIROTA_USAGE = "Usage: /napirota <date>\nExample: /napirota tomorrow"
 HOSSZU_USAGE = "Usage: /hosszu <date>\nExample: /hosszu tomorrow"
 UGYELET_USAGE = "Usage: /ugyelet <date>\nExample: /ugyelet tomorrow"
 HOLVAGYOK_USAGE = "Usage: /holvagyok <date> <name>\nExample: /holvagyok tomorrow IVE"
+APOLO_USAGE = "Usage: /apolo [holnap]\nExample: /apolo or /apolo holnap"
 ROTA_UNAVAILABLE_MESSAGE = "Rota lookup is unavailable. Check Google Sheets configuration."
 ROTA_COMMANDS_TEXT = (
     "Rota commands:\n"
@@ -4086,8 +4088,10 @@ ROTA_COMMANDS_TEXT = (
     "/hosszu <date>\n"
     "/ugyelet <date>\n"
     "/rotahely <date> <role>\n"
-    "/holvagyok <date> <name>\n\n"
-    "Dates: today, tomorrow, ma, holnap, 2026-06-05, 2026.06.05"
+    "/holvagyok <date> <name>\n"
+    "/apolo [holnap]\n\n"
+    "Doctor rota dates: today, tomorrow, ma, holnap, 2026-06-05, 2026.06.05\n"
+    "Apolo: no argument = today, holnap = tomorrow"
 )
 
 
@@ -4121,6 +4125,30 @@ def _format_rota_result(result, date_value, role_label, not_found_noun="rota ent
     if result.status == STATUS_NOT_FOUND:
         return f"No {not_found_noun} found for {date_value.isoformat()} {separator} {role_label}."
     return ROTA_UNAVAILABLE_MESSAGE
+
+
+def _format_nursing_shift(shift):
+    declared = shift.declared_count or "n/a"
+    header = f"{shift.label}: {declared} ({shift.listed_count} listed)"
+    lines = [header]
+    lines.extend(f"- {name}" for name in shift.nurses)
+    return "\n".join(lines)
+
+
+def _format_nursing_rota_result(result, day):
+    if result.status == STATUS_FOUND:
+        date_label = result.date_value.isoformat() if result.date_value else day
+        sections = []
+        if result.day:
+            sections.append(_format_nursing_shift(result.day))
+        if result.night:
+            sections.append(_format_nursing_shift(result.night))
+        source = result.source or "nursing rota"
+        return f"{date_label} - \u00c1pol\u00f3i beoszt\u00e1s\n" + "\n\n".join(sections) + f"\n\nSource: {source}"
+    if result.status in {STATUS_CONFIGURATION_ERROR, STATUS_PERMISSION_ERROR, STATUS_SHEET_ERROR}:
+        return ROTA_UNAVAILABLE_MESSAGE
+    date_label = result.date_value.isoformat() if result.date_value else day
+    return f"No nursing rota found for {date_label}."
 
 
 async def handle_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4256,6 +4284,30 @@ async def handle_holvagyok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def handle_apolo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = _effective_user_id(update)
+    if not _is_rota_allowed(user_id):
+        await _reply_unauthorized(update)
+        return
+
+    args = list(getattr(context, "args", None) or [])
+    if len(args) > 1:
+        await _safe_reply_text(update, APOLO_USAGE)
+        return
+
+    day = "today"
+    if args:
+        key = args[0].strip().casefold()
+        if key not in {"holnap", "tomorrow"}:
+            await _safe_reply_text(update, APOLO_USAGE)
+            return
+        day = "tomorrow"
+
+    await _safe_send_action(update, "typing")
+    result = lookup_nursing_rota(day)
+    await _safe_reply_text(update, _format_nursing_rota_result(result, day))
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -4343,13 +4395,14 @@ def main():
     app.add_handler(CommandHandler("hosszu", handle_hosszu))
     app.add_handler(CommandHandler("ugyelet", handle_ugyelet))
     app.add_handler(CommandHandler("holvagyok", handle_holvagyok))
+    app.add_handler(CommandHandler("apolo", handle_apolo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Bot is running.")
     print(
         "Commands: /whoami, /protocols, /version, /reset, /clear, /debug <query>, "
         "/commands, /rotahely <date> <role>, /napirota <date>, /hosszu <date>, "
-        "/ugyelet <date>, /holvagyok <date> <name>."
+        "/ugyelet <date>, /holvagyok <date> <name>, /apolo [holnap]."
     )
     app.run_polling()
 

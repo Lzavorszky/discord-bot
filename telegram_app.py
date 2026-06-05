@@ -61,6 +61,10 @@ async def handle_holvagyok(update, context):
     return await _core.handle_holvagyok(update, context)
 
 
+async def handle_apolo(update, context):
+    return await _core.handle_apolo(update, context)
+
+
 async def handle_message(update, context):
     return await _core.handle_message(update, context)
 
@@ -88,6 +92,7 @@ __all__ = [
     "handle_hosszu",
     "handle_ugyelet",
     "handle_holvagyok",
+    "handle_apolo",
     "handle_message",
     "main",
 ]
