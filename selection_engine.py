@@ -984,6 +984,8 @@ def extract_slots_from_query(question, parsed_protocol=None, existing_slots=None
             if genes:
                 existing_genes = slots.get("resistance_gene_list", [])
                 slots["resistance_gene_list"] = list({*existing_genes, *genes})
+        if meta.get("protocol_id") == "endocarditis_antibiotics":
+            _extract_endocarditis_slots(text, slots)
         if meta.get("protocol_id") == "vancomycin":
             vm = _VANCOMYCIN_LEVEL_RE.search(text)
             if vm:
@@ -1068,6 +1070,83 @@ def _extract_biofire_entities(text):
             if canonical not in genes:
                 genes.append(canonical)
     return organisms, genes
+
+
+def _extract_endocarditis_slots(text, slots):
+    lower = (text or "").lower()
+
+    if re.search(r"\b(culture[-\s]?negative|blood\s+culture[-\s]?negative|bcnie)\b", lower):
+        slots["unsupported_topic"] = "culture_negative"
+    elif re.search(r"\b(fungal|candida|aspergillus)\b", lower):
+        slots["unsupported_topic"] = "fungal"
+    elif re.search(r"\b(opat|oral\s+step[-\s]?down|outpatient)\b", lower):
+        slots["unsupported_topic"] = "opat"
+
+    if re.search(r"\b(empiric|empirical)\b", lower):
+        slots["treatment_mode"] = "empiric"
+    elif re.search(r"\b(targeted|target|culture\s+directed|culture-directed)\b", lower):
+        slots["treatment_mode"] = "targeted"
+
+    if re.search(r"\b(penicillin|betalactam|beta[-\s]?lactam)\s+allerg", lower):
+        slots["penicillin_allergy"] = True
+
+    early_pve = re.search(
+        r"\b(early\s+pve|pve.{0,30}(?:<|less\s+than|under)\s*12\s*months?|"
+        r"(?:<|less\s+than|under)\s*12\s*months?.{0,30}pve)\b",
+        lower,
+    )
+    late_pve = re.search(
+        r"\b(late\s+pve|pve.{0,30}(?:>=|more\s+than|over|after)\s*12\s*months?|"
+        r"(?:>=|more\s+than|over|after)\s*12\s*months?.{0,30}pve)\b",
+        lower,
+    )
+    if early_pve:
+        slots["valve_context"] = "early_pve"
+        slots["pve_timing"] = "early"
+    elif late_pve:
+        slots["valve_context"] = "pve"
+        slots["pve_timing"] = "late"
+    elif re.search(r"\b(pve|prosthetic\s+valve)\b", lower):
+        slots["valve_context"] = "pve"
+    elif re.search(r"\b(nve|native\s+valve)\b", lower):
+        slots["valve_context"] = "nve"
+
+    if re.search(r"\b(vre|vancomycin[-\s]?resistant\s+enterococcus)\b", lower):
+        slots["pathogen_group"] = "vre"
+        slots["resistance_profile"] = "vre"
+        return
+    if re.search(r"\bmrsa\b", lower):
+        slots["pathogen_group"] = "mrsa"
+        slots["resistance_profile"] = "mrsa"
+        return
+    if re.search(r"\bmssa\b", lower):
+        slots["pathogen_group"] = "mssa"
+        slots["resistance_profile"] = "mssa"
+        return
+    if re.search(r"\b(staphylococcus\s+aureus|staph\s+aureus|s\.\s*aureus)\b", lower):
+        slots["pathogen_group"] = "staphylococcus_aureus"
+
+    if re.search(r"\b(e(?:nterococcus)?\.\s*faecalis|e(?:nterococcus)?\.\s*faecium|enterococcus|enterococcal)\b", lower):
+        slots["pathogen_group"] = "enterococcus"
+        if re.search(r"\b(beta[-\s]?lactam\s+sensitive|ampicillin\s+susceptible|ampicillin\s+sensitive)\b", lower):
+            slots["resistance_profile"] = "beta_lactam_sensitive"
+        elif re.search(r"\b(beta[-\s]?lactam\s+resistant|ampicillin\s+resistant)\b", lower):
+            slots["resistance_profile"] = "beta_lactam_resistant_not_vre"
+
+    if re.search(
+        r"\b(oral\s+streptococci|viridans\s+strep(?:tococci)?|streptococcus\s+gallolyticus|"
+        r"s\.\s*gallolyticus|streptococcus\s+pneumoniae|strep\s+pneumo|"
+        r"s\.\s*pneumoniae|pneumococcus|pneumococcal)\b",
+        lower,
+    ):
+        slots["pathogen_group"] = "streptococcus"
+
+    if (
+        re.search(r"\bendocarditis\b|\bie\b", lower)
+        and re.search(r"\b(pathogen|organism|bacteria|culture)\b", lower)
+        and "pathogen_group" not in slots
+    ):
+        slots["pathogen_group"] = "unsupported"
 
 
 def _render_template(template_text, render_vars):

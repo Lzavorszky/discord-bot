@@ -315,6 +315,33 @@
         "pn pcr"
       ]
     },
+    "endocarditis_antibiotics": {
+      "canonical": "infective endocarditis antibiotics",
+      "display": "Endocarditis antibiotics",
+      "source_label": "2023 ESC endocarditis guideline antibiotic section, local ID simplification",
+      "protocol_file": "protocols/endocarditis_antibiotics.txt",
+      "aliases": [
+        "endocarditis antibiotics",
+        "infective endocarditis antibiotics",
+        "infective endocarditis treatment",
+        "endocarditis treatment",
+        "endocarditis empiric treatment",
+        "empiric endocarditis",
+        "empirical endocarditis",
+        "endocarditis empiric antibiotics",
+        "ie antibiotics",
+        "ie treatment",
+        "ie empiric",
+        "nve antibiotics",
+        "nve treatment",
+        "native valve endocarditis treatment",
+        "native valve endocarditis antibiotics",
+        "pve antibiotics",
+        "pve treatment",
+        "prosthetic valve endocarditis treatment",
+        "prosthetic valve endocarditis antibiotics"
+      ]
+    },
     "periop_gyogyszerek": {
       "canonical": "perioperative medication management",
       "display": "Perioperative medications",
