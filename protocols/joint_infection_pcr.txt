@@ -12,7 +12,7 @@ selection_mode: pcr_mapping
 allows_dosing: no
 dosing_requires_link: yes
 default_dose_allowed: no
-version: 0.1
+version: 0.2
 last_reviewed: unknown
 owner: ID team
 status: draft
@@ -21,14 +21,23 @@ status: draft
 
 - BioFire JI
 - BioFire joint infection
+- BioFire joint infection panel
 - joint infection panel
+- joint infection PCR
 - JI panel
+- JI PCR
 - FilmArray JI
+
+recognition_note:
+- This protocol covers BioFire Joint Infection Panel / JI PCR only.
+- Pneumonia panel aliases are intentionally not included.
+- Bare Klebsiella, Enterococcus, or Streptococcus may need clarification only when the species changes antimicrobial selection.
 
 ## INTENTS
 
 default_request:
 - BioFire JI
+- JI PCR
 - joint infection panel
 - JI panel
 
@@ -41,6 +50,7 @@ selection_request:
 - CTX-M
 - carbapenemase
 - mecA
+- MREJ
 - VanA
 - VanB
 
@@ -55,6 +65,8 @@ info_request:
 - nosocomial intraabdominal
 - no narrowing
 - escalation
+- anaerobe
+- skin soft tissue
 
 link_request:
 - meropenem dose
@@ -67,10 +79,18 @@ link_request:
 required_for_selection:
 - at_least_one_detected_pathogen
 
+required_marker_context:
+- resistance markers are interpreted only together with detected pathogen(s)
+- if a resistance marker is supplied without a pathogen, ask for the detected pathogen and do not select therapy
+
+required_for_dosing:
+Use LINKS. BioFire JI itself does not provide dosing.
+
 optional_modifiers:
 - pathogen_list
 - resistance_gene_list
 - pcr_context
+- pcr_ambiguity
 
 forwardable_slots:
 - selected_antimicrobial
@@ -94,6 +114,7 @@ SLOT: pcr_context
     - nosocomial intra-abdominal
     - nosocomial abdominal
     - nosocomialis hasuri
+    - nosocomial hasuri
     - complex nosocomial abdominal
     - komplex nosocomialis hasuri
 
@@ -103,66 +124,222 @@ SLOT: pcr_context
 
 BioFire JI interpretaciohoz kell legalabb egy detektalt korokozo.
 Rezisztencia marker csak detektalt korokozoval egyutt ertelmezheto.
+Kuldj egy eredmenyt, peldaul: Staphylococcus aureus, Klebsiella pneumoniae group, Pseudomonas aeruginosa, Enterococcus faecium, E. coli + CTX-M.
 
 ### EN
 
 BioFire JI interpretation requires at least one detected pathogen.
 Resistance markers can only be interpreted together with detected pathogen(s).
+Send a result, for example: Staphylococcus aureus, Klebsiella pneumoniae group, Pseudomonas aeruginosa, Enterococcus faecium, E. coli + CTX-M.
 
 ## SELECTION_RULES
 
 selection_mode: pcr_mapping
 
+STEP: CHECK_REQUIRED_INPUT
+  IF_MISSING: at_least_one_detected_pathogen
+  ACTION: return_DEFAULT_ANSWER_only
+
+STEP: CHECK_AMBIGUOUS_GENUS
+  ACTION: ask species only when the species changes antimicrobial selection
+
+STEP: CHECK_RESISTANCE_MARKER_CONTEXT
+  IF: resistance_gene_list_present == true AND pathogen_list_present != true
+  ACTION: ask_for_detected_pathogen_only
+
+STEP: NORMALIZE_ENTITIES
+  INPUT: pathogen_list, resistance_gene_list
+  ACTION: map aliases to canonical organism and resistance labels
+
+STEP: MAP_SINGLE_ENTITIES
+  USE_TABLE: PCR_ORGANISM_MAPPING
+  OUTPUT_SLOT: mapped_items
+
+STEP: APPLY_RESISTANCE_RULES
+  USE_TABLE: PCR_RESISTANCE_RULES
+  OUTPUT_SLOT: adjusted_items
+
+STEP: APPLY_POLYMICROBIAL_SPECTRUM_RULE
+  IF: more_than_one_pathogen_or_resistance_relevant_item == true
+  ACTION: select_highest_required_spectrum_tier
+
+STEP: RENDER_OUTPUT
+  TEMPLATE: FINAL_SELECTED
+
 ## PCR_ORGANISM_MAPPING
 
 | Organism | Entity type | Base tier | Baseline therapy | Notes |
 |---|---|---:|---|---|
-| Acinetobacter calcoaceticus-baumannii complex | gram_negative | 4 | meropenem + colistin | high-risk baseline; gram_negative |
-| Escherichia coli | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative |
-| Klebsiella pneumoniae group | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative |
+| Anaerococcus prevotii/vaginalis | anaerobe | 1 | anaerobe guidance | anaerobe; see anaerobe guidance |
+| Clostridium perfringens | anaerobe | 1 | anaerobe guidance | anaerobe; see anaerobe guidance |
+| Cutibacterium avidum/granulosum | anaerobe | 1 | anaerobe guidance | anaerobe; see anaerobe guidance |
+| Enterococcus faecalis | bacteria | 1 | ampicillin + vancomycin | vancomycin can be de-escalated if isolate is ampicillin-susceptible |
+| Enterococcus faecium | bacteria | 1 | linezolid | |
+| Finegoldia magna | anaerobe | 1 | anaerobe guidance | anaerobe; see anaerobe guidance |
+| Parvimonas micra | anaerobe | 1 | anaerobe guidance | anaerobe; see anaerobe guidance |
+| Peptoniphilus | anaerobe | 1 | anaerobe guidance | anaerobe; see anaerobe guidance |
+| Peptostreptococcus anaerobius | anaerobe | 1 | anaerobe guidance | anaerobe; see anaerobe guidance |
+| Staphylococcus aureus | bacteria | 1 | cefazolin | If mecA/C, mecA/B, or MREJ: vancomycin |
+| Staphylococcus lugdunensis | bacteria | 1 | cefazolin | |
+| Streptococcus agalactiae | bacteria | 1 | ceftriaxone | |
+| Streptococcus pneumoniae | bacteria | 1 | ceftriaxone | |
+| Streptococcus pyogenes | bacteria | 2 | penicillin + clindamycin | toxin suppression important |
+| Bacteroides fragilis | anaerobe | 1 | anaerobe guidance | anaerobe; see anaerobe guidance |
+| Citrobacter | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative |
+| Enterobacter cloacae | gram_negative | 2 | cefepime | Enterobacterales gram_negative; CTX-M positive -> meropenem |
+| Escherichia coli | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative; CTX-M positive -> meropenem |
+| Haemophilus influenzae | gram_negative | 1 | ceftriaxone | gram_negative |
+| Kingella kingae | gram_negative | 1 | ceftriaxone | gram_negative |
+| Klebsiella aerogenes | gram_negative | 2 | cefepime | Enterobacterales gram_negative; CTX-M positive -> meropenem |
+| Klebsiella oxytoca | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative; CTX-M positive -> meropenem |
+| Klebsiella pneumoniae group | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative; CTX-M positive -> meropenem |
+| Morganella morganii | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative; CTX-M positive -> meropenem |
+| Neisseria gonorrhoeae | gram_negative | 1 | ceftriaxone | gram_negative |
+| Proteus spp. | gram_negative | 2 | cefepime | Enterobacterales gram_negative |
 | Pseudomonas aeruginosa | gram_negative | 2 | cefepime | gram_negative |
-| Staphylococcus aureus | bacteria | 1 | cefazolin | If mecA/C & MREJ: vancomycin |
-| Enterococcus faecium | bacteria | 1 | ampicillin | If VanA/B: linezolid |
+| Salmonella spp. | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative |
+| Serratia marcescens | gram_negative | 2 | cefepime | Enterobacterales gram_negative |
 
 ## PCR_ORGANISM_ALIASES
 
-Organism: Acinetobacter calcoaceticus-baumannii complex
-- Acinetobacter calcoaceticus-baumannii complex
-- Acinetobacter
-- baumannii
-- ACB
+Organism: Anaerococcus prevotii/vaginalis
+- Anaerococcus prevotii/vaginalis
+- Anaerococcus prevotii
+- Anaerococcus vaginalis
 
-Organism: Escherichia coli
-- Escherichia coli
-- E. coli
-- E coli
-- ecoli
+Organism: Clostridium perfringens
+- Clostridium perfringens
 
-Organism: Klebsiella pneumoniae group
-- Klebsiella pneumoniae group
-- Klebsiella pneumoniae
-- KPN
+Organism: Cutibacterium avidum/granulosum
+- Cutibacterium avidum/granulosum
+- Cutibacterium avidum
+- Cutibacterium granulosum
 
-Organism: Pseudomonas aeruginosa
-- Pseudomonas aeruginosa
-- Pseudomonas
+Organism: Enterococcus faecalis
+- Enterococcus faecalis
+- E. faecalis
+- E faecalis
+
+Organism: Enterococcus faecium
+- Enterococcus faecium
+- E. faecium
+- E faecium
+
+Organism: Finegoldia magna
+- Finegoldia magna
+
+Organism: Parvimonas micra
+- Parvimonas micra
+
+Organism: Peptoniphilus
+- Peptoniphilus
+
+Organism: Peptostreptococcus anaerobius
+- Peptostreptococcus anaerobius
+- Peptosptreptococcus anaerobius
 
 Organism: Staphylococcus aureus
 - Staphylococcus aureus
 - Staph aureus
 - S. aureus
 
-Organism: Enterococcus faecium
-- Enterococcus faecium
-- E. faecium
-- E faecium
-- Enterococcus
+Organism: Staphylococcus lugdunensis
+- Staphylococcus lugdunensis
+- Staph lugdunensis
+- S. lugdunensis
+
+Organism: Streptococcus agalactiae
+- Streptococcus agalactiae
+- Strep agalactiae
+- GBS
+- group B strep
+
+Organism: Streptococcus pneumoniae
+- Streptococcus pneumoniae
+- Strep pneumoniae
+- Strep pneumo
+- Strep pn
+- S. pneumoniae
+- S.pneumoniae
+- pneumococcus
+- pneumococcal
+
+Organism: Streptococcus pyogenes
+- Streptococcus pyogenes
+- Strep pyogenes
+- GAS
+- group A strep
+
+Organism: Bacteroides fragilis
+- Bacteroides fragilis
+
+Organism: Citrobacter
+- Citrobacter
+
+Organism: Enterobacter cloacae
+- Enterobacter cloacae
+- Enterobacter cloaceae
+
+Organism: Escherichia coli
+- Escherichia coli
+- E. coli
+- E coli
+- ecoli
+- e.coli
+
+Organism: Haemophilus influenzae
+- Haemophilus influenzae
+- Haemophilus
+- H. influenzae
+
+Organism: Kingella kingae
+- Kingella kingae
+- Kingella
+
+Organism: Klebsiella aerogenes
+- Klebsiella aerogenes
+
+Organism: Klebsiella oxytoca
+- Klebsiella oxytoca
+
+Organism: Klebsiella pneumoniae group
+- Klebsiella pneumoniae group
+- Klebsiella pneumoniae
+- Klebsiella pn
+- KPN
+
+Organism: Morganella morganii
+- Morganella morganii
+- Morganella
+
+Organism: Neisseria gonorrhoeae
+- Neisseria gonorrhoeae
+- Neisseria gonorhoeae
+- Neisseria
+
+Organism: Proteus spp.
+- Proteus spp.
+- Proteus
+
+Organism: Pseudomonas aeruginosa
+- Pseudomonas aeruginosa
+- Pseudomonas
+
+Organism: Salmonella spp.
+- Salmonella spp.
+- Salmonella
+
+Organism: Serratia marcescens
+- Serratia marcescens
+- Serratia
 
 ## PCR_RESISTANCE_MARKER_ALIASES
 
 Marker: mecA/C & MREJ
 - mecA/C
+- mecA/B
 - mecA
+- mecB
 - mecC
 - MREJ
 
@@ -210,7 +387,7 @@ RULE: CARBAPENEMASE
   IF_MARKER: carbapenemase
   ACTION: replace_gram_negative_backbone
   THERAPY: meropenem + colistin
-  NOTE: ID consultation recommended.
+  NOTE: Carbapenemase marker; ID consultation recommended.
 
 ## PCR_CONTEXT_NOTES
 
@@ -228,6 +405,17 @@ selected_items:
 - ceftriaxone
 answer_en: Tier 1 - ceftriaxone.
 answer_hu: Tier 1 - ceftriaxone.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### TIER_1_CEFAZOLIN
+
+type: microbiology_interpretation
+tier: 1
+selected_items:
+- cefazolin
+answer_en: Cefazolin.
+answer_hu: Cefazolin.
 forbidden:
 - do not provide dosing from BioFire JI
 
@@ -265,36 +453,108 @@ answer_hu: Tier 4 - meropenem + colistin. High MDR risk; ID consultation recomme
 forbidden:
 - do not provide dosing from BioFire JI
 
+### ANAEROBE_GUIDANCE
+
+type: microbiology_interpretation
+tier: 1
+selected_items:
+- anaerobe guidance
+answer_en: Anaerobe detected. If using cephalosporin therapy, add metronidazole. No additional anaerobe agent is needed with a penicillin derivative such as amoxicillin/clavulanate or piperacillin/tazobactam, or with a carbapenem such as imipenem or meropenem.
+answer_hu: Anaerob korokozo detektalodott. Cefalosporin kezeles melle metronidazol kiegeszites szukseges. Penicillin szarmazek vagy karbapenem melle nem szukseges kiegeszites.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### AMPICILLIN_VANCOMYCIN
+
+type: microbiology_interpretation
+tier: 1
+selected_items:
+- ampicillin
+- vancomycin
+answer_en: Enterococcus faecalis - ampicillin + vancomycin. Vancomycin can be de-escalated if the isolate is ampicillin-susceptible.
+answer_hu: Enterococcus faecalis - ampicillin + vancomycin. Vancomycin deeszkalalhato, ha ampicillin-erzekeny a torzs.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### AMPICILLIN_VANCOMYCIN_LINEZOLID
+
+type: microbiology_interpretation
+tier: 1
+selected_items:
+- ampicillin
+- vancomycin
+- linezolid
+answer_en: Enterococcus faecalis + VanA/B - linezolid; baseline ampicillin + vancomycin context requires susceptibility review.
+answer_hu: Enterococcus faecalis + VanA/B - linezolid; baseline ampicillin + vancomycin context requires susceptibility review.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### LINEZOLID
+
+type: microbiology_interpretation
+tier: 1
+selected_items:
+- linezolid
+answer_en: Enterococcus faecium - linezolid.
+answer_hu: Enterococcus faecium - linezolid.
+forbidden:
+- do not provide dosing from BioFire JI
+
 ### STAPH_AUREUS_MSSA
 
 type: microbiology_interpretation
+tier: 1
 selected_items:
 - cefazolin
-answer_en: Staphylococcus aureus without mecA/C or MREJ - MSSA likely - cefazolin.
-answer_hu: Staphylococcus aureus without mecA/C or MREJ - MSSA likely - cefazolin.
+answer_en: Staphylococcus aureus without mecA/C, mecA/B, or MREJ - MSSA likely - cefazolin.
+answer_hu: Staphylococcus aureus without mecA/C, mecA/B, or MREJ - MSSA likely - cefazolin.
 forbidden:
 - do not provide dosing from BioFire JI
 
 ### STAPH_AUREUS_MRSA
 
 type: microbiology_interpretation
+tier: 1
 selected_items:
 - vancomycin
-answer_en: Staphylococcus aureus + mecA/C or MREJ - MRSA likely - vancomycin.
-answer_hu: Staphylococcus aureus + mecA/C or MREJ - MRSA likely - vancomycin.
+answer_en: Staphylococcus aureus + mecA/C, mecA/B, or MREJ - MRSA likely - vancomycin.
+answer_hu: Staphylococcus aureus + mecA/C, mecA/B, or MREJ - MRSA likely - vancomycin.
 forbidden:
 - do not provide dosing from BioFire JI
 
-### AMPICILLIN_LINEZOLID
+### STREP_PYOGENES
+
+type: microbiology_interpretation
+tier: 2
+selected_items:
+- penicillin
+- clindamycin
+answer_en: Streptococcus pyogenes - penicillin + clindamycin.
+answer_hu: Streptococcus pyogenes - penicillin + clindamycin.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### POLYMICROBIAL_ESCALATED
 
 type: microbiology_interpretation
 selected_items:
-- ampicillin
-- linezolid
-answer_en: Enterococcus faecium + VanA/B - linezolid; baseline ampicillin context requires susceptibility review.
-answer_hu: Enterococcus faecium + VanA/B - linezolid; baseline ampicillin context requires susceptibility review.
+- highest_required_tier_agent
+answer_en: Polymicrobial result - choose by the highest required spectrum tier so all relevant organisms are covered.
+answer_hu: Polimikrobialis eredmeny - a legmagasabb szukseges spektrum tier szerint valassz, hogy minden relevans korokozot fedjen.
 forbidden:
+- do not average tiers
+- do not choose a narrower tier if a broader detected organism requires escalation
 - do not provide dosing from BioFire JI
+
+### CONFLICTING_REQUIREMENTS
+
+type: microbiology_interpretation
+selected_items:
+- infectious_diseases_consultation
+answer_en: Conflicting polymicrobial / resistance pattern - ID consultation recommended.
+answer_hu: Konfliktusos polimikrobialis / rezisztencia minta - ID konzultacio javasolt.
+forbidden:
+- do not invent a regimen outside this protocol
 
 ## LINKS
 
@@ -315,21 +575,115 @@ LINK: meropenem_dosing
     - egfr
     - crcl
 
+LINK: colistin_dosing
+  link_type: antimicrobial_dosing
+  when_selected_item: colistin
+  target_protocol_id: colistin
+  target_file: protocols/antibiotics/colomycin.txt
+  target_missing_behavior: Colistin dosing is not specified in the uploaded protocols.
+  trigger_intents:
+    - dosing_request
+    - link_request
+  transfer_slots:
+    - selected_antimicrobial
+    - pathogen_list
+    - resistance_gene_list
+    - gfr
+    - egfr
+    - crcl
+
+LINK: vancomycin_dosing
+  link_type: antimicrobial_dosing
+  when_selected_item: vancomycin
+  target_protocol_id: vancomycin
+  target_file: protocols/antibiotics/vancomycin.txt
+  target_missing_behavior: Vancomycin dosing is not specified in the uploaded protocols.
+  trigger_intents:
+    - dosing_request
+    - link_request
+  transfer_slots:
+    - selected_antimicrobial
+    - pathogen_list
+    - resistance_gene_list
+    - gfr
+    - egfr
+    - crcl
+
+LINK: linezolid_dosing
+  link_type: antimicrobial_dosing
+  when_selected_item: linezolid
+  target_protocol_id: linezolid
+  target_file: protocols/antibiotics/linezolid.txt
+  target_missing_behavior: Linezolid dosing is not specified in the uploaded protocols.
+  trigger_intents:
+    - dosing_request
+    - link_request
+  transfer_slots:
+    - selected_antimicrobial
+    - pathogen_list
+    - resistance_gene_list
+    - gfr
+    - egfr
+    - crcl
+
 ## INFO_BLOCKS
 
-### nosocomial_intraabdominal
+### recognition
 
+BioFire JI interpretation only answers when at least one pathogen is supplied.
+Resistance markers are interpreted only together with the detected pathogen list.
+Pathogen names must be treated as microbiology entities.
+Do not route pneumonia panel interpretation from this protocol.
+
+### anaerobe_guidance
+
+Anaerobes: if using cephalosporin therapy, add metronidazole. No additional anaerobe agent is needed with a penicillin derivative such as amoxicillin/clavulanate or piperacillin/tazobactam, or with a carbapenem such as imipenem or meropenem.
+
+### syndrome_context
+
+For skin-soft tissue infections safe to use this protocol as is.
 For nosocomial intra-abdominal infection, use JI PCR for regimen broadening only. Do not narrow below meropenem from PCR alone; wait for conventional culture and susceptibility.
+
+### resistance_genes
+
+Resistance markers are BioFire-positive only in the context of detected pathogen(s), so they must not be interpreted alone.
+CTX-M suggests ESBL-producing Enterobacterales and upgrades relevant detected gram-negative organisms to meropenem in this protocol.
+Carbapenemase genes select meropenem + colistin and require ID consultation.
+mecA/C, mecA/B, or MREJ with Staphylococcus aureus suggests MRSA and points to vancomycin.
+VanA/B points to linezolid for Enterococcus context.
+
+### limitations
+
+Unlike narrower syndrome PCR tests, JI PCR may be used across multiple syndromes and polymicrobial infections. Review conventional cultures and susceptibilities when available, and contact ID for uncertainty.
+After telephone notification, send the sample directly to the microbiology laboratory as with other PCR tests.
 
 ## RESTRICTED_OUTPUTS
 
-- Do not provide antimicrobial dosing from BioFire JI.
-- Do not narrow below meropenem in nosocomial intra-abdominal infection from PCR alone.
+Never provide:
+- antimicrobial doses from BioFire JI
+- renal adjustment from BioFire JI
+- organism-specific interpretation when no pathogen is supplied
+- standalone resistance-marker interpretation without a detected pathogen
+- pneumonia panel interpretation from this joint infection panel protocol
+- narrower therapy in polymicrobial infection when a broader tier is required
+
+For dosing requests:
+- use LINKS
+- if the linked target protocol is missing, say the target_missing_behavior sentence
+
+For info requests:
+- answer only from INFO_BLOCKS
+- do not add antimicrobial dosing
 
 ## SAFETY_RULES
 
-- Resistance markers are interpreted only with detected pathogen(s).
-- Nosocomial intra-abdominal context is a safety note, not a separate escalation action.
+- At least one pathogen is required before interpretation.
+- Resistance markers are interpreted only with detected pathogen(s); if marker-only input is supplied, ask for the pathogen.
+- Bare Klebsiella, Enterococcus, or Streptococcus requires species clarification only when the species changes antimicrobial selection.
+- No multi-turn question tree is needed; if missing, return DEFAULT_ANSWER only.
+- Keep last_selected_item so a follow-up dosing request can activate LINKS.
+- If multiple antimicrobials are selected and the user asks for dose, ask which antimicrobial unless the user named one.
+- If GFR/renal data is supplied, store it and transfer it through LINKS; do not use it inside BioFire JI.
 
 ## OUTPUT_TEMPLATES
 
@@ -345,6 +699,31 @@ BioFire JI - {detected_entities}
 - interpretation: {selected_output_answer_en}
 - context: {spectrum_logic_if_polymicrobial}
 
+### MISSING_RESULT_HU
+
+BioFire JI interpretaciohoz kell legalabb egy detektalt korokozo.
+
+### MARKER_WITHOUT_PATHOGEN_HU
+
+Rezisztencia marker csak detektalt korokozoval egyutt ertelmezheto. Melyik korokozo volt pozitiv?
+
+### MARKER_WITHOUT_PATHOGEN_EN
+
+Resistance markers can only be interpreted together with detected pathogen(s). Which pathogen was positive?
+
+### MISSING_RESULT_EN
+
+BioFire JI interpretation requires at least one detected pathogen.
+
+### DOSING_LINK_MISSING
+
+{target_missing_behavior}
+
+### INFO_ANSWER
+
+Answer only from the selected INFO_BLOCK.
+Do not add antimicrobial dosing.
+
 ## DEFAULT_FOOTER
 
-BioFire JI interpretation is protocol-driven and does not provide dosing.
+For skin-soft tissue infections safe to use this protocol as is. For nosocomial intra-abdominal infection, use JI PCR for regimen broadening only. Do not narrow below meropenem from PCR alone; wait for conventional culture and susceptibility.

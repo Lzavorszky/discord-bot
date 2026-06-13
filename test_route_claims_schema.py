@@ -276,6 +276,41 @@ class TestRouteClaimsLinter(unittest.TestCase):
             [i.code for i in result.errors()],
         )
 
+    def test_linter_accepts_panel_first_pcr_claims_with_parser_backed_entities(self):
+        import protocol_linter
+
+        tmp, protocols_dir = self._write_protocol(
+            {
+                "protocol_id": "sample_pcr",
+                "source_label": "Sample PCR",
+                "protocol_type": "microbiology_interpretation_protocol",
+                "answer_mode": "required_slots_then_selected_output",
+                "selection_mode": "pcr_mapping",
+                "version": "1",
+                "last_reviewed": "test",
+                "owner": "test",
+                "status": "draft",
+            },
+            claims={
+                "intents": ["test_interpretation"],
+                "subjects": ["test_panel"],
+                "owns": {
+                    "tests": ["pcr"],
+                    "panels": ["sample_panel"],
+                    "microbes": {"source": "pcr_organism_aliases"},
+                    "markers": {"source": "pcr_resistance_marker_aliases"},
+                },
+                "requires": ["test", "panel"],
+            },
+        )
+        with tmp:
+            result = protocol_linter.run_linter(proto_dir=protocols_dir)
+
+        self.assertNotIn(
+            "route_claims_microbiology_missing_microbe_or_marker",
+            [i.code for i in result.errors()],
+        )
+
     def test_linter_rejects_broad_syndrome_claim_without_fallback_excludes(self):
         import protocol_linter
 

@@ -2618,6 +2618,19 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
     def _chat_id(self, suffix):
         return f"routing_regression_{suffix}_{id(self)}"
 
+    def _install_protocol_fixture(self, filename):
+        import protocol_parser as pp
+
+        rel_path = protocol_fixture_relpath(filename)
+        abs_path = protocol_fixture_path(filename)
+        with open(abs_path, encoding="utf-8") as f:
+            text = f.read()
+        parsed = pp.parse_protocol_file(abs_path)
+        parsed["path"] = rel_path
+        self.b.PROTOCOL_PARSED_BY_FILE[self.b.normalize_path(rel_path)] = parsed
+        self.b.PROTOCOL_POLICY_BY_FILE[self.b.normalize_path(rel_path)] = pp.extract_policy_header(text)
+        return parsed
+
     def _recognized_for(self, query):
         _, recognized = self.b.normalize_question(query)
         self.assertIsNotNone(recognized, f"Expected recognized protocol for {query!r}")
@@ -3031,6 +3044,80 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
                     f"{query!r} unexpectedly selected CAP",
                 )
                 self.assertIn(expected_fragment.lower(), answer.lower())
+
+    def test_ji_pcr_klebsiella_extracts_panel_and_routes_to_joint_infection(self):
+        self._install_protocol_fixture("joint_infection_pcr.txt")
+        evidence = self.b.extract_routing_evidence("JI PCR klebsiella")
+
+        self.assertEqual(evidence.intent, "test_interpretation")
+        self.assertEqual(evidence.test.family, "pcr")
+        self.assertEqual(evidence.test.panel, "joint_infection")
+        self.assertIn("Klebsiella pneumoniae group", evidence.microbes)
+
+        decision = self.b.resolve_route(evidence, self.b.PROTOCOL_PARSED_BY_FILE)
+        self.assertEqual(decision.kind, "route")
+        self.assertEqual(
+            self.b.normalize_path(decision.protocol_file),
+            "protocols/joint_infection_pcr.txt",
+        )
+
+    def test_ji_pcr_klebsiella_full_flow_uses_joint_infection_protocol(self):
+        self._install_protocol_fixture("joint_infection_pcr.txt")
+        chat_id = self._chat_id("ji_pcr_klebsiella")
+        answer = self._ask_without_rag_or_llm("JI PCR klebsiella", chat_id)
+        trace = self._last_trace()
+
+        self._assert_trace_selected_protocol(
+            trace,
+            "biofire_joint_infection",
+            "protocols/joint_infection_pcr.txt",
+            "BioFire JI",
+        )
+        self.assertEqual(trace["selection_output_key"], "ambiguous_pathogen")
+        self.assertIn("which klebsiella was detected", answer.lower())
+        self.assertIn("klebsiella aerogenes", answer.lower())
+        self.assertIn("klebsiella oxytoca", answer.lower())
+        self.assertNotIn("which pcr/biofire panel", answer.lower())
+        self.assertNotIn("please check the specific recommendations", answer.lower())
+
+    def test_ji_pcr_klebsiella_pneumoniae_full_flow_selects_ceftriaxone(self):
+        self._install_protocol_fixture("joint_infection_pcr.txt")
+        chat_id = self._chat_id("ji_pcr_klebsiella_pneumoniae")
+        answer = self._ask_without_rag_or_llm("JI PCR klebsiella pneumoniae", chat_id)
+        trace = self._last_trace()
+
+        self._assert_trace_selected_protocol(
+            trace,
+            "biofire_joint_infection",
+            "protocols/joint_infection_pcr.txt",
+            "BioFire JI",
+        )
+        self.assertEqual(trace["selection_output_key"], "TIER_1_CEFTRIAXONE")
+        self.assertIn("klebsiella pneumoniae group", answer.lower())
+        self.assertIn("ceftriaxone", answer.lower())
+        self.assertIn("for skin-soft tissue infections safe to use this protocol as is", answer.lower())
+        self.assertIn("do not narrow below meropenem", answer.lower())
+
+    def test_pcr_klebsiella_then_ji_preserves_organism_context(self):
+        self._install_protocol_fixture("joint_infection_pcr.txt")
+        chat_id = self._chat_id("pcr_klebsiella_then_ji")
+
+        first = self._ask_without_rag_or_llm("PCR klebsiella", chat_id)
+        self.assertIn("which pcr/biofire panel", first.lower())
+        self.mock_log.reset_mock()
+
+        answer = self._ask_without_rag_or_llm("JI", chat_id)
+        trace = self._last_trace()
+
+        self._assert_trace_selected_protocol(
+            trace,
+            "biofire_joint_infection",
+            "protocols/joint_infection_pcr.txt",
+            "BioFire JI",
+        )
+        self.assertEqual(trace["selection_output_key"], "ambiguous_pathogen")
+        self.assertIn("which klebsiella was detected", answer.lower())
+        self.assertNotIn("which pcr/biofire panel", answer.lower())
 
     def test_high_risk_route_gate_intercepts_alias_conflicts(self):
         """Route claims are primary; legacy alias routing is fallback only."""

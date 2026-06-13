@@ -786,6 +786,54 @@ def _extract_pcr_entities(text, parsed):
     return organisms, genes
 
 
+def _ji_pcr_ambiguity(text, parsed_protocol):
+    meta = (parsed_protocol or {}).get("metadata", {}) or {}
+    if meta.get("protocol_id") != "biofire_joint_infection":
+        return None
+    text = text or ""
+    lower = text.lower()
+
+    if re.search(r"\bklebsiella\b", lower) and not re.search(
+        r"\bklebsiella\s+(?:aerogenes|oxytoca|pneumoniae|pn)\b|\bkpn\b",
+        lower,
+    ):
+        return {
+            "type": "klebsiella",
+            "question": (
+                "Which Klebsiella was detected: Klebsiella aerogenes "
+                "(cefepime) or Klebsiella oxytoca / Klebsiella pneumoniae group "
+                "(ceftriaxone)?"
+            ),
+        }
+
+    if re.search(r"\benterococcus\b", lower) and not re.search(
+        r"\b(?:enterococcus\s+)?faec(?:alis|ium)\b|\be\.?\s*faec(?:alis|ium)\b",
+        lower,
+    ):
+        return {
+            "type": "enterococcus",
+            "question": (
+                "Which Enterococcus was detected: Enterococcus faecalis "
+                "(ampicillin + vancomycin) or Enterococcus faecium (linezolid)?"
+            ),
+        }
+
+    if re.search(r"\b(?:streptococcus|strep)\b", lower) and not re.search(
+        r"\b(?:agalactiae|pneumoniae|pneumo|pyogenes|gbs|gas|group\s+[ab]\s+strep)\b",
+        lower,
+    ):
+        return {
+            "type": "streptococcus",
+            "question": (
+                "Which Streptococcus was detected: Streptococcus agalactiae / "
+                "Streptococcus pneumoniae (ceftriaxone) or Streptococcus pyogenes "
+                "(penicillin + clindamycin)?"
+            ),
+        }
+
+    return None
+
+
 def _merge_unique(existing, new_items):
     merged = list(existing or [])
     for item in new_items or []:
@@ -846,6 +894,15 @@ def _run_pcr_mapping(parsed, slots):
     outputs = _parse_selected_outputs_panel(parsed.get("selected_outputs", ""))
     pathogen_list = slots.get("pathogen_list", [])
     resistance_list = slots.get("resistance_gene_list", [])
+    ambiguity = slots.get("pcr_ambiguity")
+    if ambiguity and not pathogen_list:
+        return SelectionResult(
+            output_key="ambiguous_pathogen",
+            missing_slots=["detected_pathogen"],
+            mode_used="organism_mapping",
+            ask_missing=ambiguity.get("question") or "Which pathogen was detected?",
+            render_vars=dict(slots),
+        )
     if not pathogen_list:
         if resistance_list:
             return SelectionResult(missing_slots=["detected_pathogen"], mode_used="organism_mapping",
@@ -897,6 +954,22 @@ def _run_pcr_mapping(parsed, slots):
     bacterial_items = [(o, t, d) for o, t, d, _ in items if t >= 1]
     atypical_items  = [(o, t, d) for o, t, d, _ in items if t == 0]
     viral_items     = [(o, t, d) for o, t, d, _ in items if t < 0]
+    if ambiguity:
+        ask_for_ambiguity = True
+        if ambiguity.get("type") == "klebsiella":
+            ask_for_ambiguity = not (
+                ctx_m
+                or carbapenemase
+                or any(t >= 2 for _, t, _ in bacterial_items)
+            )
+        if ask_for_ambiguity:
+            return SelectionResult(
+                output_key="ambiguous_pathogen",
+                missing_slots=["detected_pathogen"],
+                mode_used="organism_mapping",
+                ask_missing=ambiguity.get("question") or "Which pathogen was detected?",
+                render_vars=dict(slots),
+            )
     detected_str = ", ".join(pathogen_list) + ((" + " + ", ".join(resistance_list)) if resistance_list else "")
     def _mk(key, hu, en):
         od = outputs.get(key, {})
@@ -1076,6 +1149,9 @@ def extract_slots_from_query(question, parsed_protocol=None, existing_slots=None
                 slots["indication"] = indication
                 slots["indication_text"] = indication
         if parsed_protocol.get("pcr_organism_aliases") or parsed_protocol.get("pcr_resistance_marker_aliases"):
+            ambiguity = _ji_pcr_ambiguity(text, parsed_protocol)
+            if ambiguity:
+                slots["pcr_ambiguity"] = ambiguity
             organisms, genes = _extract_pcr_entities(text, parsed_protocol)
             if organisms:
                 existing_orgs = slots.get("pathogen_list", [])

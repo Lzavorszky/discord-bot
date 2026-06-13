@@ -419,6 +419,7 @@ def _lint_route_claims_semantics(p: dict, claims: dict, issue_path: str, result:
     intents = _route_claim_norms(claims.get("intents"))
     requires = _route_claim_norms(claims.get("requires"))
     excludes = _route_claim_norms(claims.get("excludes"))
+    owns = claims.get("owns") if isinstance(claims.get("owns"), dict) else {}
 
     if ptype == "drug_dosing_protocol":
         missing_excludes = {
@@ -434,12 +435,19 @@ def _lint_route_claims_semantics(p: dict, claims: dict, issue_path: str, result:
             )
 
     if ptype == "microbiology_interpretation_protocol" or "test_interpretation" in intents:
-        if "microbe_or_marker" not in requires:
+        parser_backed_pcr_panel = (
+            "panel" in requires
+            and (
+                isinstance((owns or {}).get("microbes"), dict)
+                or isinstance((owns or {}).get("markers"), dict)
+            )
+        )
+        if "microbe_or_marker" not in requires and not parser_backed_pcr_panel:
             result.add(
                 "ERROR",
                 "route_claims_microbiology_missing_microbe_or_marker",
                 issue_path,
-                "Microbiology interpretation protocols must require microbe_or_marker",
+                "Microbiology interpretation protocols must require microbe_or_marker unless panel-first PCR routing owns parser-backed microbes/markers",
             )
 
     if (

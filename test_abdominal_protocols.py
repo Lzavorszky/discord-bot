@@ -107,17 +107,28 @@ class TestPcrProtocolMapping(unittest.TestCase):
         self.assertIn("ctx_m", slots.get("resistance_gene_list", []))
         self.assertEqual(result.output_key, "TIER_3_ERTAPENEM")
 
-    def test_ji_pcr_acinetobacter_baseline_meropenem_colistin(self):
+    def test_ji_pcr_klebsiella_aerogenes_baseline_cefepime(self):
         parsed = load_protocol("protocols/joint_infection_pcr.txt")
         slots = selection_engine.extract_slots_from_query(
-            "BioFire JI Acinetobacter detected",
+            "BioFire JI Klebsiella aerogenes detected",
             parsed_protocol=parsed,
         )
         result = selection_engine.run_selection(parsed, slots, lang="en")
         rendered = selection_engine.render_selected_output(parsed, result, lang="en")
 
-        self.assertEqual(result.output_key, "TIER_4_MEROPENEM_COLISTIN")
-        self.assertIn("meropenem + colistin", rendered.lower())
+        self.assertEqual(result.output_key, "TIER_2_CEFEPIME")
+        self.assertIn("cefepime", rendered.lower())
+
+    def test_ji_pcr_bare_klebsiella_asks_species_because_antibiotic_changes(self):
+        parsed = load_protocol("protocols/joint_infection_pcr.txt")
+        slots = selection_engine.extract_slots_from_query(
+            "BioFire JI Klebsiella detected",
+            parsed_protocol=parsed,
+        )
+        result = selection_engine.run_selection(parsed, slots, lang="en")
+
+        self.assertEqual(result.output_key, "ambiguous_pathogen")
+        self.assertIn("Which Klebsiella", result.ask_missing)
 
     def test_ji_pcr_ctx_m_replaces_gram_negative_backbone_with_meropenem(self):
         parsed = load_protocol("protocols/joint_infection_pcr.txt")
@@ -142,6 +153,7 @@ class TestPcrProtocolMapping(unittest.TestCase):
 
         self.assertEqual(result.output_key, "TIER_4_MEROPENEM_COLISTIN")
         self.assertIn("meropenem + colistin", rendered.lower())
+        self.assertIn("id consultation", rendered.lower())
 
     def test_ji_pcr_meca_mrej_adds_vancomycin_for_staph_aureus(self):
         parsed = load_protocol("protocols/joint_infection_pcr.txt")
@@ -164,8 +176,32 @@ class TestPcrProtocolMapping(unittest.TestCase):
         result = selection_engine.run_selection(parsed, slots, lang="en")
         rendered = selection_engine.render_selected_output(parsed, result, lang="en")
 
-        self.assertEqual(result.output_key, "AMPICILLIN_LINEZOLID")
+        self.assertEqual(result.output_key, "LINEZOLID")
         self.assertIn("linezolid", rendered.lower())
+
+    def test_ji_pcr_enterococcus_faecalis_selects_ampicillin_vancomycin(self):
+        parsed = load_protocol("protocols/joint_infection_pcr.txt")
+        slots = selection_engine.extract_slots_from_query(
+            "BioFire JI Enterococcus faecalis",
+            parsed_protocol=parsed,
+        )
+        result = selection_engine.run_selection(parsed, slots, lang="en")
+        rendered = selection_engine.render_selected_output(parsed, result, lang="en")
+
+        self.assertEqual(result.output_key, "AMPICILLIN_VANCOMYCIN")
+        self.assertIn("ampicillin + vancomycin", rendered.lower())
+
+    def test_ji_pcr_anaerobe_returns_anaerobe_guidance(self):
+        parsed = load_protocol("protocols/joint_infection_pcr.txt")
+        slots = selection_engine.extract_slots_from_query(
+            "BioFire JI Bacteroides fragilis",
+            parsed_protocol=parsed,
+        )
+        result = selection_engine.run_selection(parsed, slots, lang="en")
+        rendered = selection_engine.render_selected_output(parsed, result, lang="en")
+
+        self.assertEqual(result.output_key, "ANAEROBE_GUIDANCE")
+        self.assertIn("metronidazole", rendered.lower())
 
     def test_ji_pcr_nosocomial_iai_context_appends_no_narrowing_note(self):
         parsed = load_protocol("protocols/joint_infection_pcr.txt")

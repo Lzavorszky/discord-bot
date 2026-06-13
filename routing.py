@@ -143,7 +143,8 @@ _PNEUMONIA_PANEL_RE = re.compile(
     re.IGNORECASE,
 )
 _JOINT_PANEL_RE = re.compile(
-    r"\b(?:ji\s+panel|joint\s+infection\s+(?:panel|pcr)|biofire\s+ji|"
+    r"\b(?:ji\s*(?:-|/)?\s*pcr|ji\s+panel|ji\s+multiplex\s+pcr|"
+    r"joint\s+infection\s+(?:panel|pcr)|biofire\s+ji|"
     r"biofire\s+joint\s+infection)\b",
     re.IGNORECASE,
 )
@@ -778,6 +779,13 @@ def resolve_route(evidence, protocol_claims, state=None):
             "No uploaded PCR/BioFire protocol claims that organism or marker.",
             "PCR/result question without matching PCR claim",
         )
+
+    if evidence.test.family == "pcr" and evidence.test.panel:
+        panel_records = _pcr_records_for_panel(records, evidence.test.panel)
+        if len(panel_records) == 1:
+            return _route(panel_records[0], "PCR/result question with known panel")
+        if len(panel_records) > 1:
+            return _clarify(_panel_clarification(panel_records), "known panel matched multiple PCR claims")
 
     if _has_microbe_or_marker(evidence) and _has_syndrome(evidence):
         record = _explicit_targeted_claim(records, evidence)

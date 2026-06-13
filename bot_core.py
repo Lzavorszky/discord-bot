@@ -1327,6 +1327,70 @@ def _shadow_route_decision(question, state):
     return decision, evidence
 
 
+_PCR_PANEL_CLARIFICATION_ALIASES = [
+    (
+        re.compile(
+            r"^\s*(?:ji|ji\s*(?:-|/)?\s*pcr|biofire\s+ji|"
+            r"joint\s+infection(?:\s+(?:panel|pcr))?)\s*$",
+            re.IGNORECASE,
+        ),
+        "joint infection panel",
+    ),
+    (
+        re.compile(
+            r"^\s*(?:pn|pn\s*(?:-|/)?\s*pcr|biofire\s+pn|"
+            r"pneumonia(?:\s+(?:panel|pcr))?)\s*$",
+            re.IGNORECASE,
+        ),
+        "pneumonia pcr",
+    ),
+]
+
+
+def _pcr_panel_clarification_text(question):
+    for pattern, panel_text in _PCR_PANEL_CLARIFICATION_ALIASES:
+        if pattern.match(question or ""):
+            return panel_text
+    return None
+
+
+def _should_store_pcr_panel_clarification(decision, evidence):
+    if not decision or decision.kind != "clarify" or not evidence:
+        return False
+    return (
+        evidence.test.family == "pcr"
+        and not evidence.test.panel
+        and bool(evidence.microbes or evidence.markers)
+    )
+
+
+def _store_pcr_panel_clarification(state, question, decision, evidence):
+    state["pending_route_clarification"] = {
+        "type": "pcr_panel",
+        "question": question,
+        "message": decision.message,
+        "reason": decision.reason,
+        "microbes": list(evidence.microbes or []),
+        "markers": list(evidence.markers or []),
+    }
+
+
+def _apply_pending_route_clarification(state, question):
+    pending = state.get("pending_route_clarification")
+    if not pending or pending.get("type") != "pcr_panel":
+        return question
+
+    panel_text = _pcr_panel_clarification_text(question)
+    state.pop("pending_route_clarification", None)
+    if not panel_text:
+        return question
+
+    previous = str(pending.get("question") or "").strip()
+    if not previous:
+        return question
+    return f"{previous}\n\nPanel clarification: {panel_text}"
+
+
 def _routing_evidence_to_trace(evidence):
     if not evidence:
         return None
@@ -3386,6 +3450,7 @@ def _ask_ai_impl(question, chat_id):
         else:
             state["pending_context_confirmation"] = None
 
+    question = _apply_pending_route_clarification(state, question)
     route_decision, route_evidence = _shadow_route_decision(question, state)
     _record_route_trace(state, route_decision, route_evidence)
 
@@ -3395,6 +3460,10 @@ def _ask_ai_impl(question, chat_id):
     unsupported_message = unsupported_hit.get("message") if unsupported_hit else None
 
     if route_decision.kind in {"clarify", "unsupported"} and not forced_recognized:
+        if _should_store_pcr_panel_clarification(route_decision, route_evidence):
+            _store_pcr_panel_clarification(state, question, route_decision, route_evidence)
+        else:
+            state.pop("pending_route_clarification", None)
         body = route_decision.message or (
             "I cannot safely route that request to an uploaded protocol. "
             "Please clarify the protocol, panel, source, or syndrome."
@@ -3438,6 +3507,7 @@ def _ask_ai_impl(question, chat_id):
         _log_answer_envelope(t_start, chat_id, question, None, envelope)
         return answer
 
+    state.pop("pending_route_clarification", None)
     route_recognized = (
         _recognized_for_route_decision(route_decision, route_evidence)
         if route_decision.kind == "route" and not forced_recognized
