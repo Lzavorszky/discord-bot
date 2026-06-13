@@ -16,7 +16,7 @@ import numpy as np
 
 from config import CACHE_DB as DEFAULT_CACHE_DB
 from config import EMBEDDING_MODEL as DEFAULT_EMBEDDING_MODEL
-from protocol_parser import _parse_protocol_text, extract_policy_header
+from protocol_parser import extract_policy_header, parse_protocol_file
 
 
 PROTOCOL_CHUNKS = []
@@ -228,7 +228,7 @@ def load_protocols(
         if policy_header:
             policy_store[normalize_path(file_path)] = policy_header
 
-        parsed = _parse_protocol_text(text, path=file_path)
+        parsed = parse_protocol_file(file_path)
         parsed_store[normalize_path(file_path)] = parsed
         for warning in parsed.get("warnings", []):
             print(f"[startup] WARNING: {warning}")

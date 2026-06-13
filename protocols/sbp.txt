@@ -1,0 +1,232 @@
+# SPONTANEOUS_BACTERIAL_PERITONITIS
+
+## METADATA
+
+protocol_id: sbp
+protocol_name: Spontaneous bacterial peritonitis diagnostic protocol
+source_label: uploaded DOCX - SBP
+canonical_name: spontaneous bacterial peritonitis
+protocol_type: diagnostic_protocol
+answer_mode: default_then_selected_output
+selection_mode: priority_rules
+allows_dosing: no
+dosing_requires_link: yes
+default_dose_allowed: no
+version: 0.1
+last_reviewed: unknown
+owner: ID team
+status: draft
+
+## ALIASES
+
+- SBP
+- spontaneous bacterial peritonitis
+- spontan bakterialis peritonitis
+- spontán bakteriális peritonitis
+- ascites infection
+- ascites infekcio
+- ascites infekció
+- paracentesis SBP
+- paracentezis SBP
+
+## INTENTS
+
+default_request:
+- SBP
+- spontaneous bacterial peritonitis
+- spontan bakterialis peritonitis
+- ascites infection
+- paracentesis
+
+selection_request:
+- diagnosis
+- paracentesis
+- ascites
+- microbiology
+- chemistry
+- cytology
+- blood gas
+- neutrophil
+- ceftriaxone
+
+dosing_request:
+- dose
+- dosing
+- adag
+- dozis
+- mennyi
+- ceftriaxone dose
+
+info_request:
+- diagnosis
+- paracentesis
+- sample
+- ascites
+- blood culture bottle
+- cell count
+
+link_request:
+- ceftriaxone dose
+
+## INPUT_SLOTS
+
+required_for_selection:
+(none)
+
+required_for_dosing:
+Use LINKS. SBP itself does not provide ceftriaxone dosing.
+
+optional_modifiers:
+- ascites_sample
+- paracentesis
+- ceftriaxone
+
+forwardable_slots:
+- selected_antimicrobial
+- indication
+- infection_site
+- severity
+- gfr
+- egfr
+- crcl
+- renal_replacement
+- crrt
+- ihd
+- body_weight_kg
+- allergy
+
+## DEFAULT_ANSWER
+
+### HU
+
+SBP protokoll:
+
+Diagnozis = paracentezis.
+
+Kuldd:
+- mikrobiologia: ten mL ascites hemokulturas palackban
+- kemia: LDH, glukoz, bilirubin, amilaz, albumin, feherversejtszam
+- sejtszam
+- citologia
+- ascites vergaz gepbe, ha makroszkoposan tiszta
+
+Diagnozis: 500/ul-t meghalado neutrofil granulocita, alacsony pH, alacsony cukor es magas laktat, magas albumin gradiens.
+
+Kezeles a hasuri tablazat szerint: ceftriaxone. Reszletes ceftriaxone dosinghez hasznald a ceftriaxone protokollt.
+
+### EN
+
+SBP protocol:
+
+Diagnosis = paracentesis.
+
+Send:
+- microbiology: ten mL ascites in a blood culture bottle
+- chemistry: LDH, glucose, bilirubin, amylase, albumin, white blood cell count
+- cell count
+- cytology
+- ascites into blood gas machine if macroscopically clear
+
+Diagnosis: neutrophil granulocytes above 500/uL, low pH, low glucose and high lactate, high albumin gradient.
+
+Treatment from the abdominal infection table: ceftriaxone. For detailed ceftriaxone dosing use the ceftriaxone protocol.
+
+## SELECTION_RULES
+
+selection_mode: priority_rules
+
+RULE: DEFAULT
+  IF: no_selection_input_supplied == true
+  PRIORITY: 1
+  SELECT: WHOLE_SBP
+
+## SELECTED_OUTPUTS
+
+### WHOLE_SBP
+
+type: protocol_chunk
+selected_items:
+- ceftriaxone
+chunk_hu:
+- SBP protokoll:
+- Diagnozis = paracentezis.
+- Kuldd: mikrobiologia, ten mL ascites hemokulturas palackban.
+- Kuldd: kemia, LDH, glukoz, bilirubin, amilaz, albumin, feherversejtszam.
+- Kuldd: sejtszam.
+- Kuldd: citologia.
+- Kuldd: ascites vergaz gepbe, ha makroszkoposan tiszta.
+- Diagnozis: 500/ul-t meghalado neutrofil granulocita, alacsony pH, alacsony cukor es magas laktat, magas albumin gradiens.
+- Kezeles a hasuri tablazat szerint: ceftriaxone. Reszletes ceftriaxone dosinghez hasznald a ceftriaxone protokollt.
+chunk_en:
+- SBP protocol:
+- Diagnosis = paracentesis.
+- Send microbiology: ten mL ascites in a blood culture bottle.
+- Send chemistry: LDH, glucose, bilirubin, amylase, albumin, white blood cell count.
+- Send cell count.
+- Send cytology.
+- Send ascites into blood gas machine if macroscopically clear.
+- Diagnosis: neutrophil granulocytes above 500/uL, low pH, low glucose and high lactate, high albumin gradient.
+- Treatment from the abdominal infection table: ceftriaxone. For detailed ceftriaxone dosing use the ceftriaxone protocol.
+forbidden:
+- do not provide ceftriaxone dosing from SBP
+- do not omit the sample list
+
+## LINKS
+
+LINK: ceftriaxone_dosing
+  link_type: antimicrobial_dosing
+  when_selected_item: ceftriaxone
+  target_protocol_id: ceftriaxone
+  target_file: protocols/antibiotics/ceftriaxone.txt
+  target_missing_behavior: Ceftriaxone dosing is not specified in the uploaded protocols.
+  trigger_intents:
+    - dosing_request
+    - link_request
+  transfer_slots:
+    - selected_antimicrobial
+    - indication
+    - infection_site
+    - severity
+    - gfr
+    - egfr
+    - crcl
+    - renal_replacement
+    - crrt
+    - ihd
+    - body_weight_kg
+    - allergy
+
+## INFO_BLOCKS
+
+### whole_protocol
+
+Diagnosis is paracentesis.
+Send microbiology, chemistry, cell count, cytology, and blood gas sample if macroscopically clear.
+Diagnostic signs listed by the source are neutrophil granulocytes above 500/uL, low pH, low glucose and high lactate, high albumin gradient.
+Treatment named by the abdominal infection table is ceftriaxone; dosing belongs to the ceftriaxone protocol.
+
+## RESTRICTED_OUTPUTS
+
+- Do not provide ceftriaxone dosing from SBP.
+- Do not omit required paracentesis sample categories.
+- Do not invent albumin, prophylaxis, or secondary peritonitis management; not present in this source.
+
+## SAFETY_RULES
+
+- If prompted for SBP, return the whole SBP protocol chunk.
+- If the user asks for ceftriaxone dosing, link to ceftriaxone dosing.
+- If the user asks for items outside this source, say they are not specified in the uploaded protocol.
+
+## OUTPUT_TEMPLATES
+
+### FINAL_SELECTED_HU
+
+{chunk_hu}
+
+### FINAL_SELECTED_EN
+
+{chunk_en}
+
+## DEFAULT_FOOTER
+
+SBP forras szerint; ceftriaxone dozis kulon protokollbol.

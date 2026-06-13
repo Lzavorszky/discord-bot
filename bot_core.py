@@ -52,7 +52,19 @@ from rota_lookup import (
     parse_date_input as parse_rota_date_input,
 )
 from nursing_rota_lookup import lookup_nursing_rota
-from routing import AnswerEnvelope, TurnContext
+from routing import (
+    AnswerEnvelope,
+    EvidenceMatch,
+    RouteDecision,
+    RoutingEvidence,
+    RoutingSubject,
+    RoutingTest,
+    TurnContext,
+    extract_routing_evidence,
+    resolve_route,
+    route_candidates_for_evidence,
+    route_decision_to_dict,
+)
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 
@@ -1278,6 +1290,57 @@ def _update_turn_after_selection(turn_context, state, selected_recognized=None, 
         turn_context.confirmation_required = bool(confirmation_required)
 
 
+def _shadow_route_decision(question, state):
+    evidence = extract_routing_evidence(question, state)
+    decision = resolve_route(evidence, PROTOCOL_PARSED_BY_FILE, state)
+    return decision, evidence
+
+
+def _routing_evidence_to_trace(evidence):
+    if not evidence:
+        return None
+    return {
+        "intent": evidence.intent,
+        "subject": {
+            "kind": evidence.subject.kind,
+            "name": evidence.subject.name,
+        },
+        "microbes": list(evidence.microbes or []),
+        "markers": list(evidence.markers or []),
+        "test": {
+            "family": evidence.test.family,
+            "panel": evidence.test.panel,
+        },
+        "context": dict(evidence.context or {}),
+        "matches": [
+            {
+                "entity_type": match.entity_type,
+                "value": match.value,
+                "source": match.source,
+                "matched_text": (
+                    "<redacted>"
+                    if match.entity_type == "intent"
+                    else match.matched_text
+                ),
+                "confidence": match.confidence,
+                "protocol_file": match.protocol_file,
+                "metadata": dict(match.metadata or {}),
+            }
+            for match in (evidence.matches or [])
+        ],
+    }
+
+
+def _record_route_trace(state, decision, evidence):
+    state["_last_route_decision"] = route_decision_to_dict(decision)
+    state["_last_route_evidence"] = _routing_evidence_to_trace(evidence)
+    state["_last_route_candidates"] = route_candidates_for_evidence(
+        evidence,
+        PROTOCOL_PARSED_BY_FILE,
+    )
+    state["_last_shadow_route_decision"] = state["_last_route_decision"]
+
+
 def _make_answer_trace(
     *,
     state,
@@ -1297,6 +1360,7 @@ def _make_answer_trace(
     final_body=None,
     final_answer=None,
     retrieved_chunks=None,
+    shadow_route_decision=None,
 ):
     active_after = state.get("active_recognized") if state else None
     selected = recognized or active_after
@@ -1328,6 +1392,21 @@ def _make_answer_trace(
         "blocked_reason": blocked_reason,
         "confirmation_required": bool(confirmation_required),
     }
+    shadow_decision = shadow_route_decision
+    if shadow_decision is None and state:
+        shadow_decision = state.get("_last_shadow_route_decision")
+    if isinstance(shadow_decision, RouteDecision):
+        shadow_decision = route_decision_to_dict(shadow_decision)
+    if shadow_decision:
+        trace["shadow_route_decision"] = shadow_decision
+    if state:
+        route_decision = state.get("_last_route_decision") or shadow_decision
+        if route_decision:
+            trace["route_decision"] = route_decision
+        if state.get("_last_route_evidence") is not None:
+            trace["routing_evidence"] = state.get("_last_route_evidence")
+        if state.get("_last_route_candidates") is not None:
+            trace["candidate_protocols"] = state.get("_last_route_candidates")
     if turn_context:
         trace["turn_context"] = _turn_context_for_trace(turn_context)
         trace["confirmation_pending"] = bool(turn_context.confirmation_pending)
@@ -2912,6 +2991,56 @@ def _recognized_for_protocol_id(protocol_id):
     return None
 
 
+def _recognized_for_route_decision(decision, evidence=None):
+    if not decision or decision.kind != "route" or not decision.protocol_file:
+        return None
+    norm_file = normalize_path(decision.protocol_file)
+    parsed = PROTOCOL_PARSED_BY_FILE.get(norm_file)
+    if not parsed:
+        for candidate_file, candidate_parsed in PROTOCOL_PARSED_BY_FILE.items():
+            candidate_norm = normalize_path(candidate_file)
+            if (
+                candidate_norm == norm_file
+                or norm_file.endswith("/" + candidate_norm)
+                or candidate_norm.endswith("/" + norm_file)
+            ):
+                norm_file = candidate_norm
+                parsed = candidate_parsed
+                break
+    if not parsed:
+        return None
+    meta = parsed.get("metadata", {}) if parsed else {}
+    claims = parsed.get("route_claims") or {}
+    subjects = {str(item).strip().lower() for item in claims.get("subjects", [])}
+    protocol_id = meta.get("protocol_id") or norm_file
+    display = meta.get("canonical_name") or meta.get("protocol_name") or protocol_id
+    confidence = "exact"
+    if evidence:
+        matching_confidences = [
+            match.confidence
+            for match in (evidence.matches or [])
+            if match.protocol_file
+            and normalize_path(decision.protocol_file).endswith(normalize_path(match.protocol_file))
+            and match.confidence
+        ]
+        if "high" in matching_confidences:
+            confidence = "high"
+        elif "medium" in matching_confidences:
+            confidence = "medium"
+    return {
+        "protocol_file": parsed.get("path") or norm_file,
+        "protocol_id": protocol_id,
+        "key": protocol_id,
+        "display": display,
+        "canonical": meta.get("canonical_name") or display,
+        "source_label": meta.get("source_label") or _label_for_protocol(norm_file),
+        "matched_alias": "route_claims",
+        "confidence": confidence,
+        "category": "drugs" if "drug" in subjects else "conditions",
+        "route_claim_reason": decision.reason,
+    }
+
+
 def _find_steroid_equivalence_agent(question):
     folded = _ascii_fold(question or "")
     for alias in sorted(_STEROID_ALIAS_TO_KEY, key=len, reverse=True):
@@ -2973,7 +3102,10 @@ def _try_steroid_equivalence_shortcut(state, recognized, question):
     if not should_apply:
         return None
 
-    equivalence_recognized = _recognized_for_protocol_id("steroid_equivalence")
+    if protocol_id == "steroid_equivalence" and selected:
+        equivalence_recognized = selected
+    else:
+        equivalence_recognized = _recognized_for_protocol_id("steroid_equivalence")
     if not equivalence_recognized:
         return None
     equivalence_parsed = PROTOCOL_PARSED_BY_FILE.get(
@@ -3106,6 +3238,10 @@ def _ask_ai_impl(question, chat_id):
     raw_user_text = question
     active_before = dict(state.get("active_recognized") or {})
     state.pop("_last_selection_trace", None)
+    state.pop("_last_route_decision", None)
+    state.pop("_last_route_evidence", None)
+    state.pop("_last_route_candidates", None)
+    state.pop("_last_shadow_route_decision", None)
 
     # Silent reset of trees that have been idle too long.
     if maybe_auto_reset_tree(state):
@@ -3219,14 +3355,82 @@ def _ask_ai_impl(question, chat_id):
         else:
             state["pending_context_confirmation"] = None
 
+    route_decision, route_evidence = _shadow_route_decision(question, state)
+    _record_route_trace(state, route_decision, route_evidence)
+
     unsupported_hit = _detect_unsupported_policy(question)
     unsupported_syndrome = unsupported_hit.get("key") if unsupported_hit else None
     unsupported_matched_term = unsupported_hit.get("matched_term") if unsupported_hit else None
     unsupported_message = unsupported_hit.get("message") if unsupported_hit else None
-    normalized_question, recognized = normalize_question(question)
-    recognized, implicit_normalized_question = _apply_implicit_protocol_recognition(question, recognized)
-    if implicit_normalized_question:
-        normalized_question = implicit_normalized_question
+
+    if route_decision.kind in {"clarify", "unsupported"} and not forced_recognized:
+        body = route_decision.message or (
+            "I cannot safely route that request to an uploaded protocol. "
+            "Please clarify the protocol, panel, source, or syndrome."
+        )
+        answer = finalize_answer(body, None, None)
+        blocked_reason = (
+            "unsupported_syndrome"
+            if route_evidence.context.get("unsupported_syndrome")
+            else f"route_claim_{route_decision.kind}"
+        )
+        turn = _new_turn_context(
+            raw_user_text=raw_user_text,
+            chat_id=chat_id,
+            state=state,
+            active_before=active_before,
+            fresh_recognized=None,
+            selected_recognized=None,
+            unsupported_syndrome=unsupported_syndrome,
+            unsupported_matched_term=unsupported_matched_term,
+            unsupported_message=unsupported_message,
+            intent=route_evidence.intent,
+            normalized_question=question,
+            confirmation_pending=bool(pending_context),
+        )
+        envelope = _make_answer_envelope(
+            state=state,
+            turn_context=turn,
+            recognized=None,
+            active_before=active_before,
+            final_body=body,
+            final_answer=answer,
+            deterministic_or_llm="deterministic_route_claims",
+            llm_called=False,
+            unsupported_syndrome=unsupported_syndrome,
+            unsupported_matched_term=unsupported_matched_term,
+            unsupported_message=unsupported_message,
+            unsupported_action="blocked" if route_decision.kind == "unsupported" else None,
+            blocked_reason=blocked_reason,
+        )
+        _remember_answer(state, question, answer)
+        _log_answer_envelope(t_start, chat_id, question, None, envelope)
+        return answer
+
+    route_recognized = (
+        _recognized_for_route_decision(route_decision, route_evidence)
+        if route_decision.kind == "route" and not forced_recognized
+        else None
+    )
+    if route_recognized:
+        recognized = route_recognized
+        normalized_question = _normalized_question_with_recognized(question, recognized)
+    elif route_decision.kind == "use_active_context" and state.get("active_recognized") and not forced_recognized:
+        recognized, implicit_normalized_question = _apply_implicit_protocol_recognition(question, None)
+        if implicit_normalized_question:
+            normalized_question = implicit_normalized_question
+        else:
+            active = state.get("active_recognized")
+            normalized_question = (
+                question
+                + f"\n\n[Continuing context: {active.get('display', '')} / "
+                + f"{active.get('canonical', active.get('display', ''))}]"
+            )
+    else:
+        normalized_question, recognized = normalize_question(question)
+        recognized, implicit_normalized_question = _apply_implicit_protocol_recognition(question, recognized)
+        if implicit_normalized_question:
+            normalized_question = implicit_normalized_question
     if forced_recognized:
         recognized = forced_recognized
         normalized_question = (
@@ -3604,16 +3808,26 @@ def ask_ai(question, chat_id):
 # ---------------------------------------------------------------------------
 
 def _protocol_meta_for_file(protocol_file):
-    if not protocol_file:
-        return {}
-    parsed = PROTOCOL_PARSED_BY_FILE.get(normalize_path(protocol_file))
+    parsed = _protocol_for_file(protocol_file)
     return parsed.get("metadata", {}) if parsed else {}
 
 
 def _protocol_for_file(protocol_file):
     if not protocol_file:
         return None
-    return PROTOCOL_PARSED_BY_FILE.get(normalize_path(protocol_file))
+    norm_file = normalize_path(protocol_file)
+    parsed = PROTOCOL_PARSED_BY_FILE.get(norm_file)
+    if parsed:
+        return parsed
+    for candidate_file, candidate_parsed in PROTOCOL_PARSED_BY_FILE.items():
+        candidate_norm = normalize_path(candidate_file)
+        if (
+            candidate_norm == norm_file
+            or norm_file.endswith("/" + candidate_norm)
+            or candidate_norm.endswith("/" + norm_file)
+        ):
+            return candidate_parsed
+    return None
 
 
 def _loaded_protocol_rows():
@@ -3804,6 +4018,10 @@ def build_debug_trace(debug_question, chat_id):
     unsupported_syndrome = unsupported_hit.get("key") if unsupported_hit else None
     unsupported_matched_term = unsupported_hit.get("matched_term") if unsupported_hit else None
     unsupported_message = unsupported_hit.get("message") if unsupported_hit else None
+    state = get_chat_state(chat_id)
+    state_before = _format_state_snapshot(state)
+    route_decision, route_evidence = _shadow_route_decision(debug_question, state)
+    _record_route_trace(state, route_decision, route_evidence)
     normalized_question, fresh_recognized = normalize_question(debug_question)
     fresh_recognized, implicit_normalized_question = _apply_implicit_protocol_recognition(
         debug_question,
@@ -3811,18 +4029,31 @@ def build_debug_trace(debug_question, chat_id):
     )
     if implicit_normalized_question:
         normalized_question = implicit_normalized_question
-    state = get_chat_state(chat_id)
-    state_before = _format_state_snapshot(state)
     active = state.get("active_recognized")
-    recognized = fresh_recognized
+    route_recognized = _recognized_for_route_decision(route_decision, route_evidence)
+    recognized = route_recognized or fresh_recognized
     unsupported_action = "none"
 
     explicit_drug_allowed = (
-        fresh_recognized
-        and fresh_recognized.get("category") == "drugs"
+        recognized
+        and recognized.get("category") == "drugs"
         and (not unsupported_hit or unsupported_hit.get("allowed_if_explicit_drug", True))
     )
-    if unsupported_hit and not explicit_drug_allowed:
+    if route_decision.kind in {"clarify", "unsupported"}:
+        recognized = None
+        active = None
+        context_source = f"route_claim_{route_decision.kind}"
+        unsupported_action = "blocked" if route_decision.kind == "unsupported" else "clarify"
+        reason = route_decision.reason or "route claims requested clarification/unsupported"
+        output_source = "deterministic_route_claims"
+    elif route_recognized:
+        context_source = "route_claims"
+        if unsupported_syndrome and route_recognized.get("category") == "drugs":
+            unsupported_action = "ignored_explicit_drug"
+        reason = route_decision.reason or "protocol route claim matched"
+        normalized_question = _normalized_question_with_recognized(debug_question, route_recognized)
+        output_source = None
+    elif unsupported_hit and not explicit_drug_allowed:
         recognized = None
         active = None
         context_source = "unsupported_syndrome"
@@ -3831,6 +4062,7 @@ def build_debug_trace(debug_question, chat_id):
             f"unsupported syndrome '{unsupported_syndrome}' matched term "
             f"'{unsupported_matched_term}'; no supported explicit drug alias"
         )
+        output_source = "deterministic policy block (unsupported_syndrome)"
     elif fresh_recognized:
         context_source = "fresh_alias"
         if unsupported_syndrome and fresh_recognized.get("category") == "drugs":
@@ -3839,6 +4071,7 @@ def build_debug_trace(debug_question, chat_id):
             f"fresh alias '{fresh_recognized.get('matched_alias', 'n/a')}' "
             f"matched with {fresh_recognized.get('confidence', 'n/a')} confidence"
         )
+        output_source = None
     elif active:
         recognized = active
         context_source = "carried_context"
@@ -3848,9 +4081,11 @@ def build_debug_trace(debug_question, chat_id):
             + f"\n\n[Continuing context: {recognized.get('display', '')} / "
             + f"{recognized.get('canonical', recognized.get('display', ''))}]"
         )
+        output_source = None
     else:
         context_source = "none"
         reason = "no alias or active protocol; retrieval is semantic only"
+        output_source = None
 
     preferred_file = recognized.get("protocol_file") if recognized else None
     retrieved_chunks = search_protocols(
@@ -3860,9 +4095,7 @@ def build_debug_trace(debug_question, chat_id):
     meta = parsed.get("metadata", {}) if parsed else {}
     selection_result, slots, output_source = _inspect_deterministic_path(
         debug_question, recognized, state
-    )
-    if unsupported_action == "blocked":
-        output_source = "deterministic policy block (unsupported_syndrome)"
+    ) if output_source is None else (None, {}, output_source)
     selected_key = getattr(selection_result, "output_key", None) if selection_result else None
     default_used = getattr(selection_result, "default_used", None) if selection_result else None
     turn = _new_turn_context(
@@ -3904,6 +4137,37 @@ def build_debug_trace(debug_question, chat_id):
         f"Confidence: {(fresh_recognized or recognized or {}).get('confidence', 'n/a')}",
         f"Protocol type: {meta.get('protocol_type') or (recognized or {}).get('protocol_type') or 'n/a'}",
         f"Intent: {classify_intent(debug_question)}",
+        "Route decision: " + json.dumps(
+            route_decision_to_dict(route_decision),
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+        f"Route reason: {route_decision.reason or 'n/a'}",
+        f"Evidence intent: {route_evidence.intent}",
+        (
+            "Evidence entities: "
+            + json.dumps(
+                {
+                    "subject": {
+                        "kind": route_evidence.subject.kind,
+                        "name": route_evidence.subject.name,
+                    },
+                    "microbes": route_evidence.microbes,
+                    "markers": route_evidence.markers,
+                    "test": {
+                        "family": route_evidence.test.family,
+                        "panel": route_evidence.test.panel,
+                    },
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        ),
+        "Candidate protocols: " + json.dumps(
+            route_candidates_for_evidence(route_evidence, PROTOCOL_PARSED_BY_FILE),
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
         f"Active state before: {state_before}",
         f"Active state after: {_format_state_snapshot(state)}",
         _format_selected_protocol(recognized, reason),

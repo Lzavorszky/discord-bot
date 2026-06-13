@@ -79,6 +79,25 @@ VALID_STATUSES = {"draft", "internal", "approved"}
 
 GOVERNANCE_KEYS = {"version", "last_reviewed", "owner", "status"}
 
+ROUTE_CLAIMS_KEYS = {
+    "intents",
+    "subjects",
+    "owns",
+    "requires",
+    "excludes",
+    "clarify_if_missing",
+    "opt_out",
+}
+
+ROUTE_CLAIMS_LIST_KEYS = {
+    "intents",
+    "subjects",
+    "requires",
+    "excludes",
+    "clarify_if_missing",
+    "opt_out",
+}
+
 # Aliases that are too broad (single very generic terms)
 BROAD_ALIAS_SET = {
     "antibiotic", "antibiotics", "antimicrobial", "antimicrobials",
@@ -236,6 +255,8 @@ def _lint_file(path: str, result: LintResult, all_aliases: dict):
         result.add("WARNING", "invalid_status", issue_path,
                    f"Invalid status '{status}'. Valid: {sorted(VALID_STATUSES)}")
 
+    _lint_route_claims(p, issue_path, result)
+
     # ── Aliases ──────────────────────────────────────────────────────────────
 
     alias_items = _extract_alias_list(p.get("aliases", ""))
@@ -291,6 +312,187 @@ def _lint_file(path: str, result: LintResult, all_aliases: dict):
                        "dose-like text")
 
     _lint_slot_schema_safety(p, issue_path, result)
+
+
+def _lint_route_claims(p: dict, issue_path: str, result: LintResult):
+    claims = p.get("route_claims") or {}
+    if not claims:
+        result.add(
+            "ERROR",
+            "route_claims_missing",
+            issue_path,
+            "Protocol must have ROUTE_CLAIMS or explicitly opt out with opt_out",
+        )
+        return
+    if not isinstance(claims, dict):
+        result.add(
+            "ERROR",
+            "route_claims_invalid",
+            issue_path,
+            "ROUTE_CLAIMS must be an object",
+        )
+        return
+
+    opt_out = claims.get("opt_out")
+    if opt_out:
+        _lint_route_claims_string_list(opt_out, "opt_out", issue_path, result)
+        if set(claims) - {"opt_out"}:
+            result.add(
+                "ERROR",
+                "route_claims_opt_out_mixed",
+                issue_path,
+                "ROUTE_CLAIMS opt_out cannot be mixed with route-owning claims",
+            )
+        return
+
+    for key in sorted(set(claims) - ROUTE_CLAIMS_KEYS):
+        result.add(
+            "ERROR",
+            "route_claims_unknown_key",
+            issue_path,
+            f"ROUTE_CLAIMS has unknown key '{key}'",
+        )
+
+    for key in sorted(ROUTE_CLAIMS_LIST_KEYS):
+        if key in claims:
+            _lint_route_claims_string_list(claims[key], key, issue_path, result)
+
+    owns = claims.get("owns", {})
+    if "owns" in claims and not isinstance(owns, dict):
+        result.add(
+            "ERROR",
+            "route_claims_invalid_owns",
+            issue_path,
+            "ROUTE_CLAIMS.owns must be an object",
+        )
+        return
+
+    for owner_key, owner_value in sorted((owns or {}).items()):
+        if not isinstance(owner_key, str) or not owner_key.strip():
+            result.add(
+                "ERROR",
+                "route_claims_invalid_owns",
+                issue_path,
+                "ROUTE_CLAIMS.owns keys must be nonempty strings",
+            )
+            continue
+
+        if isinstance(owner_value, list):
+            _lint_route_claims_string_list(
+                owner_value, f"owns.{owner_key}", issue_path, result
+            )
+            continue
+
+        if isinstance(owner_value, dict):
+            source = owner_value.get("source")
+            extra_keys = set(owner_value) - {"source"}
+            if extra_keys:
+                result.add(
+                    "ERROR",
+                    "route_claims_invalid_source",
+                    issue_path,
+                    f"ROUTE_CLAIMS.owns.{owner_key} has unknown source keys: "
+                    + ", ".join(sorted(extra_keys)),
+                )
+            if not isinstance(source, str) or not source.strip():
+                result.add(
+                    "ERROR",
+                    "route_claims_invalid_source",
+                    issue_path,
+                    f"ROUTE_CLAIMS.owns.{owner_key}.source must be a nonempty string",
+                )
+            continue
+
+        result.add(
+            "ERROR",
+            "route_claims_invalid_owns",
+            issue_path,
+            f"ROUTE_CLAIMS.owns.{owner_key} must be a string list or source object",
+        )
+
+    _lint_route_claims_semantics(p, claims, issue_path, result)
+
+
+def _lint_route_claims_semantics(p: dict, claims: dict, issue_path: str, result: LintResult):
+    meta = p.get("metadata") or {}
+    ptype = meta.get("protocol_type", "")
+    intents = _route_claim_norms(claims.get("intents"))
+    requires = _route_claim_norms(claims.get("requires"))
+    excludes = _route_claim_norms(claims.get("excludes"))
+
+    if ptype == "drug_dosing_protocol":
+        missing_excludes = {
+            item for item in {"coverage_question", "targeted_treatment"}
+            if item not in excludes
+        }
+        if missing_excludes:
+            result.add(
+                "ERROR",
+                "route_claims_drug_dosing_missing_excludes",
+                issue_path,
+                "Drug dosing protocols must exclude coverage_question and targeted_treatment",
+            )
+
+    if ptype == "microbiology_interpretation_protocol" or "test_interpretation" in intents:
+        if "microbe_or_marker" not in requires:
+            result.add(
+                "ERROR",
+                "route_claims_microbiology_missing_microbe_or_marker",
+                issue_path,
+                "Microbiology interpretation protocols must require microbe_or_marker",
+            )
+
+    if (
+        "syndrome" in _route_claim_norms(claims.get("subjects"))
+        and "empiric_treatment" in intents
+        and _has_broad_alias(p)
+    ):
+        missing_excludes = {
+            item for item in {"test_interpretation", "microbe_present_without_targeted_therapy"}
+            if item not in excludes
+        }
+        if missing_excludes:
+            result.add(
+                "ERROR",
+                "route_claims_broad_syndrome_missing_excludes",
+                issue_path,
+                "Broad syndrome aliases must be fallback claims that exclude test/microbe-driven routing",
+            )
+
+
+def _route_claim_norms(values):
+    if not isinstance(values, list):
+        return set()
+    return {
+        re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+        for value in values
+        if isinstance(value, str) and value.strip()
+    }
+
+
+def _has_broad_alias(p: dict) -> bool:
+    return any(alias.lower() in BROAD_ALIAS_SET for alias in _extract_alias_list(p.get("aliases", "")))
+
+
+def _lint_route_claims_string_list(value, field_name: str, issue_path: str, result: LintResult):
+    if not isinstance(value, list):
+        result.add(
+            "ERROR",
+            "route_claims_invalid_list",
+            issue_path,
+            f"ROUTE_CLAIMS.{field_name} must be a list of strings",
+        )
+        return
+
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            result.add(
+                "ERROR",
+                "route_claims_invalid_list",
+                issue_path,
+                f"ROUTE_CLAIMS.{field_name} contains a non-string or empty item",
+            )
+            return
 
 
 def _lint_slot_schema_safety(p: dict, issue_path: str, result: LintResult):

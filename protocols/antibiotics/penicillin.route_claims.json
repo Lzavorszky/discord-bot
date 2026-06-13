@@ -1,0 +1,18 @@
+{
+  "intents": [
+    "dose"
+  ],
+  "subjects": [
+    "drug"
+  ],
+  "owns": {
+    "drugs": [
+      "penicillin",
+      "penicillin G"
+    ]
+  },
+  "excludes": [
+    "targeted_treatment",
+    "coverage_question"
+  ]
+}

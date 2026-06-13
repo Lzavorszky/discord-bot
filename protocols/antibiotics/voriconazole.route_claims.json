@@ -1,0 +1,17 @@
+{
+  "intents": [
+    "dose"
+  ],
+  "subjects": [
+    "drug"
+  ],
+  "owns": {
+    "drugs": [
+      "voriconazole"
+    ]
+  },
+  "excludes": [
+    "targeted_treatment",
+    "coverage_question"
+  ]
+}

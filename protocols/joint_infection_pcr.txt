@@ -1,0 +1,350 @@
+# BIOFIRE_JOINT_INFECTION_PANEL
+
+## METADATA
+
+protocol_id: biofire_joint_infection
+protocol_name: BioFire Joint Infection Panel interpretation protocol
+source_label: BioFire JI
+canonical_name: BioFire Joint Infection Panel
+protocol_type: microbiology_interpretation_protocol
+answer_mode: required_slots_then_selected_output
+selection_mode: pcr_mapping
+allows_dosing: no
+dosing_requires_link: yes
+default_dose_allowed: no
+version: 0.1
+last_reviewed: unknown
+owner: ID team
+status: draft
+
+## ALIASES
+
+- BioFire JI
+- BioFire joint infection
+- joint infection panel
+- JI panel
+- FilmArray JI
+
+## INTENTS
+
+default_request:
+- BioFire JI
+- joint infection panel
+- JI panel
+
+selection_request:
+- detected
+- positive
+- pathogen
+- organism
+- resistance marker
+- CTX-M
+- carbapenemase
+- mecA
+- VanA
+- VanB
+
+dosing_request:
+- dose
+- dosing
+- adag
+- dozis
+- GFR
+
+info_request:
+- nosocomial intraabdominal
+- no narrowing
+- escalation
+
+link_request:
+- meropenem dose
+- colistin dose
+- vancomycin dose
+- linezolid dose
+
+## INPUT_SLOTS
+
+required_for_selection:
+- at_least_one_detected_pathogen
+
+optional_modifiers:
+- pathogen_list
+- resistance_gene_list
+- pcr_context
+
+forwardable_slots:
+- selected_antimicrobial
+- pathogen_list
+- resistance_gene_list
+- pcr_context
+- gfr
+- egfr
+- crcl
+- renal_replacement
+- crrt
+- ihd
+- body_weight_kg
+- allergy
+
+## SLOT_ALIASES
+
+SLOT: pcr_context
+  nosocomial_intraabdominal:
+    - nosocomial intraabdominal
+    - nosocomial intra-abdominal
+    - nosocomial abdominal
+    - nosocomialis hasuri
+    - complex nosocomial abdominal
+    - komplex nosocomialis hasuri
+
+## DEFAULT_ANSWER
+
+### HU
+
+BioFire JI interpretaciohoz kell legalabb egy detektalt korokozo.
+Rezisztencia marker csak detektalt korokozoval egyutt ertelmezheto.
+
+### EN
+
+BioFire JI interpretation requires at least one detected pathogen.
+Resistance markers can only be interpreted together with detected pathogen(s).
+
+## SELECTION_RULES
+
+selection_mode: pcr_mapping
+
+## PCR_ORGANISM_MAPPING
+
+| Organism | Entity type | Base tier | Baseline therapy | Notes |
+|---|---|---:|---|---|
+| Acinetobacter calcoaceticus-baumannii complex | gram_negative | 4 | meropenem + colistin | high-risk baseline; gram_negative |
+| Escherichia coli | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative |
+| Klebsiella pneumoniae group | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative |
+| Pseudomonas aeruginosa | gram_negative | 2 | cefepime | gram_negative |
+| Staphylococcus aureus | bacteria | 1 | cefazolin | If mecA/C & MREJ: vancomycin |
+| Enterococcus faecium | bacteria | 1 | ampicillin | If VanA/B: linezolid |
+
+## PCR_ORGANISM_ALIASES
+
+Organism: Acinetobacter calcoaceticus-baumannii complex
+- Acinetobacter calcoaceticus-baumannii complex
+- Acinetobacter
+- baumannii
+- ACB
+
+Organism: Escherichia coli
+- Escherichia coli
+- E. coli
+- E coli
+- ecoli
+
+Organism: Klebsiella pneumoniae group
+- Klebsiella pneumoniae group
+- Klebsiella pneumoniae
+- KPN
+
+Organism: Pseudomonas aeruginosa
+- Pseudomonas aeruginosa
+- Pseudomonas
+
+Organism: Staphylococcus aureus
+- Staphylococcus aureus
+- Staph aureus
+- S. aureus
+
+Organism: Enterococcus faecium
+- Enterococcus faecium
+- E. faecium
+- E faecium
+- Enterococcus
+
+## PCR_RESISTANCE_MARKER_ALIASES
+
+Marker: mecA/C & MREJ
+- mecA/C
+- mecA
+- mecC
+- MREJ
+
+Marker: CTX-M
+- CTX-M
+- CTXM
+- ESBL
+
+Marker: carbapenemase
+- IMP
+- KPC
+- NDM
+- VIM
+- OXA-48-like
+- OXA-48
+- OXA48
+- carbapenemase
+
+Marker: VanA/B
+- VanA
+- VanB
+- VanA/B
+
+## PCR_RESISTANCE_RULES
+
+RULE: MRSA_MARKER
+  IF_MARKER: mecA/C & MREJ
+  ACTION: add_agent
+  THERAPY: vancomycin
+  NOTE: MRSA likely where applicable.
+
+RULE: VRE_MARKER
+  IF_MARKER: VanA/B
+  ACTION: add_agent
+  THERAPY: linezolid
+  NOTE: VRE likely where applicable.
+
+RULE: CTX_M
+  IF_MARKER: CTX-M
+  ACTION: replace_gram_negative_backbone
+  THERAPY: meropenem
+  NOTE: ESBL marker; use meropenem in this protocol.
+
+RULE: CARBAPENEMASE
+  IF_MARKER: carbapenemase
+  ACTION: replace_gram_negative_backbone
+  THERAPY: meropenem + colistin
+  NOTE: ID consultation recommended.
+
+## PCR_CONTEXT_NOTES
+
+RULE: NOSOCOMIAL_INTRAABDOMINAL
+  IF_CONTEXT: nosocomial_intraabdominal
+  NOTE: For nosocomial intra-abdominal infection, use JI PCR for regimen broadening only. Do not narrow below meropenem from PCR alone; wait for conventional culture and susceptibility.
+
+## SELECTED_OUTPUTS
+
+### TIER_1_CEFTRIAXONE
+
+type: microbiology_interpretation
+tier: 1
+selected_items:
+- ceftriaxone
+answer_en: Tier 1 - ceftriaxone.
+answer_hu: Tier 1 - ceftriaxone.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### TIER_2_CEFEPIME
+
+type: microbiology_interpretation
+tier: 2
+selected_items:
+- cefepime
+answer_en: Tier 2 - cefepime.
+answer_hu: Tier 2 - cefepime.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### TIER_3_MEROPENEM
+
+type: microbiology_interpretation
+tier: 3
+selected_items:
+- meropenem
+answer_en: Tier 3 - meropenem.
+answer_hu: Tier 3 - meropenem.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### TIER_4_MEROPENEM_COLISTIN
+
+type: microbiology_interpretation
+tier: 4
+selected_items:
+- meropenem
+- colistin
+answer_en: Tier 4 - meropenem + colistin. High MDR risk; ID consultation recommended.
+answer_hu: Tier 4 - meropenem + colistin. High MDR risk; ID consultation recommended.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### STAPH_AUREUS_MSSA
+
+type: microbiology_interpretation
+selected_items:
+- cefazolin
+answer_en: Staphylococcus aureus without mecA/C or MREJ - MSSA likely - cefazolin.
+answer_hu: Staphylococcus aureus without mecA/C or MREJ - MSSA likely - cefazolin.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### STAPH_AUREUS_MRSA
+
+type: microbiology_interpretation
+selected_items:
+- vancomycin
+answer_en: Staphylococcus aureus + mecA/C or MREJ - MRSA likely - vancomycin.
+answer_hu: Staphylococcus aureus + mecA/C or MREJ - MRSA likely - vancomycin.
+forbidden:
+- do not provide dosing from BioFire JI
+
+### AMPICILLIN_LINEZOLID
+
+type: microbiology_interpretation
+selected_items:
+- ampicillin
+- linezolid
+answer_en: Enterococcus faecium + VanA/B - linezolid; baseline ampicillin context requires susceptibility review.
+answer_hu: Enterococcus faecium + VanA/B - linezolid; baseline ampicillin context requires susceptibility review.
+forbidden:
+- do not provide dosing from BioFire JI
+
+## LINKS
+
+LINK: meropenem_dosing
+  link_type: antimicrobial_dosing
+  when_selected_item: meropenem
+  target_protocol_id: meropenem
+  target_file: protocols/antibiotics/meropenem.txt
+  target_missing_behavior: Meropenem dosing is not specified in the uploaded protocols.
+  trigger_intents:
+    - dosing_request
+    - link_request
+  transfer_slots:
+    - selected_antimicrobial
+    - pathogen_list
+    - resistance_gene_list
+    - gfr
+    - egfr
+    - crcl
+
+## INFO_BLOCKS
+
+### nosocomial_intraabdominal
+
+For nosocomial intra-abdominal infection, use JI PCR for regimen broadening only. Do not narrow below meropenem from PCR alone; wait for conventional culture and susceptibility.
+
+## RESTRICTED_OUTPUTS
+
+- Do not provide antimicrobial dosing from BioFire JI.
+- Do not narrow below meropenem in nosocomial intra-abdominal infection from PCR alone.
+
+## SAFETY_RULES
+
+- Resistance markers are interpreted only with detected pathogen(s).
+- Nosocomial intra-abdominal context is a safety note, not a separate escalation action.
+
+## OUTPUT_TEMPLATES
+
+### FINAL_SELECTED_HU
+
+BioFire JI - {detected_entities}
+- interpretacio: {selected_output_answer_hu}
+- kontextus: {spectrum_logic_if_polymicrobial}
+
+### FINAL_SELECTED_EN
+
+BioFire JI - {detected_entities}
+- interpretation: {selected_output_answer_en}
+- context: {spectrum_logic_if_polymicrobial}
+
+## DEFAULT_FOOTER
+
+BioFire JI interpretation is protocol-driven and does not provide dosing.

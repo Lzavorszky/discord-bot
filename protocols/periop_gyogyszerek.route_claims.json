@@ -1,0 +1,32 @@
+{
+  "intents": [
+    "periop_advice",
+    "perioperative_medication_management"
+  ],
+  "subjects": [
+    "drug",
+    "drug_class"
+  ],
+  "owns": {
+    "contexts": [
+      "perioperative",
+      "preoperative",
+      "surgery_day",
+      "neuraxial"
+    ],
+    "protocols": [
+      "periop_medications"
+    ]
+  },
+  "requires": [
+    "perioperative_context",
+    "drug_or_class"
+  ],
+  "excludes": [
+    "steroid_stress_dose",
+    "bridging_question"
+  ],
+  "clarify_if_missing": [
+    "drug_or_class"
+  ]
+}

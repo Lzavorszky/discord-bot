@@ -1249,6 +1249,228 @@ class TestIntentClassifier(unittest.TestCase):
         self.assertEqual(b.classify_intent("hello there"), "unknown")
 
 
+class TestRoutingEvidenceExtraction(unittest.TestCase):
+    """Evidence extraction feeds the primary route-claims router."""
+
+    def setUp(self):
+        import aliases as alias_helpers
+        import telegram_bot as b
+
+        self.alias_helpers = alias_helpers
+        self.b = b
+        self._old_aliases = dict(b.ALIASES)
+        self._old_alias_index = dict(b.ALIAS_INDEX)
+        self._old_blocked_aliases = set(b.BLOCKED_ALIASES)
+        self._old_unsupported_syndromes = dict(b.UNSUPPORTED_SYNDROMES)
+        self._old_file_labels = dict(b.PROTOCOL_FILE_TO_LABEL)
+        self._old_helper_aliases = dict(alias_helpers.ALIASES)
+        self._old_helper_alias_index = dict(alias_helpers.ALIAS_INDEX)
+        self._old_helper_blocked_aliases = set(alias_helpers.BLOCKED_ALIASES)
+        self._old_helper_unsupported_syndromes = dict(alias_helpers.UNSUPPORTED_SYNDROMES)
+        self._old_helper_file_labels = dict(alias_helpers.PROTOCOL_FILE_TO_LABEL)
+        b.load_aliases(os.path.join("protocols", "aliases.json"))
+
+    def tearDown(self):
+        b = self.b
+        alias_helpers = self.alias_helpers
+        b.ALIASES = self._old_aliases
+        b.ALIAS_INDEX = self._old_alias_index
+        b.BLOCKED_ALIASES = self._old_blocked_aliases
+        b.UNSUPPORTED_SYNDROMES = self._old_unsupported_syndromes
+        b.PROTOCOL_FILE_TO_LABEL = self._old_file_labels
+        alias_helpers.ALIASES = self._old_helper_aliases
+        alias_helpers.ALIAS_INDEX = self._old_helper_alias_index
+        alias_helpers.BLOCKED_ALIASES = self._old_helper_blocked_aliases
+        alias_helpers.UNSUPPORTED_SYNDROMES = self._old_helper_unsupported_syndromes
+        alias_helpers.PROTOCOL_FILE_TO_LABEL = self._old_helper_file_labels
+
+    def test_evidence_dataclasses_have_safe_defaults(self):
+        import routing
+
+        evidence = routing.RoutingEvidence()
+        self.assertEqual(evidence.intent, "unknown")
+        self.assertEqual(evidence.subject, routing.RoutingSubject())
+        self.assertEqual(evidence.test, routing.RoutingTest())
+        self.assertEqual(evidence.microbes, [])
+        self.assertEqual(evidence.markers, [])
+        self.assertEqual(evidence.context, {})
+
+        decision = routing.RouteDecision(kind="route", protocol_file="protocols/example.txt")
+        self.assertEqual(decision.kind, "route")
+        self.assertEqual(decision.protocol_file, "protocols/example.txt")
+
+    def test_drug_dose_alias_extracts_subject_intent_and_renal_context(self):
+        evidence = self.b.extract_routing_evidence("meropenem dose GFR 35")
+
+        self.assertEqual(evidence.intent, "dose")
+        self.assertEqual(evidence.subject.kind, "drug")
+        self.assertEqual(evidence.subject.name, "meropenem")
+        self.assertTrue(evidence.context["renal_function"])
+        self.assertIn(
+            "meropenem dose",
+            [m.matched_text for m in evidence.matches if m.entity_type == "subject"],
+        )
+
+    def test_pcr_microbe_conflict_keeps_all_typed_evidence(self):
+        evidence = self.b.extract_routing_evidence("Penumonia PCR Proteus")
+
+        self.assertEqual(evidence.intent, "test_interpretation")
+        self.assertEqual(evidence.subject.kind, "syndrome")
+        self.assertEqual(evidence.subject.name, "community-acquired pneumonia")
+        self.assertEqual(evidence.test.family, "pcr")
+        self.assertIn("Proteus spp.", evidence.microbes)
+        self.assertEqual(
+            {"subject", "test", "microbe", "intent"} <= {m.entity_type for m in evidence.matches},
+            True,
+        )
+
+    def test_collect_alias_matches_exposes_all_slice_examples(self):
+        cases = [
+            (
+                "Penumonia PCR Proteus",
+                [
+                    ("penumonia", "protocols/cap.txt", "exact"),
+                    ("pneumonia pcr", "protocols/pneumonia_pcr.txt", "high"),
+                ],
+            ),
+            (
+                "BioFire PN Proteus",
+                [
+                    ("biofire pn", "protocols/pneumonia_pcr.txt", "exact"),
+                    ("biofire", "protocols/pneumonia_pcr.txt", "exact"),
+                ],
+            ),
+            (
+                "pneumonia pcr proteus",
+                [
+                    ("pneumonia pcr", "protocols/pneumonia_pcr.txt", "exact"),
+                    ("pneumonia", "protocols/cap.txt", "exact"),
+                ],
+            ),
+            (
+                "meropenem dose GFR 35",
+                [
+                    ("meropenem dose", "protocols/antibiotics/meropenem.txt", "exact"),
+                    ("meropenem", "protocols/antibiotics/meropenem.txt", "exact"),
+                ],
+            ),
+            (
+                "aspirin before surgery",
+                [
+                    ("before surgery", "protocols/periop_gyogyszerek.txt", "exact"),
+                ],
+            ),
+        ]
+
+        for question, expected_matches in cases:
+            with self.subTest(question=question):
+                matches = self.alias_helpers.collect_alias_matches(question)
+                observed = {
+                    (
+                        match["alias"],
+                        self.b.normalize_path(match["protocol_file"]),
+                        match["confidence"],
+                    )
+                    for match in matches
+                }
+                for expected in expected_matches:
+                    self.assertIn(expected, observed)
+                self.assertTrue(all(match.get("canonical") for match in matches))
+                self.assertTrue(all(match.get("display") for match in matches))
+                self.assertTrue(all(match.get("matched_text") for match in matches))
+
+    def test_broad_cap_aliases_are_weak_evidence(self):
+        weak_aliases = {
+            "pneumonia",
+            "penumonia",
+            "pneuomonia",
+            "tudogyulladas",
+            "leguti",
+            "lrti",
+        }
+
+        for alias in weak_aliases:
+            with self.subTest(alias=alias):
+                matches = self.alias_helpers.collect_alias_matches(alias)
+                cap_matches = [
+                    match for match in matches
+                    if self.b.normalize_path(match.get("protocol_file")) == "protocols/cap.txt"
+                ]
+                self.assertTrue(cap_matches)
+                self.assertTrue(all(match.get("routing_strength") == "weak" for match in cap_matches))
+
+    def test_extract_routing_evidence_uses_collected_alias_matches(self):
+        cases = [
+            ("Penumonia PCR Proteus", {"penumonia", "pneumonia pcr"}),
+            ("BioFire PN Proteus", {"biofire pn", "biofire"}),
+            ("pneumonia pcr proteus", {"pneumonia pcr", "pneumonia"}),
+            ("meropenem dose GFR 35", {"meropenem dose", "meropenem"}),
+            ("aspirin before surgery", {"before surgery"}),
+        ]
+
+        for question, expected_aliases in cases:
+            with self.subTest(question=question):
+                evidence = self.b.extract_routing_evidence(question)
+                aliases = {
+                    match.metadata.get("alias")
+                    for match in evidence.matches
+                    if match.source == "aliases"
+                }
+                self.assertTrue(expected_aliases <= aliases)
+
+    def test_weak_aliases_do_not_directly_win_legacy_normalize_question(self):
+        cases = [
+            ("BioFire PN Proteus", "biofire pn", "protocols/pneumonia_pcr.txt"),
+            ("pneumonia pcr proteus", "pneumonia pcr", "protocols/pneumonia_pcr.txt"),
+            ("meropenem dose GFR 35", "meropenem dose", "protocols/antibiotics/meropenem.txt"),
+            ("aspirin before surgery", "before surgery", "protocols/periop_gyogyszerek.txt"),
+        ]
+
+        for question, expected_alias, expected_protocol in cases:
+            with self.subTest(question=question):
+                _, recognized = self.b.normalize_question(question)
+                self.assertIsNotNone(recognized)
+                self.assertEqual(recognized.get("matched_alias"), expected_alias)
+                self.assertEqual(
+                    self.b.normalize_path(recognized.get("protocol_file")),
+                    expected_protocol,
+                )
+
+        for weak_only in [
+            "pneumonia",
+            "penumonia",
+            "pneuomonia",
+            "tudogyulladas",
+            "leguti",
+            "lrti",
+            "Penumonia PCR Proteus",
+        ]:
+            with self.subTest(weak_only=weak_only):
+                _, recognized = self.b.normalize_question(weak_only)
+                self.assertIsNone(recognized)
+
+    def test_biofire_panel_microbe_and_marker_are_separate_evidence(self):
+        evidence = self.b.extract_routing_evidence("BioFire PN E. coli CTX-M positive")
+
+        self.assertEqual(evidence.intent, "test_interpretation")
+        self.assertEqual(evidence.subject.kind, "test_panel")
+        self.assertEqual(evidence.test.family, "pcr")
+        self.assertEqual(evidence.test.panel, "pneumonia")
+        self.assertIn("Escherichia coli", evidence.microbes)
+        self.assertIn("CTX-M", evidence.markers)
+        self.assertTrue(evidence.context["test_or_result"])
+
+    def test_periop_and_conversion_intents_use_global_subject_kinds(self):
+        periop = self.b.extract_routing_evidence("aspirin before surgery")
+        self.assertEqual(periop.intent, "periop_advice")
+        self.assertEqual(periop.subject.kind, "periop_med")
+        self.assertTrue(periop.context["perioperative"])
+
+        conversion = self.b.extract_routing_evidence("methylprednisone equivalent")
+        self.assertEqual(conversion.intent, "conversion")
+        self.assertEqual(conversion.subject.kind, "calculator")
+
+
 class TestDosingShortcut(unittest.TestCase):
     """'What dose?' rule: bare dosing request after a recommendation."""
 
@@ -1998,7 +2220,7 @@ GOLDEN_ROUTING_CASES = [
         "expected_protocol_id": None,
         "expected_selected_output_key": None,
         "expected_slots": {},
-        "expected_deterministic_or_llm": "deterministic_policy",
+        "expected_deterministic_or_llm": "deterministic_route_claims",
         "expected_llm_called": False,
         "expected_source_label": None,
         "expected_unsupported_syndrome": "vap",
@@ -2016,7 +2238,7 @@ GOLDEN_ROUTING_CASES = [
         "expected_protocol_id": None,
         "expected_selected_output_key": None,
         "expected_slots": {},
-        "expected_deterministic_or_llm": "deterministic_policy",
+        "expected_deterministic_or_llm": "deterministic_route_claims",
         "expected_llm_called": False,
         "expected_source_label": None,
         "expected_unsupported_syndrome": "hap",
@@ -2150,7 +2372,7 @@ GOLDEN_ROUTING_CASES = [
         "expected_protocol_id": None,
         "expected_selected_output_key": None,
         "expected_slots": {},
-        "expected_deterministic_or_llm": "deterministic_policy",
+        "expected_deterministic_or_llm": "deterministic_route_claims",
         "expected_llm_called": False,
         "expected_source_label": None,
         "expected_unsupported_syndrome": "immunosuppressed pneumonia",
@@ -2203,9 +2425,9 @@ class TestGoldenRoutingCases(unittest.TestCase):
             abs_path = protocol_fixture_path(filename)
             with open(abs_path, encoding="utf-8") as f:
                 text = f.read()
-            b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(rel_path)] = pp._parse_protocol_text(
-                text, path=rel_path
-            )
+            parsed = pp.parse_protocol_file(abs_path)
+            parsed["path"] = rel_path
+            b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(rel_path)] = parsed
             b.PROTOCOL_POLICY_BY_FILE[b.normalize_path(rel_path)] = pp.extract_policy_header(text)
         b.load_aliases(os.path.join("protocols", "aliases.json"))
 
@@ -2345,9 +2567,9 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
             abs_path = protocol_fixture_path(filename)
             with open(abs_path, encoding="utf-8") as f:
                 text = f.read()
-            b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(rel_path)] = pp._parse_protocol_text(
-                text, path=rel_path
-            )
+            parsed = pp.parse_protocol_file(abs_path)
+            parsed["path"] = rel_path
+            b.PROTOCOL_PARSED_BY_FILE[b.normalize_path(rel_path)] = parsed
             b.PROTOCOL_POLICY_BY_FILE[b.normalize_path(rel_path)] = pp.extract_policy_header(text)
         b.load_aliases(os.path.join("protocols", "aliases.json"))
 
@@ -2392,6 +2614,16 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self.assertEqual(search_mock.call_count, 0)
         self.assertEqual(llm_mock.call_count, 0)
         return answer
+
+    def _ask_with_empty_rag_and_mock_llm(self, question, chat_id, llm_text="MOCK LLM RAG RESPONSE"):
+        with patch.object(self.b, "search_protocols", return_value=[]) as search_mock, \
+                patch.object(
+                    self.b.openai_client.chat.completions,
+                    "create",
+                    return_value=_routing_fake_chat_response(llm_text),
+                ) as llm_mock:
+            answer = self.b.ask_ai(question, chat_id)
+        return answer, search_mock.call_count, llm_mock.call_count
 
     def _last_logged(self):
         self.assertIsNotNone(self.mock_log.call_args, "Expected an audit log entry")
@@ -2730,10 +2962,226 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
     @unittest.skipUnless(bot.RAPIDFUZZ_AVAILABLE, "rapidfuzz not installed")
     def test_misspelled_clinical_pneumonia_can_match_cap_safely(self):
         _, recognized = self.b.normalize_question("penumonia outpatient antibiotic")
+        self.assertIsNone(recognized)
 
-        self.assertIsNotNone(recognized)
-        self.assertIn(recognized.get("confidence"), {"exact", "high", "medium"})
-        self.assertEqual(self.b.normalize_path(recognized["protocol_file"]), "protocols/cap.txt")
+        chat_id = self._chat_id("weak_penumonia_cap")
+        answer = self._ask_without_rag_or_llm("penumonia outpatient antibiotic", chat_id)
+        trace = self._last_trace()
+
+        self._assert_trace_selected_protocol(trace, "cap", "protocols/cap.txt", "CAP")
+        self.assertEqual(trace["route_decision"]["reason"], "syndrome plus empiric intent claimed")
+        self.assertIn("CAP - OUTPATIENT_STANDARD", answer)
+
+    def test_pneumonia_alone_still_routes_to_cap_via_weak_evidence(self):
+        chat_id = self._chat_id("weak_pneumonia_alone")
+        answer = self._ask_without_rag_or_llm("pneumonia", chat_id)
+        trace = self._last_trace()
+
+        self._assert_trace_selected_protocol(trace, "cap", "protocols/cap.txt", "CAP")
+        self.assertEqual(trace["route_decision"]["reason"], "weak syndrome evidence claimed as fallback")
+        self.assertIn("CAP quick map", answer)
+
+    def test_weak_pneumonia_alias_does_not_override_result_or_microbe_evidence(self):
+        cases = [
+            ("Penumonia PCR Proteus", "protocols/pneumonia_pcr.txt", "BioFire PN - proteus spp."),
+            ("pneumonia result Proteus", None, "Is this a PCR/BioFire result"),
+            ("Proteus pneumonia", None, "Is this a PCR/BioFire result"),
+            ("is meropenem good vs pneumonia", None, "No uploaded protocol explicitly claims drug coverage"),
+        ]
+
+        for query, expected_file, expected_fragment in cases:
+            with self.subTest(query=query):
+                chat_id = self._chat_id("weak_pneumonia_stronger")
+                self.b.CONVERSATION_STATE.pop(chat_id, None)
+                answer = self._ask_without_rag_or_llm(query, chat_id)
+                trace = self._last_trace()
+                if expected_file is None:
+                    self.assertIsNone(trace.get("selected_protocol_file"))
+                else:
+                    self.assertEqual(
+                        self.b.normalize_path(trace.get("selected_protocol_file")),
+                        expected_file,
+                    )
+                self.assertFalse(
+                    (trace.get("selected_protocol_file") or "").replace("\\", "/").endswith("protocols/cap.txt"),
+                    f"{query!r} unexpectedly selected CAP",
+                )
+                self.assertIn(expected_fragment.lower(), answer.lower())
+
+    def test_high_risk_route_gate_intercepts_alias_conflicts(self):
+        """Route claims are primary; legacy alias routing is fallback only."""
+        cases = [
+            {
+                "name": "penumonia_pcr_proteus_routes_to_biofire_not_cap",
+                "query": "Penumonia PCR Proteus",
+                "expected_matched_alias": "route_claims",
+                "expected_protocol_id": "biofire_pneumonia",
+                "expected_protocol_file": "protocols/pneumonia_pcr.txt",
+                "expected_mode": "deterministic_selection",
+                "expected_llm_called": False,
+                "expected_search_calls": 0,
+                "expected_llm_calls": 0,
+                "expected_selection_output_key": "TIER_2_CEFEPIME",
+                "expected_slots": {"pathogen_list": ["proteus spp."]},
+                "expected_answer_fragments": ["BioFire PN - proteus spp.", "Tier 2 - cefepime"],
+                "forbidden_answer_fragments": ["CAP quick map"],
+            },
+            {
+                "name": "biofire_pn_proteus_routes_to_biofire",
+                "query": "BioFire PN Proteus",
+                "expected_matched_alias": "route_claims",
+                "expected_protocol_id": "biofire_pneumonia",
+                "expected_protocol_file": "protocols/pneumonia_pcr.txt",
+                "expected_mode": "deterministic_selection",
+                "expected_llm_called": False,
+                "expected_search_calls": 0,
+                "expected_llm_calls": 0,
+                "expected_selection_output_key": "TIER_2_CEFEPIME",
+                "expected_slots": {"pathogen_list": ["proteus spp."]},
+                "expected_answer_fragments": ["BioFire PN - proteus spp.", "Tier 2 - cefepime"],
+            },
+            {
+                "name": "pcr_proteus_asks_panel_source",
+                "query": "PCR Proteus",
+                "expected_matched_alias": None,
+                "expected_protocol_id": None,
+                "expected_protocol_file": None,
+                "expected_mode": "deterministic_route_claims",
+                "expected_llm_called": False,
+                "expected_search_calls": 0,
+                "expected_llm_calls": 0,
+                "expected_selection_output_key": None,
+                "expected_answer_fragments": ["Which PCR/BioFire panel"],
+            },
+            {
+                "name": "proteus_pneumonia_asks_not_cap_targeted_therapy",
+                "query": "Proteus pneumonia",
+                "expected_matched_alias": None,
+                "expected_protocol_id": None,
+                "expected_protocol_file": None,
+                "expected_mode": "deterministic_route_claims",
+                "expected_llm_called": False,
+                "expected_search_calls": 0,
+                "expected_llm_calls": 0,
+                "expected_selection_output_key": None,
+                "expected_answer_fragments": ["Is this a PCR/BioFire result"],
+                "forbidden_answer_fragments": ["CAP quick map", "ceftriaxone"],
+            },
+            {
+                "name": "meropenem_dose_gfr_currently_meropenem",
+                "query": "meropenem dose GFR 35",
+                "expected_matched_alias": "route_claims",
+                "expected_protocol_id": "meropenem",
+                "expected_protocol_file": "protocols/antibiotics/meropenem.txt",
+                "expected_mode": "deterministic_selection",
+                "expected_llm_called": False,
+                "expected_search_calls": 0,
+                "expected_llm_calls": 0,
+                "expected_selection_output_key": "NORMAL",
+                "expected_slots": {"gfr": 35.0},
+                "expected_answer_fragments": ["Meropenem - renal tier: Normal", "3 g/day"],
+            },
+            {
+                "name": "meropenem_vs_staph_pneumonia_is_unsupported",
+                "query": "is meropenem good vs staphylococcal pneumonia",
+                "expected_matched_alias": None,
+                "expected_protocol_id": None,
+                "expected_protocol_file": None,
+                "expected_mode": "deterministic_route_claims",
+                "expected_llm_called": False,
+                "expected_search_calls": 0,
+                "expected_llm_calls": 0,
+                "expected_selection_output_key": None,
+                "expected_answer_fragments": ["No uploaded protocol explicitly claims drug coverage"],
+                "forbidden_answer_fragments": ["Meropenem dosing table", "spectrum"],
+            },
+            {
+                "name": "pneumonia_antibiotics_currently_cap",
+                "query": "pneumonia what antibiotics",
+                "expected_matched_alias": "route_claims",
+                "expected_protocol_id": "cap",
+                "expected_protocol_file": "protocols/cap.txt",
+                "expected_mode": "deterministic_selection",
+                "expected_llm_called": False,
+                "expected_search_calls": 0,
+                "expected_llm_calls": 0,
+                "expected_selection_output_key": "default",
+                "expected_answer_fragments": ["CAP quick map", "ceftriaxone"],
+            },
+            {
+                "name": "aspirin_before_surgery_currently_periop_med",
+                "query": "aspirin before surgery",
+                "expected_matched_alias": "route_claims",
+                "expected_protocol_id": "periop_gyogyszerek",
+                "expected_protocol_file": "protocols/periop_gyogyszerek.txt",
+                "expected_mode": "deterministic_periop_info",
+                "expected_llm_called": False,
+                "expected_search_calls": 0,
+                "expected_llm_calls": 0,
+                "expected_selection_output_key": None,
+                "expected_answer_fragments": ["Aspirin; acetylsalicylic acid; ASA", "Usually no need to omit"],
+            },
+            {
+                "name": "hydrocortisone_to_prednisolone_routes_to_steroid_equivalence",
+                "query": "hydrocortisone to prednisolone",
+                "expected_matched_alias": "route_claims",
+                "expected_protocol_id": "steroid_equivalence",
+                "expected_protocol_file": "protocols/steroid_equivalence.txt",
+                "expected_mode": "deterministic_steroid_equivalence",
+                "expected_llm_called": False,
+                "expected_search_calls": 0,
+                "expected_llm_calls": 0,
+                "expected_selection_output_key": None,
+                "expected_answer_fragments": ["Please provide the hydrocortisone dose in mg"],
+            },
+        ]
+
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                chat_id = self._chat_id(case["name"])
+                self.b.CONVERSATION_STATE.pop(chat_id, None)
+                self.mock_log.reset_mock()
+
+                answer, search_calls, llm_calls = self._ask_with_empty_rag_and_mock_llm(
+                    case["query"], chat_id
+                )
+
+                logged = self._last_logged()
+                trace = logged["trace"]
+                recognized = logged["recognized"]
+
+                if case["expected_matched_alias"] is None:
+                    self.assertIsNone(recognized)
+                else:
+                    self.assertIsNotNone(recognized)
+                    self.assertEqual(recognized.get("matched_alias"), case["expected_matched_alias"])
+
+                self.assertEqual(trace.get("selected_protocol_id"), case["expected_protocol_id"])
+                if case["expected_protocol_file"] is None:
+                    self.assertIsNone(trace.get("selected_protocol_file"))
+                else:
+                    self.assertEqual(
+                        self.b.normalize_path(trace.get("selected_protocol_file")),
+                        case["expected_protocol_file"],
+                    )
+                self.assertEqual(trace.get("deterministic_or_llm"), case["expected_mode"])
+                self.assertEqual(trace.get("llm_called"), case["expected_llm_called"])
+                self.assertEqual(search_calls, case["expected_search_calls"])
+                self.assertEqual(llm_calls, case["expected_llm_calls"])
+                self.assertEqual(
+                    trace.get("selection_output_key"),
+                    case["expected_selection_output_key"],
+                )
+                self.assertIn("routing_evidence", trace)
+                self.assertIn("candidate_protocols", trace)
+                self.assertIn("route_decision", trace)
+                self.assertIn("reason", trace["route_decision"])
+                for slot_key, expected_value in case.get("expected_slots", {}).items():
+                    self.assertEqual(trace.get("slots", {}).get(slot_key), expected_value)
+                for fragment in case["expected_answer_fragments"]:
+                    self.assertIn(fragment.lower(), answer.lower())
+                for fragment in case.get("forbidden_answer_fragments", []):
+                    self.assertNotIn(fragment.lower(), answer.lower())
 
     def test_deterministic_short_circuit_has_source_and_is_logged_without_retrieval(self):
         chat_id = self._chat_id("deterministic_logging")
@@ -2886,7 +3334,7 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
         self.assertIsNone(trace["selected_protocol_id"])
         self.assertIsNone(trace["selected_protocol_file"])
         self.assertIsNone(trace["selection_output_key"])
-        self.assertEqual(trace["deterministic_or_llm"], "deterministic_policy")
+        self.assertEqual(trace["deterministic_or_llm"], "deterministic_route_claims")
         self.assertFalse(trace["llm_called"])
         self.assertEqual(trace["retrieved_chunks"], [])
         self.assertEqual(trace["unsupported_syndrome"], "vap")
@@ -3382,7 +3830,7 @@ class TestSession10DebugCommands(unittest.TestCase):
         }]
         with patch.object(b, "search_protocols", return_value=fake_chunks):
             output = b.build_debug_trace("private patient details meropenem dose", f"debug_{id(self)}")
-        self.assertIn("Context source: fresh_alias", output)
+        self.assertIn("Context source: route_claims", output)
         self.assertIn("Matched alias: meropenem", output)
         self.assertIn("Protocol type: drug_dosing_protocol", output)
         self.assertIn("Deterministic/LLM source: deterministic selection_engine", output)
@@ -3482,7 +3930,7 @@ class TestSession11ModuleSplit(unittest.TestCase):
         old_parsed = dict(b.PROTOCOL_PARSED_BY_FILE)
         old_file_labels = dict(b.PROTOCOL_FILE_TO_LABEL)
 
-        with tempfile.TemporaryDirectory(dir=old_cwd) as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             protocols_dir = os.path.join(tmp, "protocols")
             os.mkdir(protocols_dir)
             protocol_path = os.path.join(protocols_dir, "fresh.txt")

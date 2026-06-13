@@ -1,0 +1,34 @@
+{
+  "intents": [
+    "periop_advice",
+    "perioperative_steroid_management"
+  ],
+  "subjects": [
+    "drug",
+    "drug_class"
+  ],
+  "owns": {
+    "contexts": [
+      "perioperative",
+      "preoperative",
+      "surgery_day"
+    ],
+    "drugs": [
+      "methylprednisone",
+      "methylprednisolone",
+      "hydrocortisone",
+      "prednisolone",
+      "dexamethasone"
+    ],
+    "protocols": [
+      "periop_steroids"
+    ]
+  },
+  "requires": [
+    "perioperative_context",
+    "steroid"
+  ],
+  "excludes": [
+    "dose_conversion"
+  ]
+}

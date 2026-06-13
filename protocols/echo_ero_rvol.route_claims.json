@@ -1,0 +1,32 @@
+{
+  "intents": [
+    "calculator"
+  ],
+  "subjects": [
+    "calculator"
+  ],
+  "owns": {
+    "calculators": [
+      "echo_ero_rvol",
+      "eroa",
+      "rvol",
+      "pisa"
+    ],
+    "measurements": [
+      "pisa_radius",
+      "aliasing_velocity",
+      "peak_regurgitant_velocity",
+      "vti"
+    ]
+  },
+  "requires": [
+    "pisa_radius",
+    "aliasing_velocity",
+    "peak_regurgitant_velocity"
+  ],
+  "clarify_if_missing": [
+    "pisa_radius",
+    "aliasing_velocity",
+    "peak_regurgitant_velocity"
+  ]
+}

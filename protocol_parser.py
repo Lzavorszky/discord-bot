@@ -12,7 +12,7 @@ New schema panels (canonical as of guide v1):
   SAFETY_RULES, OUTPUT_TEMPLATES
 
 Shared panels (both schemas):
-  METADATA, ALIASES, DEFAULT_FOOTER
+  METADATA, ALIASES, ROUTE_CLAIMS, DEFAULT_FOOTER
 
 Public API
 ----------
@@ -23,6 +23,8 @@ CANONICAL_PANELS                list[str]
 POLICY_SECTIONS                 set[str]
 """
 
+import json
+import os
 import re
 
 # ---------------------------------------------------------------------------
@@ -41,6 +43,7 @@ VALID_SELECTION_MODES = {
     "priority_rules",
     "table_lookup",
     "decision_tree",
+    "pcr_mapping",
     "organism_mapping_with_spectrum_escalation",
 }
 
@@ -63,14 +66,21 @@ CANONICAL_PANELS = [
     # ── Shared ──────────────────────────────────────────────────────────────
     "METADATA",
     "ALIASES",
+    "ROUTE_CLAIMS",
     "DEFAULT_FOOTER",
 
     # ── New schema ──────────────────────────────────────────────────────────
     "INTENTS",
     "INPUT_SLOTS",
     "SLOT_SCHEMA",
+    "SLOT_ALIASES",
     "DEFAULT_ANSWER",
     "SELECTION_RULES",
+    "PCR_ORGANISM_MAPPING",
+    "PCR_ORGANISM_ALIASES",
+    "PCR_RESISTANCE_MARKER_ALIASES",
+    "PCR_RESISTANCE_RULES",
+    "PCR_CONTEXT_NOTES",
     "SELECTED_OUTPUTS",
     "LINKS",
     "INFO_BLOCKS",
@@ -123,7 +133,9 @@ def parse_protocol_file(path):
     """Read a protocol .txt and return its canonical-panel dict."""
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
-    return _parse_protocol_text(text, path=path)
+    parsed = _parse_protocol_text(text, path=path)
+    _attach_route_claims_sidecar(parsed, path)
+    return parsed
 
 
 def extract_policy_header(text):
@@ -163,6 +175,7 @@ def _parse_protocol_text(text, path="<inline>"):
     Shared panels
     metadata              dict[str, str]   parsed key:value from ## METADATA
     aliases               str
+    route_claims          dict             parsed from sidecar or ## ROUTE_CLAIMS
 
     New-schema panels (str unless noted)
     intents               str
@@ -200,14 +213,21 @@ def _parse_protocol_text(text, path="<inline>"):
         # shared
         "metadata":       {},
         "aliases":        "",
+        "route_claims":   {},
         "default_footer": None,
 
         # new schema
         "intents":           "",
         "input_slots":       "",
         "slot_schema":       {},
+        "slot_aliases":      {},
         "default_answer":    "",
         "selection_rules":   "",
+        "pcr_organism_mapping": {},
+        "pcr_organism_aliases": {},
+        "pcr_resistance_marker_aliases": {},
+        "pcr_resistance_rules": {},
+        "pcr_context_notes": {},
         "selected_outputs":  "",
         "links":             {},
         "info_blocks":       "",
@@ -254,6 +274,8 @@ def _parse_protocol_text(text, path="<inline>"):
         # ── Panels requiring structured parsing ──────────────────────────────
         if name == "METADATA":
             result["metadata"] = _parse_metadata_block(body, path, result["warnings"])
+        elif name == "ROUTE_CLAIMS":
+            result["route_claims"] = _parse_route_claims_block(body, path, result["warnings"])
         elif name == "DEFAULT_FOOTER":
             result["default_footer"] = body or None
         elif name == "DEFAULT_QUESTION":
@@ -264,6 +286,22 @@ def _parse_protocol_text(text, path="<inline>"):
             result["links"] = _parse_links_block(body, path, result["warnings"])
         elif name == "SLOT_SCHEMA":
             result["slot_schema"] = _parse_slot_schema_block(body, path, result["warnings"])
+        elif name == "SLOT_ALIASES":
+            result["slot_aliases"] = _parse_slot_aliases_block(body, path, result["warnings"])
+        elif name == "PCR_ORGANISM_MAPPING":
+            result["pcr_organism_mapping"] = _parse_pcr_organism_mapping(body, path, result["warnings"])
+        elif name == "PCR_ORGANISM_ALIASES":
+            result["pcr_organism_aliases"] = _parse_named_alias_block(
+                body, "Organism", path, result["warnings"]
+            )
+        elif name == "PCR_RESISTANCE_MARKER_ALIASES":
+            result["pcr_resistance_marker_aliases"] = _parse_named_alias_block(
+                body, "Marker", path, result["warnings"]
+            )
+        elif name == "PCR_RESISTANCE_RULES":
+            result["pcr_resistance_rules"] = _parse_rule_block(body, path, result["warnings"])
+        elif name == "PCR_CONTEXT_NOTES":
+            result["pcr_context_notes"] = _parse_rule_block(body, path, result["warnings"])
         elif name == "PROTOCOL_LINKS":
             result["protocol_links"] = _parse_protocol_links(body)
         # ── Plain-text panels ────────────────────────────────────────────────
@@ -274,7 +312,9 @@ def _parse_protocol_text(text, path="<inline>"):
     # ── Warn if any new-schema panel landed in free_form ────────────────────
     NEW_SCHEMA_PANELS = {
         "INTENTS", "INPUT_SLOTS", "SLOT_SCHEMA", "DEFAULT_ANSWER", "SELECTION_RULES",
-        "SELECTED_OUTPUTS", "LINKS", "INFO_BLOCKS", "RESTRICTED_OUTPUTS",
+        "SLOT_ALIASES", "PCR_ORGANISM_MAPPING", "PCR_ORGANISM_ALIASES",
+        "PCR_RESISTANCE_MARKER_ALIASES", "PCR_RESISTANCE_RULES", "PCR_CONTEXT_NOTES",
+        "ROUTE_CLAIMS", "SELECTED_OUTPUTS", "LINKS", "INFO_BLOCKS", "RESTRICTED_OUTPUTS",
         "SAFETY_RULES", "OUTPUT_TEMPLATES",
     }
     for ff_name in result["free_form"]:
@@ -324,6 +364,100 @@ def _parse_metadata_block(text, path="<inline>", warnings=None):
         )
 
     return meta
+
+
+# ---------------------------------------------------------------------------
+# ROUTE_CLAIMS parser
+# ---------------------------------------------------------------------------
+
+_ROUTE_CLAIMS_SIDECAR_SUFFIX = ".route_claims.json"
+_ROUTE_CLAIMS_LIST_FIELDS = {
+    "intents",
+    "subjects",
+    "requires",
+    "excludes",
+    "clarify_if_missing",
+    "opt_out",
+}
+
+
+def _route_claims_sidecar_path(path):
+    root, _ext = os.path.splitext(path)
+    return root + _ROUTE_CLAIMS_SIDECAR_SUFFIX
+
+
+def _attach_route_claims_sidecar(parsed, path):
+    sidecar = _route_claims_sidecar_path(path)
+    if not os.path.exists(sidecar):
+        return
+
+    with open(sidecar, "r", encoding="utf-8") as f:
+        claims = json.load(f)
+
+    if parsed.get("route_claims"):
+        parsed.setdefault("warnings", []).append(
+            f"{path}: ROUTE_CLAIMS sidecar overrides inline ROUTE_CLAIMS section"
+        )
+    parsed["route_claims"] = claims
+
+
+def _parse_route_claims_block(text, path="<inline>", warnings=None):
+    """Parse the minimal ROUTE_CLAIMS block shape.
+
+    This intentionally supports only the small YAML-like subset used by route
+    claims: top-level lists, plus an ``owns`` mapping whose entries are either
+    lists or ``source: parser_field`` objects.
+    """
+    if warnings is None:
+        warnings = []
+    if not text:
+        return {}
+
+    claims = {}
+    current_top = None
+    current_owns_key = None
+
+    for raw_line in text.splitlines():
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
+
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        stripped = raw_line.strip()
+
+        if indent == 0 and stripped.endswith(":"):
+            current_top = stripped[:-1].strip().lower()
+            current_owns_key = None
+            if current_top in _ROUTE_CLAIMS_LIST_FIELDS:
+                claims.setdefault(current_top, [])
+            elif current_top == "owns":
+                claims.setdefault("owns", {})
+            else:
+                claims.setdefault(current_top, None)
+            continue
+
+        if current_top in _ROUTE_CLAIMS_LIST_FIELDS and indent >= 2:
+            if stripped.startswith("- "):
+                claims.setdefault(current_top, []).append(stripped[2:].strip())
+            continue
+
+        if current_top != "owns":
+            continue
+
+        if indent == 2 and stripped.endswith(":"):
+            current_owns_key = stripped[:-1].strip().lower()
+            claims.setdefault("owns", {}).setdefault(current_owns_key, [])
+            continue
+
+        if indent >= 4 and current_owns_key:
+            owns = claims.setdefault("owns", {})
+            if stripped.startswith("- "):
+                if not isinstance(owns.get(current_owns_key), list):
+                    owns[current_owns_key] = []
+                owns[current_owns_key].append(stripped[2:].strip())
+            elif stripped.startswith("source:"):
+                owns[current_owns_key] = {"source": stripped.split(":", 1)[1].strip()}
+
+    return claims
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +628,152 @@ def _parse_slot_schema_value(value):
         return float(value)
     except ValueError:
         return value
+
+
+# ---------------------------------------------------------------------------
+# SLOT_ALIASES parser
+# ---------------------------------------------------------------------------
+
+_NAMED_ALIAS_START_TEMPLATE = r"^{label}:[ \t]+(.+?)[ \t]*$"
+
+
+def _parse_slot_aliases_block(text, path="<inline>", warnings=None):
+    """Parse categorical slot aliases.
+
+    Expected format::
+
+        SLOT: cdiff_request_type
+          diagnosis:
+            - diagnosis
+            - toxin
+          treatment:
+            - treatment
+
+    Returns {slot_name: {slot_value: [alias, ...]}}.
+    """
+    if warnings is None:
+        warnings = []
+    if not text:
+        return {}
+
+    slot_matches = list(_SLOT_START_RE.finditer(text))
+    if not slot_matches:
+        return {}
+
+    result = {}
+    for i, m in enumerate(slot_matches):
+        slot_name = m.group(1).strip().lower()
+        body_start = m.end()
+        body_end = slot_matches[i + 1].start() if i + 1 < len(slot_matches) else len(text)
+        values = _parse_slot_alias_entry(text[body_start:body_end])
+        if values:
+            result[slot_name] = values
+    return result
+
+
+def _parse_slot_alias_entry(text):
+    values = {}
+    current_value = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("- ") and current_value:
+            values.setdefault(current_value, []).append(stripped[2:].strip())
+            continue
+        if stripped.endswith(":"):
+            current_value = stripped[:-1].strip().lower()
+            values.setdefault(current_value, [])
+    return values
+
+
+# ---------------------------------------------------------------------------
+# PCR panel parsers
+# ---------------------------------------------------------------------------
+
+def _parse_markdown_table_block(text):
+    rows = []
+    header = None
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if all(re.match(r"^[-:]+$", c) for c in cells if c):
+            continue
+        if header is None:
+            header = [c.lower().replace(" ", "_").replace("-", "_") for c in cells]
+            continue
+        if len(cells) >= len(header):
+            rows.append(dict(zip(header, cells)))
+    return rows
+
+
+def _parse_pcr_organism_mapping(text, path="<inline>", warnings=None):
+    if warnings is None:
+        warnings = []
+    result = {}
+    for row in _parse_markdown_table_block(text):
+        organism = (row.get("organism") or row.get("canonical_entity") or "").strip()
+        if not organism:
+            continue
+        key = organism.lower()
+        result[key] = {
+            "organism": organism,
+            "entity_type": row.get("entity_type", ""),
+            "baseline_therapy": row.get("baseline_therapy") or row.get("recommended_therapy", ""),
+            "base_tier": row.get("base_tier", ""),
+            "notes": row.get("notes", ""),
+        }
+    return result
+
+
+def _parse_named_alias_block(text, label, path="<inline>", warnings=None):
+    if warnings is None:
+        warnings = []
+    if not text:
+        return {}
+    start_re = re.compile(_NAMED_ALIAS_START_TEMPLATE.format(label=re.escape(label)), re.MULTILINE)
+    matches = list(start_re.finditer(text))
+    result = {}
+    for i, m in enumerate(matches):
+        name = m.group(1).strip()
+        body_start = m.end()
+        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        aliases = []
+        for line in text[body_start:body_end].splitlines():
+            stripped = line.strip()
+            if stripped.startswith("- "):
+                aliases.append(stripped[2:].strip())
+        if aliases:
+            result[name.lower()] = aliases
+    return result
+
+
+def _parse_rule_block(text, path="<inline>", warnings=None):
+    if warnings is None:
+        warnings = []
+    if not text:
+        return {}
+    rule_matches = list(re.finditer(r"^RULE:[ \t]+(\S+)[ \t]*$", text, re.MULTILINE))
+    result = {}
+    for i, m in enumerate(rule_matches):
+        name = m.group(1).strip()
+        body_start = m.end()
+        body_end = rule_matches[i + 1].start() if i + 1 < len(rule_matches) else len(text)
+        result[name] = _parse_rule_entry(text[body_start:body_end])
+    return result
+
+
+def _parse_rule_entry(text):
+    entry = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or ":" not in stripped:
+            continue
+        key, _, value = stripped.partition(":")
+        entry[key.strip().lower()] = value.strip()
+    return entry
 
 
 # ---------------------------------------------------------------------------

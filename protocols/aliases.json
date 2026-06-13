@@ -288,6 +288,107 @@
         "atípusos pneumonia"
       ]
     },
+    "uti": {
+      "canonical": "urinary tract infection",
+      "display": "UTI",
+      "source_label": "UTI",
+      "protocol_file": "protocols/uti.txt",
+      "aliases": [
+        "uti",
+        "urinary tract infection",
+        "urinary infection",
+        "cystitis",
+        "pyelonephritis",
+        "prostatitis",
+        "complicated uti",
+        "uncomplicated uti",
+        "catheter associated uti",
+        "catheter-associated uti",
+        "ca-uti",
+        "asymptomatic bacteriuria",
+        "bacteriuria",
+        "húgyúti fertőzés",
+        "hugyuti fertozes",
+        "húgyúti infekció",
+        "hugyuti infekcio",
+        "húgyúti infekciók",
+        "hugyuti infekciok",
+        "hólyaghurut",
+        "holyaghurut",
+        "katéter asszociált uti",
+        "kateter asszocialt uti",
+        "katéter mellett kialakult fertőzés",
+        "kateter mellett kialakult fertozes",
+        "tünetmentes bacteriuria",
+        "tunetmentes bacteriuria",
+        "hugyuti"
+      ]
+    },
+    "intraabdominal_infections": {
+      "canonical": "intra-abdominal infections",
+      "display": "Intra-abdominal infections",
+      "source_label": "uploaded DOCX - HASURI INFEKCIOK",
+      "protocol_file": "protocols/intraabdominal_infections.txt",
+      "aliases": [
+        "intraabdominal infection",
+        "intra-abdominal infection",
+        "intra abdominal infection",
+        "abdominal infection",
+        "complicated intraabdominal infection",
+        "complex intraabdominal infection",
+        "nosocomial abdominal infection",
+        "hasuri infekcio",
+        "hasuri infekciok",
+        "hasuri fertozes",
+        "hasi infekcio",
+        "komplex hasuri fertozes",
+        "komplex hasuri infekcio",
+        "nosocomialis hasuri fertozes",
+        "source control abdominal infection"
+      ]
+    },
+    "cdiff": {
+      "canonical": "Clostridium difficile",
+      "display": "C. difficile",
+      "source_label": "uploaded DOCX - Clostridium difficile",
+      "protocol_file": "protocols/cdiff.txt",
+      "aliases": [
+        "clostridium difficile",
+        "clostridioides difficile",
+        "c difficile",
+        "c. difficile",
+        "c diff",
+        "c.diff",
+        "cdiff",
+        "cdi",
+        "difficile",
+        "cdiff diagnozis",
+        "cdiff diagnosztika",
+        "cdiff kezeles",
+        "c diff treatment",
+        "c diff diagnosis",
+        "hasmenes cdiff",
+        "pseudomembranosus colitis"
+      ]
+    },
+    "sbp": {
+      "canonical": "spontaneous bacterial peritonitis",
+      "display": "SBP",
+      "source_label": "uploaded DOCX - SBP",
+      "protocol_file": "protocols/sbp.txt",
+      "aliases": [
+        "sbp",
+        "spontaneous bacterial peritonitis",
+        "spontan bakterialis peritonitis",
+        "spontan bakteriális peritonitis",
+        "spontán bakteriális peritonitis",
+        "ascites infection",
+        "ascites infekcio",
+        "ascites infekció",
+        "paracentesis sbp",
+        "paracentezis sbp"
+      ]
+    },
     "biofire": {
       "canonical": "BioFire PCR protocol",
       "display": "BioFire",
@@ -313,6 +414,21 @@
         "biofire positive",
         "pn panel",
         "pn pcr"
+      ]
+    },
+    "biofire_joint_infection": {
+      "canonical": "BioFire Joint Infection Panel",
+      "display": "BioFire JI",
+      "source_label": "BioFire JI",
+      "protocol_file": "protocols/joint_infection_pcr.txt",
+      "aliases": [
+        "ji panel",
+        "joint infection panel",
+        "biofire joint infection",
+        "filmarray ji",
+        "biofire ji",
+        "biofire ji panel",
+        "joint infection pcr"
       ]
     },
     "endocarditis_antibiotics": {
@@ -584,17 +700,6 @@
       ],
       "message": "No uploaded protocol supports IMMUNOSUPPRESSED PNEUMONIA antibiotic selection. I cannot recommend antibiotics for that unsupported syndrome from the uploaded protocols. Please provide an explicit supported drug/protocol, or use local ID/pharmacy review.",
       "allowed_if_explicit_drug": true
-    },
-    "joint_infection_panel": {
-      "terms": [
-        "ji panel",
-        "joint infection panel",
-        "biofire joint infection",
-        "filmarray ji",
-        "biofire ji"
-      ],
-      "message": "No uploaded protocol supports joint infection panel interpretation. I cannot interpret that unsupported syndrome from the uploaded protocols. Please provide an explicit supported drug/protocol, or use local ID/pharmacy review.",
-      "allowed_if_explicit_drug": true
     }
   },
   "blocked_aliases": [
@@ -610,11 +715,28 @@
     "pneumonia in immunosuppressed",
     "pneumonia in immunocompromised",
     "nozokomiális pneumonia",
-    "nozokomialis pneumonia",
-    "ji panel",
-    "joint infection panel",
-    "biofire joint infection",
-    "filmarray ji",
-    "biofire ji"
+    "nozokomialis pneumonia"
+  ],
+  "weak_aliases": [
+    "pneumonia",
+    "pneumoniara",
+    "pneumoniában",
+    "pneumoniás",
+    "pneumoniat",
+    "penumonia",
+    "penumoniara",
+    "pneuomonia",
+    "pneuomoniara",
+    "tüdőgyulladás",
+    "tüdőgyulladásra",
+    "tüdőgyulladásban",
+    "tüdőgyulladással",
+    "tudogyulladas",
+    "tudogyulladasra",
+    "tudogyulladasban",
+    "légúti fertőzés",
+    "leguti fertozes",
+    "leguti",
+    "lrti"
   ]
 }

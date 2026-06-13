@@ -1,0 +1,36 @@
+{
+  "intents": [
+    "empiric_treatment",
+    "targeted_treatment"
+  ],
+  "subjects": [
+    "syndrome"
+  ],
+  "owns": {
+    "syndromes": [
+      "endocarditis",
+      "infective_endocarditis",
+      "nve",
+      "pve"
+    ],
+    "microbes": [
+      "staphylococcus_aureus",
+      "mssa",
+      "mrsa",
+      "enterococcus",
+      "enterococcus_faecalis",
+      "enterococcus_faecium",
+      "vre",
+      "streptococcus",
+      "viridans_streptococci",
+      "streptococcus_gallolyticus",
+      "streptococcus_pneumoniae"
+    ]
+  },
+  "requires": [
+    "syndrome"
+  ],
+  "excludes": [
+    "test_interpretation"
+  ]
+}

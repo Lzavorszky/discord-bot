@@ -1,0 +1,18 @@
+{
+  "intents": [
+    "dose"
+  ],
+  "subjects": [
+    "drug"
+  ],
+  "owns": {
+    "drugs": [
+      "piperacillin/tazobactam",
+      "piperacillin_tazobactam"
+    ]
+  },
+  "excludes": [
+    "targeted_treatment",
+    "coverage_question"
+  ]
+}

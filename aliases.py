@@ -117,6 +117,11 @@ def load_aliases(path="protocols/aliases.json"):
 
 def _build_alias_index(alias_data, normalize_path_fn=normalize_path):
     alias_index = {}
+    weak_aliases = {
+        term.lower()
+        for term in alias_data.get("weak_aliases", [])
+        if isinstance(term, str) and term.strip()
+    }
     blocked_aliases = {
         term.lower()
         for term in alias_data.get("blocked_aliases", [])
@@ -143,7 +148,10 @@ def _build_alias_index(alias_data, normalize_path_fn=normalize_path):
             terms = [display, canonical] + item.get("aliases", [])
             for term in terms:
                 if term:
-                    alias_index[term.lower()] = data
+                    indexed = dict(data)
+                    if term.lower() in weak_aliases:
+                        indexed["routing_strength"] = "weak"
+                    alias_index[term.lower()] = indexed
     return alias_index, blocked_aliases, unsupported_syndromes, protocol_file_to_label
 
 
@@ -347,6 +355,124 @@ def _detect_fuzzy_blocked_alias(
     return None
 
 
+def _alias_match_payload(alias, data, confidence, score, *, matched_text=None, span=None, source=None):
+    match = {
+        **data,
+        "alias": alias,
+        "matched_alias": alias,
+        "confidence": confidence,
+        "score": score,
+        "matched_text": matched_text or alias,
+    }
+    if span is not None:
+        match["span"] = span
+    if source:
+        match["fuzzy_source"] = source
+    return match
+
+
+def _exact_alias_span(alias, text):
+    match = re.search(r"\b" + re.escape(alias) + r"\b", text)
+    if not match:
+        return None
+    return match.span()
+
+
+def _fuzzy_alias_score(text, alias, *, fuzz_module):
+    best = {"score": 0, "source": ""}
+    for word in re.findall(r"\w+", text):
+        if len(word) < _MIN_FUZZY_ALIAS_CHARS:
+            continue
+        score = fuzz_module.WRatio(word, alias)
+        if score > best["score"]:
+            best = {"score": score, "source": f"word:{word}"}
+
+    meaningful_text = re.sub(r"\W+", "", text)
+    if len(meaningful_text) >= _MIN_FUZZY_ALIAS_CHARS:
+        score = fuzz_module.partial_ratio(text, alias)
+        if score > best["score"]:
+            best = {"score": score, "source": "partial_ratio"}
+    return best
+
+
+def collect_alias_matches(
+    question,
+    *,
+    alias_index=None,
+    rapidfuzz_available=None,
+    process_module=None,
+    fuzz_module=None,
+):
+    active_alias_index = ALIAS_INDEX if alias_index is None else alias_index
+    fuzzy_enabled = RAPIDFUZZ_AVAILABLE if rapidfuzz_available is None else rapidfuzz_available
+    active_fuzz = fuzz if fuzz_module is None else fuzz_module
+
+    text = (question or "").lower().strip()
+    if not text or not active_alias_index:
+        return []
+
+    matches = []
+    exact_aliases = set()
+    exact_keys = set()
+    for alias in sorted(active_alias_index.keys(), key=len, reverse=True):
+        span = _exact_alias_span(alias, text)
+        if span is None:
+            continue
+        data = active_alias_index[alias]
+        exact_aliases.add(alias)
+        exact_keys.add((data.get("category"), data.get("key")))
+        matches.append(_alias_match_payload(
+            alias,
+            data,
+            "exact",
+            100,
+            matched_text=text[span[0]:span[1]],
+            span=span,
+        ))
+
+    if (
+        not fuzzy_enabled
+        or active_fuzz is None
+        or not _has_clinical_intent_or_structure(text)
+    ):
+        return matches
+
+    fuzzy_by_key = {}
+    for alias in sorted(active_alias_index.keys(), key=len, reverse=True):
+        if alias in exact_aliases or _compact_len(alias) < _MIN_FUZZY_ALIAS_CHARS:
+            continue
+        data = active_alias_index[alias]
+        key = (data.get("category"), data.get("key"))
+        if key in exact_keys:
+            continue
+        scored = _fuzzy_alias_score(text, alias, fuzz_module=active_fuzz)
+        score = scored["score"]
+        if score < _HIGH_CONFIDENCE_FUZZY_SCORE:
+            continue
+        if not _fuzzy_candidate_quality_ok(text, alias):
+            continue
+        existing = fuzzy_by_key.get(key)
+        if existing and (
+            existing["score"] > score
+            or (existing["score"] == score and len(existing["alias"]) >= len(alias))
+        ):
+            continue
+        fuzzy_by_key[key] = _alias_match_payload(
+            alias,
+            data,
+            "high",
+            score,
+            matched_text=alias,
+            source=scored["source"],
+        )
+    matches.extend(sorted(
+        fuzzy_by_key.values(),
+        key=lambda match: (match["score"], len(match["alias"])),
+        reverse=True,
+    ))
+    return matches
+
+
 def _iter_unsupported_terms(unsupported_policies=None, blocked_aliases=None):
     active_policies = UNSUPPORTED_SYNDROMES if unsupported_policies is None else unsupported_policies
     active_blocked_aliases = BLOCKED_ALIASES if blocked_aliases is None else blocked_aliases
@@ -475,8 +601,12 @@ def normalize_question(
         return question, None
 
     exact_matches = []
+    weak_exact_hit = False
     for alias in sorted(active_alias_index.keys(), key=len, reverse=True):
         data = active_alias_index[alias]
+        if _alias_term_matches(alias, text) and data.get("routing_strength") == "weak":
+            weak_exact_hit = True
+            continue
         if _alias_term_matches(alias, text):
             exact_matches.append((alias, data))
 
@@ -519,6 +649,9 @@ def normalize_question(
             "score": 100,
         }
 
+    if weak_exact_hit:
+        return question, None
+
     if not fuzzy_enabled or active_process is None or active_fuzz is None:
         return question, None
 
@@ -539,6 +672,7 @@ def normalize_question(
     alias_keys = [
         a for a in active_alias_index.keys()
         if _compact_len(a) >= _MIN_FUZZY_ALIAS_CHARS
+        and active_alias_index[a].get("routing_strength") != "weak"
     ]
     best = _extract_best_fuzzy_choice(
         text,
@@ -624,6 +758,7 @@ __all__ = [
     "PROTOCOL_FILE_TO_LABEL",
     "load_aliases",
     "normalize_path",
+    "collect_alias_matches",
     "normalize_question",
     "_build_alias_index",
     "_alias_term_matches",

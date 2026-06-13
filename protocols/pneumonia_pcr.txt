@@ -8,7 +8,7 @@ source_label: BioFire
 canonical_name: BioFire Pneumonia Panel
 protocol_type: microbiology_interpretation_protocol
 answer_mode: required_slots_then_selected_output
-selection_mode: organism_mapping_with_spectrum_escalation
+selection_mode: pcr_mapping
 allows_dosing: no
 dosing_requires_link: yes
 default_dose_allowed: no
@@ -330,6 +330,192 @@ Examples:
 - Escherichia coli + CTX-M -> Tier 3 -> ertapenem
 - Acinetobacter calcoaceticus-baumannii complex -> Tier 4 -> meropenem + colistin
 - Pseudomonas aeruginosa + CTX-M positive Enterobacterales -> conflicting broad-spectrum requirements -> ID consultation
+
+## PCR_ORGANISM_MAPPING
+
+| Organism | Entity type | Base tier | Baseline therapy | Notes |
+|---|---|---:|---|---|
+| Acinetobacter calcoaceticus-baumannii complex | gram_negative | 4 | meropenem + colistin | high MDR risk; gram_negative |
+| Enterobacter cloacae | gram_negative | 2 | cefepime | Enterobacterales gram_negative |
+| Escherichia coli | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative |
+| Haemophilus influenzae | gram_negative | 1 | ceftriaxone | gram_negative |
+| Klebsiella aerogenes | gram_negative | 2 | cefepime | Enterobacterales gram_negative |
+| Klebsiella oxytoca | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative |
+| Klebsiella pneumoniae group | gram_negative | 1 | ceftriaxone | Enterobacterales gram_negative |
+| Moraxella catarrhalis | gram_negative | 1 | ceftriaxone | gram_negative |
+| Proteus spp. | gram_negative | 2 | cefepime | Enterobacterales gram_negative |
+| Pseudomonas aeruginosa | gram_negative | 2 | cefepime | gram_negative |
+| Serratia marcescens | gram_negative | 2 | cefepime | Enterobacterales gram_negative |
+| Staphylococcus aureus | bacteria | 1 | cefazolin | If mecA/C & MREJ: vancomycin |
+| Streptococcus agalactiae | bacteria | 1 | ceftriaxone | |
+| Streptococcus pneumoniae | bacteria | 1 | ceftriaxone | |
+| Streptococcus pyogenes | bacteria | 2 | penicillin + clindamycin | toxin suppression important |
+| Legionella pneumophila | atypical | 0 | clarithromycin | add to bacterial coverage if bacterial coinfection present |
+| Mycoplasma pneumoniae | atypical | 0 | clarithromycin | add to bacterial coverage if bacterial coinfection present |
+| Chlamydia pneumoniae | atypical | 0 | clarithromycin | add to bacterial coverage if bacterial coinfection present |
+| Influenza A/B | virus | -1 | oseltamivir | antibiotics only if bacterial coinfection suspected |
+| Other respiratory virus | virus | -1 | supportive therapy | antibiotics generally not indicated unless bacterial coinfection suspected |
+
+## PCR_ORGANISM_ALIASES
+
+Organism: Acinetobacter calcoaceticus-baumannii complex
+- Acinetobacter calcoaceticus-baumannii complex
+- Acinetobacter
+- baumannii
+- ACB
+
+Organism: Enterobacter cloacae
+- Enterobacter cloacae
+- Enterobacter
+
+Organism: Escherichia coli
+- Escherichia coli
+- E. coli
+- E coli
+- ecoli
+- e.coli
+
+Organism: Haemophilus influenzae
+- Haemophilus influenzae
+- Haemophilus
+- H. influenzae
+
+Organism: Klebsiella aerogenes
+- Klebsiella aerogenes
+
+Organism: Klebsiella oxytoca
+- Klebsiella oxytoca
+
+Organism: Klebsiella pneumoniae group
+- Klebsiella pneumoniae group
+- Klebsiella pneumoniae
+- Klebsiella pn
+- KPN
+
+Organism: Moraxella catarrhalis
+- Moraxella catarrhalis
+- Moraxella
+
+Organism: Proteus spp.
+- Proteus spp.
+- Proteus
+
+Organism: Pseudomonas aeruginosa
+- Pseudomonas aeruginosa
+- Pseudomonas
+- PA
+- PSA
+
+Organism: Serratia marcescens
+- Serratia marcescens
+- Serratia
+
+Organism: Staphylococcus aureus
+- Staphylococcus aureus
+- Staph aureus
+- S. aureus
+
+Organism: Streptococcus agalactiae
+- Streptococcus agalactiae
+- Strep agalactiae
+- GBS
+- group B strep
+
+Organism: Streptococcus pneumoniae
+- Streptococcus pneumoniae
+- Strep pneumoniae
+- Strep pneumo
+- Strep pn
+- S. pneumoniae
+- S.pneumoniae
+- pneumococcus
+- pneumococcal
+
+Organism: Streptococcus pyogenes
+- Streptococcus pyogenes
+- Strep pyogenes
+- GAS
+- group A strep
+
+Organism: Legionella pneumophila
+- Legionella pneumophila
+- Legionella
+
+Organism: Mycoplasma pneumoniae
+- Mycoplasma pneumoniae
+- Mycoplasma
+
+Organism: Chlamydia pneumoniae
+- Chlamydia pneumoniae
+- Chlamydia
+
+Organism: Influenza A/B
+- Influenza A
+- Influenza B
+- Influenza A/B
+
+Organism: Other respiratory virus
+- Adenovirus
+- Coronavirus
+- Parainfluenza virus
+- RSV
+- Rhinovirus/Enterovirus
+- Human metapneumovirus
+- MERS coronavirus
+
+## PCR_RESISTANCE_MARKER_ALIASES
+
+Marker: mecA/C & MREJ
+- mecA/C
+- mecA
+- mecC
+- MREJ
+
+Marker: CTX-M
+- CTX-M
+- CTXM
+- ESBL
+
+Marker: carbapenemase
+- IMP
+- KPC
+- NDM
+- VIM
+- OXA-48-like
+- OXA-48
+- OXA48
+- carbapenemase
+
+Marker: VanA/B
+- VanA
+- VanB
+- VanA/B
+
+## PCR_RESISTANCE_RULES
+
+RULE: MRSA_MARKER
+  IF_MARKER: mecA/C & MREJ
+  ACTION: add_agent
+  THERAPY: vancomycin
+  NOTE: MRSA likely where applicable.
+
+RULE: VRE_MARKER
+  IF_MARKER: VanA/B
+  ACTION: add_agent
+  THERAPY: linezolid
+  NOTE: VRE likely where applicable.
+
+RULE: CTX_M
+  IF_MARKER: CTX-M
+  ACTION: replace_gram_negative_backbone
+  THERAPY: ertapenem
+  NOTE: ESBL marker; use ertapenem in this protocol.
+
+RULE: CARBAPENEMASE
+  IF_MARKER: carbapenemase
+  ACTION: replace_gram_negative_backbone
+  THERAPY: meropenem + colistin
+  NOTE: ID consultation recommended.
 
 ## SELECTED_OUTPUTS
 

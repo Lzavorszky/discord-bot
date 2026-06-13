@@ -711,75 +711,138 @@ def _run_table_lookup(parsed, slots):
     return SelectionResult(output_key=table_key, output_data=output_data, mode_used="table_lookup", render_vars=rvars)
 
 
-_ORGANISM_TIER_MAP = {
-    "acinetobacter calcoaceticus-baumannii complex": (4, ["meropenem", "colistin"]),
-    "enterobacter cloacae": (2, ["cefepime"]), "escherichia coli": (1, ["ceftriaxone"]),
-    "haemophilus influenzae": (1, ["ceftriaxone"]), "klebsiella aerogenes": (2, ["cefepime"]),
-    "klebsiella oxytoca": (1, ["ceftriaxone"]), "klebsiella pneumoniae group": (1, ["ceftriaxone"]),
-    "moraxella catarrhalis": (1, ["ceftriaxone"]), "proteus spp.": (2, ["cefepime"]),
-    "pseudomonas aeruginosa": (2, ["cefepime"]), "serratia marcescens": (2, ["cefepime"]),
-    "staphylococcus aureus": (1, ["cefazolin"]), "streptococcus agalactiae": (1, ["ceftriaxone"]),
-    "streptococcus pneumoniae": (1, ["ceftriaxone"]), "streptococcus pyogenes": (2, ["penicillin", "clindamycin"]),
-    "legionella pneumophila": (0, ["clarithromycin"]), "mycoplasma pneumoniae": (0, ["clarithromycin"]),
-    "chlamydia pneumoniae": (0, ["clarithromycin"]), "influenza a/b": (-1, ["oseltamivir"]),
-}
-_ENTEROBACTERALES = {"escherichia coli","klebsiella pneumoniae group","klebsiella aerogenes",
-    "klebsiella oxytoca","enterobacter cloacae","proteus spp.","serratia marcescens"}
-_ORGANISM_ALIASES = {
-    "acinetobacter": "acinetobacter calcoaceticus-baumannii complex",
-    "baumannii": "acinetobacter calcoaceticus-baumannii complex",
-    "acb": "acinetobacter calcoaceticus-baumannii complex",
-    "acinetobacter calcoaceticus-baumannii complex": "acinetobacter calcoaceticus-baumannii complex",
-    "enterobacter cloacae": "enterobacter cloacae", "enterobacter": "enterobacter cloacae",
-    "escherichia coli": "escherichia coli", "e. coli": "escherichia coli",
-    "ecoli": "escherichia coli", "e.coli": "escherichia coli",
-    "haemophilus influenzae": "haemophilus influenzae", "haemophilus": "haemophilus influenzae",
-    "h. influenzae": "haemophilus influenzae",
-    "klebsiella aerogenes": "klebsiella aerogenes", "klebsiella oxytoca": "klebsiella oxytoca",
-    "klebsiella pneumoniae": "klebsiella pneumoniae group",
-    "klebsiella pneumoniae group": "klebsiella pneumoniae group",
-    "klebsiella pn": "klebsiella pneumoniae group", "kpn": "klebsiella pneumoniae group",
-    "moraxella catarrhalis": "moraxella catarrhalis", "moraxella": "moraxella catarrhalis",
-    "proteus spp.": "proteus spp.", "proteus": "proteus spp.",
-    "pseudomonas aeruginosa": "pseudomonas aeruginosa", "pseudomonas": "pseudomonas aeruginosa",
-    "pa": "pseudomonas aeruginosa", "psa": "pseudomonas aeruginosa",
-    "serratia marcescens": "serratia marcescens", "serratia": "serratia marcescens",
-    "staphylococcus aureus": "staphylococcus aureus", "staph aureus": "staphylococcus aureus",
-    "s. aureus": "staphylococcus aureus", "mssa": "staphylococcus aureus", "mrsa": "staphylococcus aureus",
-    "streptococcus agalactiae": "streptococcus agalactiae", "strep agalactiae": "streptococcus agalactiae",
-    "gbs": "streptococcus agalactiae", "group b strep": "streptococcus agalactiae",
-    "streptococcus pneumoniae": "streptococcus pneumoniae", "strep pneumoniae": "streptococcus pneumoniae",
-    "strep pneumo": "streptococcus pneumoniae", "strep pn": "streptococcus pneumoniae",
-    "s. pneumoniae": "streptococcus pneumoniae", "s.pneumoniae": "streptococcus pneumoniae",
-    "pneumococcus": "streptococcus pneumoniae", "pneumococcal": "streptococcus pneumoniae",
-    "streptococcus pyogenes": "streptococcus pyogenes", "strep pyogenes": "streptococcus pyogenes",
-    "gas": "streptococcus pyogenes", "group a strep": "streptococcus pyogenes",
-    "legionella pneumophila": "legionella pneumophila", "legionella": "legionella pneumophila",
-    "mycoplasma pneumoniae": "mycoplasma pneumoniae", "mycoplasma": "mycoplasma pneumoniae",
-    "chlamydia pneumoniae": "chlamydia pneumoniae", "chlamydia": "chlamydia pneumoniae",
-    "influenza a": "influenza a/b", "influenza b": "influenza a/b", "influenza a/b": "influenza a/b",
-}
-_RESISTANCE_GENE_ALIASES = {
-    "ctx-m": "ctx_m", "ctxm": "ctx_m", "esbl": "ctx_m",
-    "kpc": "carbapenemase", "ndm": "carbapenemase", "vim": "carbapenemase",
-    "imp": "carbapenemase", "oxa-48": "carbapenemase", "oxa48": "carbapenemase",
-    "carbapenemase": "carbapenemase",
-    "meca/c": "meca_c", "meca": "meca_c", "mecc": "meca_c", "mrej": "meca_c",
-    "meca_c": "meca_c",
-    "ctx_m": "ctx_m",
-}
 _TIER_OUTPUT_KEY = {1: "TIER_1_CEFTRIAXONE", 2: "TIER_2_CEFEPIME", 3: "TIER_3_ERTAPENEM", 4: "TIER_4_MEROPENEM_COLISTIN"}
 
 
-def _normalize_organism(name):
-    return _ORGANISM_ALIASES.get(name.lower().strip())
+def _canonical_token(name):
+    return re.sub(r"[^a-z0-9]+", "_", str(name or "").lower()).strip("_")
 
 
-def _normalize_resistance_gene(name):
-    return _RESISTANCE_GENE_ALIASES.get(name.lower().strip())
+def _therapy_agents(therapy):
+    agents = []
+    for part in re.split(r"\s*\+\s*|,\s*", str(therapy or "")):
+        agent = part.strip()
+        if agent and agent not in agents:
+            agents.append(agent)
+    return agents
+
+
+def _pcr_alias_map(alias_panel):
+    aliases = {}
+    for canonical, items in (alias_panel or {}).items():
+        canonical_l = str(canonical or "").lower().strip()
+        if not canonical_l:
+            continue
+        aliases[canonical_l] = canonical_l
+        for alias in items or []:
+            alias_l = str(alias or "").lower().strip()
+            if alias_l:
+                aliases[alias_l] = canonical_l
+    return aliases
+
+
+def _literal_alias_match(text, alias):
+    return bool(re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", text, re.IGNORECASE))
+
+
+def _normalize_pcr_organism(parsed, name):
+    key = str(name or "").lower().strip()
+    if key in (parsed.get("pcr_organism_mapping") or {}):
+        return key
+    return _pcr_alias_map(parsed.get("pcr_organism_aliases") or {}).get(key)
+
+
+def _normalize_pcr_marker(parsed, name):
+    key = str(name or "").lower().strip()
+    legacy = {
+        "meca_c": "meca_c_mrej",
+        "meca/c": "meca_c_mrej",
+        "ctx_m": "ctx_m",
+    }
+    if key in legacy:
+        return legacy[key]
+    aliases = _pcr_alias_map(parsed.get("pcr_resistance_marker_aliases") or {})
+    return _canonical_token(aliases.get(key, key))
+
+
+def _extract_pcr_entities(text, parsed):
+    organisms = []
+    genes = []
+    for alias, canonical in sorted(
+        _pcr_alias_map(parsed.get("pcr_organism_aliases") or {}).items(),
+        key=lambda x: len(x[0]),
+        reverse=True,
+    ):
+        if _literal_alias_match(text, alias) and canonical not in organisms:
+            organisms.append(canonical)
+    for alias, canonical in sorted(
+        _pcr_alias_map(parsed.get("pcr_resistance_marker_aliases") or {}).items(),
+        key=lambda x: len(x[0]),
+        reverse=True,
+    ):
+        token = _canonical_token(canonical)
+        if _literal_alias_match(text, alias) and token not in genes:
+            genes.append(token)
+    return organisms, genes
+
+
+def _merge_unique(existing, new_items):
+    merged = list(existing or [])
+    for item in new_items or []:
+        if item not in merged:
+            merged.append(item)
+    return merged
+
+
+def _organism_row(parsed, organism):
+    return (parsed.get("pcr_organism_mapping") or {}).get(str(organism or "").lower().strip()) or {}
+
+
+def _organism_tier(row):
+    try:
+        return int(str(row.get("base_tier") or "").strip())
+    except (TypeError, ValueError):
+        entity_type = str(row.get("entity_type") or "").lower()
+        if entity_type == "atypical":
+            return 0
+        if entity_type == "virus":
+            return -1
+        return 1
+
+
+def _is_gram_negative_row(row):
+    text = f"{row.get('entity_type', '')} {row.get('notes', '')}".lower()
+    return "gram_negative" in text or "enterobacterales" in text
+
+
+def _pcr_output_key(outputs, tier, agents):
+    agent_set = {str(agent).lower() for agent in agents}
+    for key, data in (outputs or {}).items():
+        selected = {
+            str(agent).lower()
+            for agent in data.get("selected_items", [])
+            if isinstance(data.get("selected_items", []), list)
+        }
+        if selected and selected == agent_set:
+            return key
+    if {"meropenem", "colistin"}.issubset(agent_set):
+        return "TIER_4_MEROPENEM_COLISTIN"
+    if "meropenem" in agent_set and "TIER_3_MEROPENEM" in outputs:
+        return "TIER_3_MEROPENEM"
+    if "ertapenem" in agent_set and "TIER_3_ERTAPENEM" in outputs:
+        return "TIER_3_ERTAPENEM"
+    if "cefepime" in agent_set:
+        return "TIER_2_CEFEPIME"
+    if "ceftriaxone" in agent_set:
+        return "TIER_1_CEFTRIAXONE"
+    return _TIER_OUTPUT_KEY.get(tier, "TIER_1_CEFTRIAXONE")
 
 
 def _run_organism_mapping(parsed, slots):
+    return _run_pcr_mapping(parsed, slots)
+
+
+def _run_pcr_mapping(parsed, slots):
     outputs = _parse_selected_outputs_panel(parsed.get("selected_outputs", ""))
     pathogen_list = slots.get("pathogen_list", [])
     resistance_list = slots.get("resistance_gene_list", [])
@@ -790,34 +853,50 @@ def _run_organism_mapping(parsed, slots):
         return SelectionResult(default_used=True, mode_used="organism_mapping")
     canonical_organisms = []
     for name in pathogen_list:
-        c = _normalize_organism(name)
-        if c and c not in canonical_organisms:
+        c = _normalize_pcr_organism(parsed, name) or str(name or "").lower().strip()
+        if c and c not in canonical_organisms and _organism_row(parsed, c):
             canonical_organisms.append(c)
     canonical_genes = []
     for g in resistance_list:
-        c = _normalize_resistance_gene(g)
+        c = _normalize_pcr_marker(parsed, g)
         if c and c not in canonical_genes:
             canonical_genes.append(c)
     staph_present = "staphylococcus aureus" in canonical_organisms
-    mrsa = staph_present and "meca_c" in canonical_genes
+    mrsa = staph_present and "meca_c_mrej" in canonical_genes
     non_staph = [o for o in canonical_organisms if o != "staphylococcus aureus"]
-    enterobacterales_present = any(o in _ENTEROBACTERALES for o in canonical_organisms)
+    gram_negative_present = any(_is_gram_negative_row(_organism_row(parsed, o)) for o in canonical_organisms)
     ctx_m = "ctx_m" in canonical_genes
     carbapenemase = "carbapenemase" in canonical_genes
     items = []
     for o in non_staph:
-        ti = _ORGANISM_TIER_MAP.get(o)
-        if ti:
-            t, drugs = ti
-            if ctx_m and o in _ENTEROBACTERALES:
-                items.append((o, 3, ["ertapenem"]))
-            else:
-                items.append((o, t, drugs))
-    if carbapenemase:
-        items.append(("__carbapenemase__", 4, ["meropenem", "colistin"]))
-    bacterial_items = [(o, t, d) for o, t, d in items if t >= 1]
-    atypical_items  = [(o, t, d) for o, t, d in items if t == 0]
-    viral_items     = [(o, t, d) for o, t, d in items if t < 0]
+        row = _organism_row(parsed, o)
+        if row:
+            items.append((o, _organism_tier(row), _therapy_agents(row.get("baseline_therapy")), row))
+    added_agents = []
+    appended_notes = []
+    forced_backbone = None
+    for rule in (parsed.get("pcr_resistance_rules") or {}).values():
+        marker = _canonical_token(rule.get("if_marker"))
+        if marker and marker not in canonical_genes:
+            continue
+        action = str(rule.get("action") or "").lower()
+        therapy = _therapy_agents(rule.get("therapy"))
+        if action in {"set_backbone", "replace_backbone", "replace_gram_negative_backbone"}:
+            if action != "replace_gram_negative_backbone" or gram_negative_present:
+                forced_backbone = therapy
+        elif action == "add_agent":
+            for agent in therapy:
+                if agent not in added_agents:
+                    added_agents.append(agent)
+        elif action in {"append_note", "consult_note"} and rule.get("note"):
+            appended_notes.append(rule.get("note"))
+        if rule.get("note") and action not in {"append_note", "consult_note"}:
+            appended_notes.append(rule.get("note"))
+    if carbapenemase and not forced_backbone:
+        forced_backbone = ["meropenem", "colistin"]
+    bacterial_items = [(o, t, d) for o, t, d, _ in items if t >= 1]
+    atypical_items  = [(o, t, d) for o, t, d, _ in items if t == 0]
+    viral_items     = [(o, t, d) for o, t, d, _ in items if t < 0]
     detected_str = ", ".join(pathogen_list) + ((" + " + ", ".join(resistance_list)) if resistance_list else "")
     def _mk(key, hu, en):
         od = outputs.get(key, {})
@@ -840,25 +919,44 @@ def _run_organism_mapping(parsed, slots):
         if t > max_tier:
             max_tier = t
             max_drugs = drugs
+    if forced_backbone:
+        max_drugs = forced_backbone
+        max_tier = 4 if "colistin" in {a.lower() for a in forced_backbone} else max(max_tier, 3)
     if staph_present and mrsa and max_tier < 1:
         max_tier = 1
     strep_pyogenes = "streptococcus pyogenes" in canonical_organisms
     if strep_pyogenes and max_tier <= 2 and len(bacterial_items) == 1:
         return _mk("STREP_PYOGENES", "Strep pyogenes - penicillin + clindamycin.", "Strep pyogenes - penicillin + clindamycin.")
     has_pseudo = "pseudomonas aeruginosa" in canonical_organisms
-    if ctx_m and enterobacterales_present and has_pseudo:
+    if ctx_m and gram_negative_present and has_pseudo and not forced_backbone:
         return _mk("CONFLICTING_REQUIREMENTS", "Konfliktus - ID konzultáció.", "Conflicting requirements - ID consultation.")
-    output_key = _TIER_OUTPUT_KEY.get(max_tier, "TIER_1_CEFTRIAXONE")
+    final_agents = max_drugs + [agent for agent in added_agents if agent not in max_drugs]
+    output_key = _pcr_output_key(outputs, max_tier, final_agents)
     od = outputs.get(output_key, {})
-    answer_en = od.get("answer_en", f"Tier {max_tier} - {chr(43).join(max_drugs)}.")
+    answer_en = od.get("answer_en", f"Tier {max_tier} - {' + '.join(final_agents)}.")
     answer_hu = od.get("answer_hu", answer_en)
     if atypical_items:
         note = " + clarithromycin (atypical coverage)"
         answer_en += note; answer_hu += note
+    for agent in added_agents:
+        if agent.lower() not in answer_en.lower():
+            answer_en += f" + {agent}"
+            answer_hu += f" + {agent}"
+    if appended_notes:
+        note_text = " ".join(n for n in appended_notes if n)
+        if note_text:
+            answer_en += f" {note_text}"
+            answer_hu += f" {note_text}"
     spectrum_logic = ""
     if len(bacterial_items) > 1 or ctx_m or carbapenemase:
         parts = [f"{o}: Tier {t}" for o, t, _ in bacterial_items]
         spectrum_logic = "; ".join(parts) + f" -> Tier {max_tier}"
+    for rule in (parsed.get("pcr_context_notes") or {}).values():
+        context = slots.get("pcr_context") or slots.get("context")
+        if context and str(rule.get("if_context") or "").lower() == str(context).lower():
+            note = rule.get("note")
+            if note:
+                spectrum_logic = (spectrum_logic + "; " if spectrum_logic else "") + note
     rvars = {**slots, **od, "detected_entities": detected_str,
              "selected_output_answer_en": answer_en, "selected_output_answer_hu": answer_hu,
              "spectrum_logic_if_polymicrobial": spectrum_logic}
@@ -971,19 +1069,20 @@ def extract_slots_from_query(question, parsed_protocol=None, existing_slots=None
         slots["viral_test_result"] = "negative"
     if parsed_protocol:
         meta = parsed_protocol.get("metadata", {})
+        _apply_protocol_slot_aliases(text, parsed_protocol, slots)
         if meta.get("protocol_id") == "tmpsmx":
             indication = _extract_indication_text(text, slots)
             if indication:
                 slots["indication"] = indication
                 slots["indication_text"] = indication
-        if meta.get("protocol_id") == "biofire_pneumonia":
-            organisms, genes = _extract_biofire_entities(text)
+        if parsed_protocol.get("pcr_organism_aliases") or parsed_protocol.get("pcr_resistance_marker_aliases"):
+            organisms, genes = _extract_pcr_entities(text, parsed_protocol)
             if organisms:
                 existing_orgs = slots.get("pathogen_list", [])
-                slots["pathogen_list"] = list({*existing_orgs, *organisms})
+                slots["pathogen_list"] = _merge_unique(existing_orgs, organisms)
             if genes:
                 existing_genes = slots.get("resistance_gene_list", [])
-                slots["resistance_gene_list"] = list({*existing_genes, *genes})
+                slots["resistance_gene_list"] = _merge_unique(existing_genes, genes)
         if meta.get("protocol_id") == "endocarditis_antibiotics":
             _extract_endocarditis_slots(text, slots)
         if meta.get("protocol_id") == "vancomycin":
@@ -1047,6 +1146,20 @@ def _extract_echo_calculator_slots(text, slots, protocol_id):
             slots["stroke_volume_competent_valve_ml"] = float(pair.group(2))
 
 
+def _apply_protocol_slot_aliases(text, parsed_protocol, slots):
+    for slot_name, values in (parsed_protocol.get("slot_aliases") or {}).items():
+        matched_values = set()
+        for value, aliases in (values or {}).items():
+            for alias in aliases or []:
+                if _literal_alias_match(text, str(alias).lower()):
+                    matched_values.add(value)
+                    break
+        if len(matched_values) == 1:
+            slots[slot_name] = next(iter(matched_values))
+        elif len(matched_values) > 1:
+            slots.pop(slot_name, None)
+
+
 def _extract_indication_text(text, slots):
     lower = text.lower()
     for tier, pattern in _INDICATION_RULES:
@@ -1054,22 +1167,6 @@ def _extract_indication_text(text, slots):
             m = re.search(pattern, lower)
             return m.group(0) if m else lower
     return None
-
-
-def _extract_biofire_entities(text):
-    organisms = []
-    genes = []
-    sorted_aliases = sorted(_ORGANISM_ALIASES.keys(), key=len, reverse=True)
-    for alias in sorted_aliases:
-        if re.search(r"\b" + re.escape(alias) + r"\b", text, re.IGNORECASE):
-            c = _ORGANISM_ALIASES[alias]
-            if c not in organisms:
-                organisms.append(c)
-    for alias, canonical in _RESISTANCE_GENE_ALIASES.items():
-        if re.search(r"\b" + re.escape(alias) + r"\b", text, re.IGNORECASE):
-            if canonical not in genes:
-                genes.append(canonical)
-    return organisms, genes
 
 
 def _extract_endocarditis_slots(text, slots):
@@ -1600,6 +1697,6 @@ def run_selection(parsed, slots, lang="en"):
         return _run_priority_rules(parsed.get("selection_rules", ""), outputs, slots)
     if mode == "table_lookup":
         return _run_table_lookup(parsed, slots)
-    if mode == "organism_mapping_with_spectrum_escalation":
+    if mode in {"organism_mapping_with_spectrum_escalation", "pcr_mapping"}:
         return _run_organism_mapping(parsed, slots)
     return SelectionResult(no_match=True, mode_used=mode)
