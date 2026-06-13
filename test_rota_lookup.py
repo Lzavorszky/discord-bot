@@ -507,10 +507,9 @@ class TestRotaCommandHandler(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         bot.ALLOWED_USER_IDS = self.old_allowed
 
-    async def test_rota_handler_refuses_access_when_allowlist_is_empty(self):
-        bot.ALLOWED_USER_IDS = set()
+    def _make_update(self, text):
         message = types.SimpleNamespace(
-            text="/rotahely today eges",
+            text=text,
             chat=types.SimpleNamespace(send_action=AsyncMock()),
             reply_text=AsyncMock(),
         )
@@ -519,6 +518,11 @@ class TestRotaCommandHandler(unittest.IsolatedAsyncioTestCase):
             effective_user=types.SimpleNamespace(id=123),
             effective_chat=types.SimpleNamespace(id=456),
         )
+        return update, message
+
+    async def test_rota_handler_refuses_access_when_allowlist_is_empty(self):
+        bot.ALLOWED_USER_IDS = set()
+        update, message = self._make_update("/rotahely today eges")
         context = types.SimpleNamespace(args=["today", "eges"])
 
         with patch.object(bot, "lookup_role_locations") as lookup_mock:
@@ -526,6 +530,99 @@ class TestRotaCommandHandler(unittest.IsolatedAsyncioTestCase):
 
         lookup_mock.assert_not_called()
         message.reply_text.assert_awaited()
+
+    async def test_napirota_without_date_defaults_to_today(self):
+        bot.ALLOWED_USER_IDS = {123}
+        update, message = self._make_update("/napirota")
+        context = types.SimpleNamespace(args=[])
+        today = date(2026, 6, 5)
+        result = rota_lookup.RotaResult(
+            rota_lookup.STATUS_FOUND,
+            today,
+            "Napi rota",
+            "Daily A\nDaily B",
+            "Napi",
+        )
+
+        with patch.object(bot, "parse_rota_date_input", return_value=today) as parse_mock, \
+             patch.object(bot, "lookup_daily_summary", return_value=result) as lookup_mock:
+            await bot.handle_napirota(update, context)
+
+        parse_mock.assert_called_once_with("today")
+        lookup_mock.assert_called_once_with(today)
+        self.assertIn("Daily A", message.reply_text.await_args.args[0])
+
+    async def test_rotahely_without_date_defaults_to_today_role_lookup(self):
+        bot.ALLOWED_USER_IDS = {123}
+        update, message = self._make_update("/rotahely eges")
+        context = types.SimpleNamespace(args=["eges"])
+        today = date(2026, 6, 5)
+
+        def parse_date(value):
+            if value == "eges":
+                raise ValueError("not a date")
+            self.assertEqual(value, "today")
+            return today
+
+        result = rota_lookup.RotaResult(
+            rota_lookup.STATUS_FOUND,
+            today,
+            rota_lookup.EGES,
+            "Role location",
+            "Napi",
+        )
+
+        with patch.object(bot, "parse_rota_date_input", side_effect=parse_date), \
+             patch.object(bot, "lookup_role_locations", return_value=result) as lookup_mock:
+            await bot.handle_rotahely(update, context)
+
+        lookup_mock.assert_called_once_with(today, "eges")
+        self.assertIn("Role location", message.reply_text.await_args.args[0])
+
+    async def test_holvagyok_without_date_defaults_to_today_name_lookup(self):
+        bot.ALLOWED_USER_IDS = {123}
+        update, message = self._make_update("/holvagyok IVE")
+        context = types.SimpleNamespace(args=["IVE"])
+        today = date(2026, 6, 5)
+
+        def parse_date(value):
+            if value == "IVE":
+                raise ValueError("not a date")
+            self.assertEqual(value, "today")
+            return today
+
+        result = rota_lookup.RotaResult(
+            rota_lookup.STATUS_FOUND,
+            today,
+            "IVE",
+            "IVE - Nappali",
+            "Napi",
+        )
+
+        with patch.object(bot, "parse_rota_date_input", side_effect=parse_date), \
+             patch.object(bot, "lookup_daily_person", return_value=result) as lookup_mock:
+            await bot.handle_holvagyok(update, context)
+
+        lookup_mock.assert_called_once_with(today, "IVE")
+        self.assertIn("IVE - Nappali", message.reply_text.await_args.args[0])
+
+    async def test_commands_lists_general_and_rota_commands(self):
+        update, message = self._make_update("/commands")
+        context = types.SimpleNamespace(args=[])
+
+        await bot.handle_commands(update, context)
+
+        reply = message.reply_text.await_args.args[0]
+        self.assertEqual(reply, bot.COMMANDS_TEXT)
+        self.assertIn("/start", reply)
+        self.assertIn("/startup", reply)
+        self.assertIn("/whoami", reply)
+        self.assertIn("/protocols", reply)
+        self.assertIn("/reload", reply)
+        self.assertIn("/debug <query>", reply)
+        self.assertIn("new patient", reply)
+        self.assertIn("/napirota [date]", reply)
+        self.assertIn("/apolo [ma|holnap]", reply)
 
 
 if __name__ == "__main__":

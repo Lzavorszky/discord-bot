@@ -1,16 +1,19 @@
 {
-  "access_mode": "closed",
-  "log_user_messages": false,
-  "allowed_user_ids": [],
+  "access_mode": "open",
+  "log_user_messages": true,
+  "allowed_user_ids": [
+    7496004776,
+    5265595756
+  ],
   "admin_user_ids": [],
   "debug_logging": {
-    "log_user_messages": false,
+    "log_user_messages": true,
     "log_bot_responses": true,
     "log_raw_llm_responses": true,
     "log_retrieved_chunks": true,
     "log_routing_trace": true,
-    "log_prompt_preview": false,
+    "log_prompt_preview": true,
     "log_admin_debug_notes": true,
-    "stdout_full_turns": false
+    "stdout_full_turns": true
   }
 }

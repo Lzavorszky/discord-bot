@@ -232,6 +232,33 @@ class TestNursingCommandHandler(unittest.IsolatedAsyncioTestCase):
         lookup_mock.assert_called_once_with("tomorrow")
         self.assertIn("Tomorrow Day", message.reply_text.await_args.args[0])
 
+    async def test_apolo_ma_calls_today_lookup(self):
+        bot.ALLOWED_USER_IDS = {123}
+        message = types.SimpleNamespace(
+            text="/apolo ma",
+            chat=types.SimpleNamespace(send_action=AsyncMock()),
+            reply_text=AsyncMock(),
+        )
+        update = types.SimpleNamespace(
+            message=message,
+            effective_user=types.SimpleNamespace(id=123),
+            effective_chat=types.SimpleNamespace(id=456),
+        )
+        context = types.SimpleNamespace(args=["ma"])
+        result = nursing_rota_lookup.NursingRotaResult(
+            nursing_rota_lookup.STATUS_FOUND,
+            date(2026, 6, 5),
+            "Napi",
+            nursing_rota_lookup.NursingShift("Nappal", "1+0", ("Today Day",)),
+            nursing_rota_lookup.NursingShift("\u00c9jszaka", "1+0", ("Today Night",)),
+        )
+
+        with patch.object(bot, "lookup_nursing_rota", return_value=result) as lookup_mock:
+            await bot.handle_apolo(update, context)
+
+        lookup_mock.assert_called_once_with("today")
+        self.assertIn("Today Day", message.reply_text.await_args.args[0])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

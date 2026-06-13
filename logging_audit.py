@@ -12,6 +12,17 @@ import re
 
 _TELEGRAM_TOKEN_RE = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
 
+DEFAULT_DEBUG_LOGGING_OPTIONS = {
+    "log_user_messages": False,
+    "log_bot_responses": True,
+    "log_raw_llm_responses": True,
+    "log_retrieved_chunks": True,
+    "log_routing_trace": True,
+    "log_prompt_preview": False,
+    "log_admin_debug_notes": True,
+    "stdout_full_turns": False,
+}
+
 
 class _TelegramTokenRedactionFilter(logging.Filter):
     def filter(self, record):
@@ -52,8 +63,8 @@ def setup_logging(log_file):
     return query_logger
 
 
-def _safe_user_message_for_log(user_message, full_conversation_log=False):
-    if full_conversation_log:
+def _safe_user_message_for_log(user_message, full_conversation_log=False, preserve_user_message=False):
+    if full_conversation_log or preserve_user_message:
         return user_message
     return {
         "redacted": True,
@@ -62,15 +73,23 @@ def _safe_user_message_for_log(user_message, full_conversation_log=False):
     }
 
 
-def _safe_prompt_preview_for_stdout(user_message, full_conversation_log=False):
-    if full_conversation_log:
+def _safe_prompt_preview_for_stdout(user_message, full_conversation_log=False, preserve_user_message=False):
+    if full_conversation_log or preserve_user_message:
         text = (user_message or "").replace("\n", " ").strip()
         return text[:117] + "..." if len(text) > 120 else text
     return "<redacted>"
 
 
-def _reconstructable_turn_for_stdout(entry, full_conversation_log=False):
-    if not full_conversation_log:
+def _debug_options(debug_logging_options=None):
+    options = dict(DEFAULT_DEBUG_LOGGING_OPTIONS)
+    if isinstance(debug_logging_options, dict):
+        options.update(debug_logging_options)
+    return options
+
+
+def _reconstructable_turn_for_stdout(entry, full_conversation_log=False, debug_logging_options=None):
+    options = _debug_options(debug_logging_options)
+    if not (full_conversation_log or options.get("stdout_full_turns")):
         return None
     return {
         "event": "conversation_turn",
@@ -109,6 +128,25 @@ def _format_trace_for_stdout(trace):
     return " ".join(parts)
 
 
+def _preserve_user_message_for_trace(trace, debug_logging_options=None):
+    options = _debug_options(debug_logging_options)
+    if options.get("log_user_messages"):
+        return True
+    return bool(
+        options.get("log_admin_debug_notes")
+        and (trace or {}).get("blocked_reason") == "admin_debug_note"
+    )
+
+
+def _logged_retrieved_chunks(retrieved_chunks, options):
+    if not options.get("log_retrieved_chunks"):
+        return []
+    return [
+        {"source_label": c["source_label"], "similarity": round(c["similarity"], 4)}
+        for c in retrieved_chunks
+    ]
+
+
 def _log_query(
     query_log,
     chat_id,
@@ -121,34 +159,46 @@ def _log_query(
     *,
     trace=None,
     full_conversation_log=False,
+    debug_logging_options=None,
 ):
     ts = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
     chat_hash = hashlib.md5(str(chat_id).encode()).hexdigest()[:8]
+    options = _debug_options(debug_logging_options)
+    preserve_user_message = _preserve_user_message_for_trace(trace, options)
+    logged_trace = (trace or {}) if options.get("log_routing_trace") else {}
+    logged_final = final_response if options.get("log_bot_responses") else ""
+    logged_raw_llm = raw_llm if options.get("log_raw_llm_responses") else ""
+    logged_retrieved = _logged_retrieved_chunks(retrieved_chunks, options)
 
     entry = {
         "ts": ts,
         "chat_id_hash": chat_hash,
-        "user_message": _safe_user_message_for_log(user_message, full_conversation_log),
+        "user_message": _safe_user_message_for_log(
+            user_message,
+            full_conversation_log,
+            preserve_user_message,
+        ),
         "recognized": {
             "display": recognized["display"],
             "matched_alias": recognized.get("matched_alias", ""),
             "confidence": recognized["confidence"],
             "protocol_file": recognized.get("protocol_file", ""),
         } if recognized else None,
-        "retrieved": [
-            {"source_label": c["source_label"], "similarity": round(c["similarity"], 4)}
-            for c in retrieved_chunks
-        ],
-        "raw_llm": raw_llm,
-        "final": final_response,
+        "retrieved": logged_retrieved,
+        "raw_llm": logged_raw_llm,
+        "final": logged_final,
         "duration_ms": duration_ms,
-        "trace": trace or {},
+        "trace": logged_trace,
     }
 
     if query_log is not None:
         query_log.info(json.dumps(entry, ensure_ascii=False))
 
-    reconstructable_turn = _reconstructable_turn_for_stdout(entry, full_conversation_log)
+    reconstructable_turn = _reconstructable_turn_for_stdout(
+        entry,
+        full_conversation_log,
+        options,
+    )
     if reconstructable_turn is not None:
         print("[TURN] " + json.dumps(reconstructable_turn, ensure_ascii=False), flush=True)
 
@@ -159,14 +209,23 @@ def _log_query(
     chunks_str = "  ".join(
         f"{c['source_label']}:{round(c['similarity'], 2)}"
         for c in retrieved_chunks
-    ) or "none"
+    ) if options.get("log_retrieved_chunks") else "<hidden>"
+    chunks_str = chunks_str or "none"
     trace_str = _format_trace_for_stdout(entry.get("trace") or {})
 
-    answer_preview = (final_response or "").replace("\n", " ").strip()
+    answer_preview = (
+        (final_response or "").replace("\n", " ").strip()
+        if options.get("log_bot_responses")
+        else "<hidden>"
+    )
     if len(answer_preview) > 120:
         answer_preview = answer_preview[:117] + "..."
 
-    prompt_preview = _safe_prompt_preview_for_stdout(user_message, full_conversation_log)
+    prompt_preview = _safe_prompt_preview_for_stdout(
+        user_message,
+        full_conversation_log,
+        preserve_user_message or options.get("log_prompt_preview"),
+    )
     print(f"[Q] {chat_hash} | {prompt_preview!r} -> {rec_str}", flush=True)
     print(f"[R] {chunks_str}", flush=True)
     if trace_str:

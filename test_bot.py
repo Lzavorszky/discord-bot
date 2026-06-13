@@ -169,12 +169,14 @@ class TestProductionStartupHardening(unittest.TestCase):
     def setUp(self):
         self._old_runtime_options = dict(bot.RUNTIME_OPTIONS)
         self._old_access_mode = bot.ACCESS_MODE
+        self._old_debug_logging_options = dict(bot.DEBUG_LOGGING_OPTIONS)
         self._old_full_conversation_log = bot.FULL_CONVERSATION_LOG
         self._old_allowed_user_ids = set(bot.ALLOWED_USER_IDS)
 
     def tearDown(self):
         bot.RUNTIME_OPTIONS = self._old_runtime_options
         bot.ACCESS_MODE = self._old_access_mode
+        bot.DEBUG_LOGGING_OPTIONS = self._old_debug_logging_options
         bot.FULL_CONVERSATION_LOG = self._old_full_conversation_log
         bot.ALLOWED_USER_IDS = self._old_allowed_user_ids
 
@@ -191,11 +193,21 @@ class TestProductionStartupHardening(unittest.TestCase):
     def test_missing_allowlist_fails_closed_outside_local_debug(self):
         saved_allowed = os.environ.pop("ALLOWED_USER_IDS", None)
         saved_debug = os.environ.pop("LOCAL_DEBUG", None)
+        saved_runtime_file = os.environ.get("RUNTIME_OPTIONS_FILE")
+        tmp = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
         try:
+            json.dump({
+                "access_mode": "closed",
+                "log_user_messages": False,
+                "allowed_user_ids": [],
+                "admin_user_ids": [],
+            }, tmp)
+            tmp.close()
             buf = io.StringIO()
             from contextlib import redirect_stdout
             os.environ["TELEGRAM_TOKEN"] = "dummy"
             os.environ["OPENAI_API_KEY"] = "dummy"
+            os.environ["RUNTIME_OPTIONS_FILE"] = tmp.name
             with redirect_stdout(buf), self.assertRaises(SystemExit):
                 bot.run_startup_checks()
             output = buf.getvalue()
@@ -213,6 +225,14 @@ class TestProductionStartupHardening(unittest.TestCase):
                 os.environ["LOCAL_DEBUG"] = saved_debug
             else:
                 os.environ.pop("LOCAL_DEBUG", None)
+            if saved_runtime_file is not None:
+                os.environ["RUNTIME_OPTIONS_FILE"] = saved_runtime_file
+            else:
+                os.environ.pop("RUNTIME_OPTIONS_FILE", None)
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
 
     def test_missing_allowlist_allowed_with_local_debug_warning(self):
         saved_allowed = os.environ.pop("ALLOWED_USER_IDS", None)
@@ -245,6 +265,7 @@ class TestProductionStartupHardening(unittest.TestCase):
         saved_log = os.environ.pop("LOG_USER_MESSAGES", None)
         old_options = dict(bot.RUNTIME_OPTIONS)
         old_access_mode = bot.ACCESS_MODE
+        old_debug_logging_options = dict(bot.DEBUG_LOGGING_OPTIONS)
         old_full_log = bot.FULL_CONVERSATION_LOG
         tmp = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
         try:
@@ -279,6 +300,7 @@ class TestProductionStartupHardening(unittest.TestCase):
                 os.environ["LOG_USER_MESSAGES"] = saved_log
             bot.RUNTIME_OPTIONS = old_options
             bot.ACCESS_MODE = old_access_mode
+            bot.DEBUG_LOGGING_OPTIONS = old_debug_logging_options
             bot.FULL_CONVERSATION_LOG = old_full_log
 
     def test_runtime_options_file_closed_access_overrides_local_debug_open_fallback(self):
@@ -288,6 +310,7 @@ class TestProductionStartupHardening(unittest.TestCase):
         saved_debug = os.environ.get("LOCAL_DEBUG")
         old_options = dict(bot.RUNTIME_OPTIONS)
         old_access_mode = bot.ACCESS_MODE
+        old_debug_logging_options = dict(bot.DEBUG_LOGGING_OPTIONS)
         old_allowed = set(bot.ALLOWED_USER_IDS)
         tmp = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
         try:
@@ -324,6 +347,7 @@ class TestProductionStartupHardening(unittest.TestCase):
                 os.environ.pop("LOCAL_DEBUG", None)
             bot.RUNTIME_OPTIONS = old_options
             bot.ACCESS_MODE = old_access_mode
+            bot.DEBUG_LOGGING_OPTIONS = old_debug_logging_options
             bot.ALLOWED_USER_IDS = old_allowed
 
     def test_alias_sync_not_called_in_production_startup(self):
@@ -3820,6 +3844,8 @@ class TestSession10DebugCommands(unittest.TestCase):
 
     def test_debug_trace_explains_fresh_alias_without_prompt_echo(self):
         import telegram_bot as b
+        old_debug = dict(b.DEBUG_LOGGING_OPTIONS)
+        old_full = b.FULL_CONVERSATION_LOG
         self._install_protocol("meropenem.txt")
         b.load_aliases(os.path.join("protocols", "aliases.json"))
         fake_chunks = [{
@@ -3828,8 +3854,18 @@ class TestSession10DebugCommands(unittest.TestCase):
             "text": "## DEFAULT_ANSWER\nProtocol dosing text",
             "similarity": 0.9876,
         }]
-        with patch.object(b, "search_protocols", return_value=fake_chunks):
-            output = b.build_debug_trace("private patient details meropenem dose", f"debug_{id(self)}")
+        try:
+            b.FULL_CONVERSATION_LOG = False
+            b.DEBUG_LOGGING_OPTIONS = {
+                "log_user_messages": False,
+                "log_admin_debug_notes": True,
+                "log_prompt_preview": False,
+            }
+            with patch.object(b, "search_protocols", return_value=fake_chunks):
+                output = b.build_debug_trace("private patient details meropenem dose", f"debug_{id(self)}")
+        finally:
+            b.DEBUG_LOGGING_OPTIONS = old_debug
+            b.FULL_CONVERSATION_LOG = old_full
         self.assertIn("Context source: route_claims", output)
         self.assertIn("Matched alias: meropenem", output)
         self.assertIn("Protocol type: drug_dosing_protocol", output)
@@ -3841,10 +3877,150 @@ class TestSession10DebugCommands(unittest.TestCase):
 
     def test_default_logging_redacts_prompt(self):
         import telegram_bot as b
-        safe = b._safe_user_message_for_log("John Doe fever")
+        old_debug = dict(b.DEBUG_LOGGING_OPTIONS)
+        old_full = b.FULL_CONVERSATION_LOG
+        try:
+            b.FULL_CONVERSATION_LOG = False
+            b.DEBUG_LOGGING_OPTIONS = {
+                "log_user_messages": False,
+                "log_admin_debug_notes": True,
+                "log_prompt_preview": False,
+            }
+            safe = b._safe_user_message_for_log("John Doe fever")
+        finally:
+            b.DEBUG_LOGGING_OPTIONS = old_debug
+            b.FULL_CONVERSATION_LOG = old_full
         self.assertIsInstance(safe, dict)
         self.assertTrue(safe["redacted"])
         self.assertNotIn("John Doe", str(safe))
+
+    def test_admin_debug_note_logging_preserves_note_text(self):
+        import contextlib
+        import io
+        import json
+        import logging
+        import telegram_bot as b
+
+        class _CaptureHandler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.messages = []
+
+            def emit(self, record):
+                self.messages.append(record.getMessage())
+
+        old_full = b.FULL_CONVERSATION_LOG
+        old_debug = dict(b.DEBUG_LOGGING_OPTIONS)
+        old_query_log = b._query_log
+        logger = logging.getLogger(f"query_test_{id(self)}")
+        logger.handlers.clear()
+        logger.propagate = False
+        logger.setLevel(logging.INFO)
+        capture = _CaptureHandler()
+        logger.addHandler(capture)
+        b.FULL_CONVERSATION_LOG = False
+        b.DEBUG_LOGGING_OPTIONS = {
+            "log_user_messages": False,
+            "log_bot_responses": True,
+            "log_raw_llm_responses": True,
+            "log_retrieved_chunks": True,
+            "log_routing_trace": True,
+            "log_prompt_preview": False,
+            "log_admin_debug_notes": True,
+            "stdout_full_turns": False,
+        }
+        b._query_log = logger
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                b._log_query(
+                    chat_id=123,
+                    user_message="debug note: keep this visible",
+                    recognized=None,
+                    retrieved_chunks=[],
+                    raw_llm=None,
+                    final_response="ignored",
+                    duration_ms=1,
+                    trace={"blocked_reason": "admin_debug_note"},
+                )
+
+            payload = json.loads(capture.messages[0])
+            self.assertEqual(payload["user_message"], "debug note: keep this visible")
+            self.assertIn("debug note: keep this visible", out.getvalue())
+        finally:
+            b.FULL_CONVERSATION_LOG = old_full
+            b.DEBUG_LOGGING_OPTIONS = old_debug
+            b._query_log = old_query_log
+            logger.handlers.clear()
+
+    def test_debug_logging_options_can_hide_detail_fields(self):
+        import contextlib
+        import io
+        import json
+        import logging
+        import telegram_bot as b
+
+        class _CaptureHandler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.messages = []
+
+            def emit(self, record):
+                self.messages.append(record.getMessage())
+
+        old_full = b.FULL_CONVERSATION_LOG
+        old_debug = dict(b.DEBUG_LOGGING_OPTIONS)
+        old_query_log = b._query_log
+        logger = logging.getLogger(f"query_hide_test_{id(self)}")
+        logger.handlers.clear()
+        logger.propagate = False
+        logger.setLevel(logging.INFO)
+        capture = _CaptureHandler()
+        logger.addHandler(capture)
+        b.FULL_CONVERSATION_LOG = False
+        b.DEBUG_LOGGING_OPTIONS = {
+            "log_user_messages": False,
+            "log_bot_responses": False,
+            "log_raw_llm_responses": False,
+            "log_retrieved_chunks": False,
+            "log_routing_trace": False,
+            "log_prompt_preview": False,
+            "log_admin_debug_notes": False,
+            "stdout_full_turns": False,
+        }
+        b._query_log = logger
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                b._log_query(
+                    chat_id=123,
+                    user_message="John Doe fever",
+                    recognized=None,
+                    retrieved_chunks=[{
+                        "source_label": "Secret Protocol",
+                        "similarity": 0.99,
+                    }],
+                    raw_llm="raw answer",
+                    final_response="final answer",
+                    duration_ms=1,
+                    trace={"selected_protocol_id": "secret"},
+                )
+
+            payload = json.loads(capture.messages[0])
+            self.assertTrue(payload["user_message"]["redacted"])
+            self.assertEqual(payload["retrieved"], [])
+            self.assertEqual(payload["raw_llm"], "")
+            self.assertEqual(payload["final"], "")
+            self.assertEqual(payload["trace"], {})
+            stdout = out.getvalue()
+            self.assertIn("<redacted>", stdout)
+            self.assertIn("[R] <hidden>", stdout)
+            self.assertIn("[A] <hidden>", stdout)
+        finally:
+            b.FULL_CONVERSATION_LOG = old_full
+            b.DEBUG_LOGGING_OPTIONS = old_debug
+            b._query_log = old_query_log
+            logger.handlers.clear()
 
     def test_full_conversation_logging_prints_reconstructable_turn(self):
         import contextlib
@@ -3853,8 +4029,19 @@ class TestSession10DebugCommands(unittest.TestCase):
         import telegram_bot as b
 
         old_full = b.FULL_CONVERSATION_LOG
+        old_debug = dict(b.DEBUG_LOGGING_OPTIONS)
         old_query_log = b._query_log
         b.FULL_CONVERSATION_LOG = True
+        b.DEBUG_LOGGING_OPTIONS = {
+            "log_user_messages": True,
+            "log_bot_responses": True,
+            "log_raw_llm_responses": True,
+            "log_retrieved_chunks": True,
+            "log_routing_trace": True,
+            "log_prompt_preview": True,
+            "log_admin_debug_notes": True,
+            "stdout_full_turns": True,
+        }
         b._query_log = None
         try:
             out = io.StringIO()
@@ -3879,6 +4066,7 @@ class TestSession10DebugCommands(unittest.TestCase):
             self.assertEqual(payload["raw_llm"], "raw answer")
         finally:
             b.FULL_CONVERSATION_LOG = old_full
+            b.DEBUG_LOGGING_OPTIONS = old_debug
             b._query_log = old_query_log
 
 
@@ -3916,6 +4104,7 @@ class TestSession11ModuleSplit(unittest.TestCase):
         src = inspect.getsource(b.main)
         self.assertIn('CommandHandler("start", handle_start)', src)
         self.assertIn('CommandHandler("startup", handle_start)', src)
+        self.assertIn('CommandHandler("segits", handle_commands)', src)
 
     def test_load_protocols_handles_fresh_file_after_module_split(self):
         import numpy as np
@@ -3995,6 +4184,7 @@ class TestRuntimeFailureBoundaries(unittest.IsolatedAsyncioTestCase):
         self._old_allowed = set(b.ALLOWED_USER_IDS)
         self._old_runtime_options = dict(b.RUNTIME_OPTIONS)
         self._old_access_mode = b.ACCESS_MODE
+        self._old_debug_logging_options = dict(b.DEBUG_LOGGING_OPTIONS)
 
     def tearDown(self):
         b = self.b
@@ -4003,6 +4193,7 @@ class TestRuntimeFailureBoundaries(unittest.IsolatedAsyncioTestCase):
         b.ALLOWED_USER_IDS = self._old_allowed
         b.RUNTIME_OPTIONS = self._old_runtime_options
         b.ACCESS_MODE = self._old_access_mode
+        b.DEBUG_LOGGING_OPTIONS = self._old_debug_logging_options
 
     def test_openai_chat_failure_returns_safe_error_and_logs(self):
         fake_chunk = {

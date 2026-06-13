@@ -120,6 +120,7 @@ BOT_VERSION       = os.getenv("BOT_VERSION", "session-10")
 LOCAL_DEBUG_MODE  = os.getenv("LOCAL_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 RUNTIME_OPTIONS   = get_runtime_options()
 ACCESS_MODE       = RUNTIME_OPTIONS.get("access_mode", "closed")
+DEBUG_LOGGING_OPTIONS = dict(RUNTIME_OPTIONS.get("debug_logging") or {})
 FULL_CONVERSATION_LOG = False
 SAFE_RUNTIME_FAILURE_MESSAGE = (
     "I could not safely complete that request because an external service failed. "
@@ -137,14 +138,14 @@ def _local_debug_enabled():
 
 
 def _runtime_log_user_messages_enabled():
-    return bool(RUNTIME_OPTIONS.get("log_user_messages"))
+    return bool(DEBUG_LOGGING_OPTIONS.get("log_user_messages"))
 
 
 def _full_conversation_log_enabled():
     return (
         _local_debug_enabled()
         or _env_flag("FULL_CONVERSATION_LOG")
-        or _runtime_log_user_messages_enabled()
+        or bool(DEBUG_LOGGING_OPTIONS.get("stdout_full_turns"))
     )
 
 
@@ -157,14 +158,31 @@ def _effective_access_mode():
 
 
 def _refresh_runtime_settings():
-    global RUNTIME_OPTIONS, ACCESS_MODE, FULL_CONVERSATION_LOG
+    global RUNTIME_OPTIONS, ACCESS_MODE, DEBUG_LOGGING_OPTIONS, FULL_CONVERSATION_LOG
     RUNTIME_OPTIONS = get_runtime_options()
+    DEBUG_LOGGING_OPTIONS = dict(RUNTIME_OPTIONS.get("debug_logging") or {})
     ACCESS_MODE = _effective_access_mode()
     FULL_CONVERSATION_LOG = _full_conversation_log_enabled()
     return RUNTIME_OPTIONS
 
 
 _refresh_runtime_settings()
+
+
+def _format_debug_logging_summary():
+    if not DEBUG_LOGGING_OPTIONS:
+        return "unavailable"
+    enabled = [
+        key for key, value in sorted(DEBUG_LOGGING_OPTIONS.items())
+        if bool(value)
+    ]
+    disabled = [
+        key for key, value in sorted(DEBUG_LOGGING_OPTIONS.items())
+        if not bool(value)
+    ]
+    enabled_text = ", ".join(enabled) if enabled else "none"
+    disabled_text = ", ".join(disabled) if disabled else "none"
+    return f"enabled: {enabled_text}; disabled: {disabled_text}"
 
 # ---------------------------------------------------------------------------
 # Global state
@@ -398,17 +416,29 @@ _query_log = None
 
 
 def _safe_user_message_for_log(user_message):
-    return audit_helpers._safe_user_message_for_log(user_message, FULL_CONVERSATION_LOG)
+    return audit_helpers._safe_user_message_for_log(
+        user_message,
+        FULL_CONVERSATION_LOG,
+        preserve_user_message=DEBUG_LOGGING_OPTIONS.get("log_user_messages"),
+    )
 
 
 
 def _safe_prompt_preview_for_stdout(user_message):
-    return audit_helpers._safe_prompt_preview_for_stdout(user_message, FULL_CONVERSATION_LOG)
+    return audit_helpers._safe_prompt_preview_for_stdout(
+        user_message,
+        FULL_CONVERSATION_LOG,
+        preserve_user_message=DEBUG_LOGGING_OPTIONS.get("log_prompt_preview"),
+    )
 
 
 
 def _reconstructable_turn_for_stdout(entry):
-    return audit_helpers._reconstructable_turn_for_stdout(entry, FULL_CONVERSATION_LOG)
+    return audit_helpers._reconstructable_turn_for_stdout(
+        entry,
+        FULL_CONVERSATION_LOG,
+        debug_logging_options=DEBUG_LOGGING_OPTIONS,
+    )
 
 
 
@@ -425,6 +455,7 @@ def _log_query(chat_id, user_message, recognized, retrieved_chunks,
         duration_ms,
         trace=trace,
         full_conversation_log=FULL_CONVERSATION_LOG,
+        debug_logging_options=DEBUG_LOGGING_OPTIONS,
     )
 
 
@@ -3866,6 +3897,34 @@ def get_protocol_library_version():
     return "mixed: " + ", ".join(versions)
 
 
+def _short_build_id(value):
+    value = str(value or "").strip()
+    return value[:12] if value else ""
+
+
+def get_build_id():
+    for env_name in (
+        "BOT_BUILD_SHA",
+        "RAILWAY_GIT_COMMIT_SHA",
+        "SOURCE_VERSION",
+        "GIT_COMMIT_SHA",
+        "COMMIT_SHA",
+    ):
+        build_id = _short_build_id(os.getenv(env_name))
+        if build_id:
+            return build_id
+
+    try:
+        head_path = Path(".git") / "HEAD"
+        head = head_path.read_text(encoding="utf-8").strip()
+        if head.startswith("ref:"):
+            ref_path = Path(".git") / head.split(":", 1)[1].strip()
+            return _short_build_id(ref_path.read_text(encoding="utf-8").strip())
+        return _short_build_id(head)
+    except OSError:
+        return "unavailable"
+
+
 def format_protocols_output():
     rows = _loaded_protocol_rows()
     if not rows:
@@ -3882,6 +3941,7 @@ def format_protocols_output():
 def format_version_output():
     return (
         f"Bot version: {BOT_VERSION}\n"
+        f"Build: {get_build_id()}\n"
         f"Protocol library version: {get_protocol_library_version()}"
     )
 
@@ -4339,23 +4399,38 @@ async def handle_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _safe_reply_chunks(update, answer)
 
 
-ROTAHELY_USAGE = "Usage: /rotahely <date> <role>\nExample: /rotahely tomorrow \u00c9g\u00e9s"
-NAPIROTA_USAGE = "Usage: /napirota <date>\nExample: /napirota tomorrow"
-HOSSZU_USAGE = "Usage: /hosszu <date>\nExample: /hosszu tomorrow"
-UGYELET_USAGE = "Usage: /ugyelet <date>\nExample: /ugyelet tomorrow"
-HOLVAGYOK_USAGE = "Usage: /holvagyok <date> <name>\nExample: /holvagyok tomorrow IVE"
-APOLO_USAGE = "Usage: /apolo [holnap]\nExample: /apolo or /apolo holnap"
+ROTAHELY_USAGE = "Usage: /rotahely [date] <role>\nExample: /rotahely \u00c9g\u00e9s or /rotahely tomorrow \u00c9g\u00e9s"
+NAPIROTA_USAGE = "Usage: /napirota [date]\nExample: /napirota or /napirota tomorrow"
+HOSSZU_USAGE = "Usage: /hosszu [date]\nExample: /hosszu or /hosszu tomorrow"
+UGYELET_USAGE = "Usage: /ugyelet [date]\nExample: /ugyelet or /ugyelet tomorrow"
+HOLVAGYOK_USAGE = "Usage: /holvagyok [date] <name>\nExample: /holvagyok IVE or /holvagyok tomorrow IVE"
+APOLO_USAGE = "Usage: /apolo [ma|holnap]\nExample: /apolo, /apolo ma, or /apolo holnap"
 ROTA_UNAVAILABLE_MESSAGE = "Rota lookup is unavailable. Check Google Sheets configuration."
 ROTA_COMMANDS_TEXT = (
     "Rota commands:\n"
-    "/napirota <date>\n"
-    "/hosszu <date>\n"
-    "/ugyelet <date>\n"
-    "/rotahely <date> <role>\n"
-    "/holvagyok <date> <name>\n"
-    "/apolo [holnap]\n\n"
+    "/napirota [date]\n"
+    "/hosszu [date]\n"
+    "/ugyelet [date]\n"
+    "/rotahely [date] <role>\n"
+    "/holvagyok [date] <name>\n"
+    "/apolo [ma|holnap]\n\n"
     "Doctor rota dates: today, tomorrow, ma, holnap, 2026-06-05, 2026.06.05\n"
-    "Apolo: no argument = today, holnap = tomorrow"
+    "No date = today\n"
+    "Apolo: no argument/ma/today = today, holnap/tomorrow = tomorrow"
+)
+COMMANDS_TEXT = (
+    "Commands:\n"
+    "/commands, /help, /segits - show this help\n"
+    "/start, /startup - show the intro message\n"
+    "/whoami - show your Telegram user id\n"
+    "/protocols - list loaded protocols\n"
+    "/version - show bot, build, and protocol library version\n"
+    "/reset, /clear - clear conversation history\n"
+    "/reload - admin-only reload placeholder\n"
+    "/debug <query> - show routing/debug trace\n\n"
+    "Conversation controls:\n"
+    "new patient, new case, reset, clear - clear the active patient/protocol flow\n\n"
+    f"{ROTA_COMMANDS_TEXT}"
 )
 
 
@@ -4416,7 +4491,7 @@ def _format_nursing_rota_result(result, day):
 
 
 async def handle_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _safe_reply_text(update, ROTA_COMMANDS_TEXT)
+    await _safe_reply_text(update, COMMANDS_TEXT)
 
 
 async def _handle_rota_role_command(update, context, usage, lookup_func, not_found_noun="rota entry", *, bullets=True):
@@ -4426,17 +4501,18 @@ async def _handle_rota_role_command(update, context, usage, lookup_func, not_fou
         return
 
     args = list(getattr(context, "args", None) or [])
-    if len(args) < 2:
+    if not args:
         await _safe_reply_text(update, usage)
         return
 
     try:
         date_value = parse_rota_date_input(args[0])
+        role_args = args[1:]
     except ValueError:
-        await _safe_reply_text(update, usage)
-        return
+        date_value = parse_rota_date_input("today")
+        role_args = args
 
-    role_text = " ".join(args[1:]).strip()
+    role_text = " ".join(role_args).strip()
     if not role_text:
         await _safe_reply_text(update, usage)
         return
@@ -4467,12 +4543,12 @@ async def _handle_rota_date_command(update, context, usage, lookup_func, title, 
         return
 
     args = list(getattr(context, "args", None) or [])
-    if len(args) != 1:
+    if len(args) > 1:
         await _safe_reply_text(update, usage)
         return
 
     try:
-        date_value = parse_rota_date_input(args[0])
+        date_value = parse_rota_date_input(args[0] if args else "today")
     except ValueError:
         await _safe_reply_text(update, usage)
         return
@@ -4525,17 +4601,18 @@ async def handle_holvagyok(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     args = list(getattr(context, "args", None) or [])
-    if len(args) < 2:
+    if not args:
         await _safe_reply_text(update, HOLVAGYOK_USAGE)
         return
 
     try:
         date_value = parse_rota_date_input(args[0])
+        person_args = args[1:]
     except ValueError:
-        await _safe_reply_text(update, HOLVAGYOK_USAGE)
-        return
+        date_value = parse_rota_date_input("today")
+        person_args = args
 
-    person_text = " ".join(args[1:]).strip()
+    person_text = " ".join(person_args).strip()
     if not person_text:
         await _safe_reply_text(update, HOLVAGYOK_USAGE)
         return
@@ -4562,10 +4639,13 @@ async def handle_apolo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     day = "today"
     if args:
         key = args[0].strip().casefold()
-        if key not in {"holnap", "tomorrow"}:
+        if key in {"ma", "today"}:
+            day = "today"
+        elif key in {"holnap", "tomorrow"}:
+            day = "tomorrow"
+        else:
             await _safe_reply_text(update, APOLO_USAGE)
             return
-        day = "tomorrow"
 
     await _safe_send_action(update, "typing")
     result = lookup_nursing_rota(day)
@@ -4606,6 +4686,8 @@ def main():
     _refresh_runtime_settings()
     ALLOWED_USER_IDS = _load_allowlist()
     ADMIN_USER_IDS = _load_admin_ids()
+    print(f"[startup] Access mode: {ACCESS_MODE}")
+    print(f"[startup] Debug logging: {_format_debug_logging_summary()}")
     if ALLOWED_USER_IDS:
         print(f"[startup] Allowlist active: {len(ALLOWED_USER_IDS)} user(s) authorised.")
     if ADMIN_USER_IDS:
@@ -4640,6 +4722,10 @@ def main():
     except Exception as _lint_err:
         print(f"[linter] WARNING: linter failed to run: {_lint_err}")
 
+    print(
+        f"Bot version: {BOT_VERSION}; build: {get_build_id()}; "
+        f"protocol library version: {get_protocol_library_version()}"
+    )
     print("Starting Telegram bot...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
@@ -4654,6 +4740,7 @@ def main():
     app.add_handler(CommandHandler("debug", handle_debug))
     app.add_handler(CommandHandler("commands", handle_commands))
     app.add_handler(CommandHandler("help", handle_commands))
+    app.add_handler(CommandHandler("segits", handle_commands))
     app.add_handler(CommandHandler("rotahely", handle_rotahely))
     app.add_handler(CommandHandler("napirota", handle_napirota))
     app.add_handler(CommandHandler("hosszu", handle_hosszu))
@@ -4665,8 +4752,9 @@ def main():
     print("Bot is running.")
     print(
         "Commands: /whoami, /protocols, /version, /reset, /clear, /debug <query>, "
-        "/commands, /rotahely <date> <role>, /napirota <date>, /hosszu <date>, "
-        "/ugyelet <date>, /holvagyok <date> <name>, /apolo [holnap]."
+        "/commands, /help, /segits, /rotahely [date] <role>, /napirota [date], "
+        "/hosszu [date], /ugyelet [date], /holvagyok [date] <name>, "
+        "/apolo [ma|holnap]."
     )
     app.run_polling()
 

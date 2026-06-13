@@ -77,11 +77,23 @@ LOG_FILE = os.getenv("LOG_FILE", "bot_queries.log")
 # Runtime options
 # ---------------------------------------------------------------------------
 
+DEFAULT_DEBUG_LOGGING_OPTIONS = {
+    "log_user_messages": False,
+    "log_bot_responses": True,
+    "log_raw_llm_responses": True,
+    "log_retrieved_chunks": True,
+    "log_routing_trace": True,
+    "log_prompt_preview": False,
+    "log_admin_debug_notes": True,
+    "stdout_full_turns": False,
+}
+
 DEFAULT_RUNTIME_OPTIONS = {
     "access_mode": "closed",
     "log_user_messages": False,
     "allowed_user_ids": [],
     "admin_user_ids": [],
+    "debug_logging": DEFAULT_DEBUG_LOGGING_OPTIONS,
 }
 
 
@@ -125,11 +137,28 @@ def _load_runtime_options_file(path):
     return data
 
 
+def _normalise_debug_logging_options(value, legacy_log_user_messages=False):
+    options = dict(DEFAULT_DEBUG_LOGGING_OPTIONS)
+    if isinstance(value, dict):
+        options.update(value)
+
+    for key, default in DEFAULT_DEBUG_LOGGING_OPTIONS.items():
+        options[key] = _parse_bool(options.get(key), default)
+
+    if legacy_log_user_messages:
+        options["log_user_messages"] = True
+        options["log_prompt_preview"] = True
+        options["stdout_full_turns"] = True
+
+    return options
+
+
 def get_runtime_options():
     """Load runtime options from runtime_options.json, then apply env overrides."""
     path = os.getenv("RUNTIME_OPTIONS_FILE", "runtime_options.json")
     file_options = _load_runtime_options_file(path)
     options = dict(DEFAULT_RUNTIME_OPTIONS)
+    options["debug_logging"] = dict(DEFAULT_DEBUG_LOGGING_OPTIONS)
     options.update(file_options)
 
     env_access_mode = os.getenv("ACCESS_MODE") or os.getenv("BOT_ACCESS_MODE")
@@ -139,6 +168,17 @@ def get_runtime_options():
 
     if os.getenv("LOG_USER_MESSAGES") is not None:
         options["log_user_messages"] = _parse_bool(os.getenv("LOG_USER_MESSAGES"))
+
+    if os.getenv("FULL_CONVERSATION_LOG") is not None:
+        full_log = _parse_bool(os.getenv("FULL_CONVERSATION_LOG"))
+        debug_logging = dict(options.get("debug_logging") or {})
+        if full_log:
+            debug_logging.update({
+                "log_user_messages": True,
+                "log_prompt_preview": True,
+                "stdout_full_turns": True,
+            })
+        options["debug_logging"] = debug_logging
 
     if os.getenv("ALLOWED_USER_IDS") is not None:
         options["allowed_user_ids"] = _parse_id_list(os.getenv("ALLOWED_USER_IDS"))
@@ -152,4 +192,8 @@ def get_runtime_options():
 
     options["access_mode"] = str(options.get("access_mode") or "closed").strip().lower()
     options["log_user_messages"] = _parse_bool(options.get("log_user_messages"), False)
+    options["debug_logging"] = _normalise_debug_logging_options(
+        options.get("debug_logging"),
+        legacy_log_user_messages=options["log_user_messages"],
+    )
     return options
