@@ -21,6 +21,7 @@ import os
 import glob
 import json
 import re
+import html
 import hashlib
 import sqlite3
 import logging
@@ -4342,9 +4343,67 @@ def split_message(text, max_length=4000):
 # Telegram handlers
 # ---------------------------------------------------------------------------
 
+def _known_footer_texts():
+    footers = []
+    seen = set()
+    for footer in [SAFETY_FOOTER] + [
+        parsed.get("default_footer")
+        for parsed in PROTOCOL_PARSED_BY_FILE.values()
+        if isinstance(parsed, dict)
+    ]:
+        footer = (footer or "").strip()
+        if not footer or footer.lower() == "(none)" or footer in seen:
+            continue
+        footers.append(footer)
+        seen.add(footer)
+    return footers
+
+
+def _find_footer_spans(text):
+    spans = []
+    for footer in _known_footer_texts():
+        start = 0
+        while True:
+            idx = text.find(footer, start)
+            if idx == -1:
+                break
+            end = idx + len(footer)
+            before_ok = idx == 0 or text[idx - 2:idx] == "\n\n"
+            after_ok = end == len(text) or text[end:end + 2] == "\n\n"
+            if before_ok and after_ok:
+                spans.append((idx, end))
+            start = end
+    spans.sort()
+    merged = []
+    for start, end in spans:
+        if merged and start < merged[-1][1]:
+            continue
+        merged.append((start, end))
+    return merged
+
+
+def _telegram_html_text(text):
+    spans = _find_footer_spans(text)
+    if not spans:
+        return None
+
+    parts = []
+    cursor = 0
+    for start, end in spans:
+        parts.append(html.escape(text[cursor:start], quote=False))
+        parts.append(f"<i>{html.escape(text[start:end], quote=False)}</i>")
+        cursor = end
+    parts.append(html.escape(text[cursor:], quote=False))
+    return "".join(parts)
+
+
 async def _safe_reply_text(update, text):
     try:
-        await update.message.reply_text(text)
+        html_text = _telegram_html_text(text)
+        if html_text is None:
+            await update.message.reply_text(text)
+        else:
+            await update.message.reply_text(html_text, parse_mode="HTML")
         return True
     except Exception as exc:
         chat_id = _effective_chat_id(update)

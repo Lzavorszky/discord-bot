@@ -163,6 +163,44 @@ class TestFooterPlacement(unittest.TestCase):
                       "SAFETY_FOOTER must appear before the Source line")
 
 
+class TestTelegramHtmlFormatting(unittest.IsolatedAsyncioTestCase):
+    def test_telegram_html_italicizes_specific_and_safety_footers(self):
+        specific_footer = "Specific footer with GFR <30 & monitoring."
+        text = bot.finalize_answer(
+            "Dose body with GFR <30 & caution.",
+            specific_footer,
+            "TEST_SRC",
+        )
+
+        with patch.dict(
+            bot.PROTOCOL_PARSED_BY_FILE,
+            {"test": {"default_footer": specific_footer}},
+            clear=True,
+        ):
+            html_text = bot._telegram_html_text(text)
+
+        self.assertIn("Dose body with GFR &lt;30 &amp; caution.", html_text)
+        self.assertIn(
+            "<i>Specific footer with GFR &lt;30 &amp; monitoring.</i>",
+            html_text,
+        )
+        self.assertIn(f"<i>{bot.SAFETY_FOOTER}</i>", html_text)
+        self.assertIn("Source: TEST_SRC", html_text)
+
+    async def test_safe_reply_text_sends_html_parse_mode(self):
+        update = MagicMock()
+        update.message.reply_text = AsyncMock()
+        text = bot.finalize_answer("Body <not html>", None, "TEST_SRC")
+
+        ok = await bot._safe_reply_text(update, text)
+
+        self.assertTrue(ok)
+        update.message.reply_text.assert_awaited_once_with(
+            f"Body &lt;not html&gt;\n\n<i>{bot.SAFETY_FOOTER}</i>\n\nSource: TEST_SRC",
+            parse_mode="HTML",
+        )
+
+
 class TestProductionStartupHardening(unittest.TestCase):
     """Production startup must fail closed and avoid mutating protocol sources."""
 
