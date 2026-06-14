@@ -657,6 +657,89 @@ def _uses_builtin_tmpsmx_table_lookup(parsed):
     )
 
 
+_TMPSMX_RENAL_DISPLAY = {
+    "GFR_GT_30_OR_CRRT": "GFR >30 or CRRT",
+    "GFR_15_TO_30": "GFR 15-30",
+    "GFR_LT_15_WITHOUT_CRRT": "GFR <15 (no CRRT)",
+    "IHD": "IHD",
+}
+
+
+def _tmpsmx_renal_display(renal_category):
+    return _TMPSMX_RENAL_DISPLAY.get(renal_category, renal_category or "not provided")
+
+
+def _tmpsmx_prophylaxis_result(outputs, slots, indication_tier, renal_category):
+    if renal_category == "IHD":
+        table_key = "IHD"
+    elif renal_category == "GFR_LT_15_WITHOUT_CRRT":
+        table_key = "GFR_LT_15_WITHOUT_CRRT"
+    elif renal_category == "GFR_15_TO_30":
+        table_key = "PROPHYLAXIS_GFR_15_TO_30"
+    elif renal_category == "GFR_GT_30_OR_CRRT":
+        table_key = "PROPHYLAXIS_GFR_GT_30_OR_CRRT"
+    else:
+        table_key = "PROPHYLAXIS_GENERAL"
+
+    output_data = outputs.get(table_key, {})
+    practical_options = output_data.get("practical_options") or []
+    practical_dose = "; ".join(practical_options) if practical_options else output_data.get("practical_dose", "")
+    rvars = {
+        **slots,
+        **output_data,
+        "indication_tier": indication_tier,
+        "renal_category": _tmpsmx_renal_display(renal_category),
+        "practical_dose": practical_dose,
+    }
+    return SelectionResult(output_key=table_key, output_data=output_data, mode_used="table_lookup", render_vars=rvars)
+
+
+def _tmpsmx_framework_sections(outputs, indication_tier, renal_category):
+    if renal_category in {"GFR_GT_30_OR_CRRT", "GFR_15_TO_30"}:
+        keys = [f"{indication_tier}_{renal_category}"]
+    else:
+        keys = [
+            f"{indication_tier}_GFR_GT_30_OR_CRRT",
+            f"{indication_tier}_GFR_15_TO_30",
+        ]
+    sections = []
+    for key in keys:
+        data = outputs.get(key, {})
+        if data:
+            sections.append({
+                "key": key,
+                "renal_category": _tmpsmx_renal_display(key.replace(f"{indication_tier}_", "")),
+                "data": data,
+            })
+    return sections
+
+
+def _tmpsmx_treatment_framework_result(outputs, slots, indication_tier, renal_category, missing):
+    sections = _tmpsmx_framework_sections(outputs, indication_tier, renal_category)
+    target = ""
+    for section in sections:
+        target = section["data"].get("target") or target
+        if target:
+            break
+    output_data = {
+        "type": "tmpsmx_treatment_framework",
+        "target": target,
+    }
+    return SelectionResult(
+        output_key=f"{indication_tier}_GENERAL",
+        output_data=output_data,
+        mode_used="table_lookup",
+        render_vars={
+            **slots,
+            **output_data,
+            "indication_tier": indication_tier,
+            "renal_category": _tmpsmx_renal_display(renal_category),
+            "missing_for_exact_dose": ", ".join(missing),
+            "framework_sections": sections,
+        },
+    )
+
+
 def _run_table_lookup(parsed, slots):
     outputs = _parse_selected_outputs_panel(parsed.get("selected_outputs", ""))
     if not _uses_builtin_tmpsmx_table_lookup(parsed):
@@ -665,21 +748,19 @@ def _run_table_lookup(parsed, slots):
     indication_raw = slots.get("indication") or slots.get("indication_text") or ""
     body_weight_kg = slots.get("body_weight_kg")
     has_renal = (slots.get("gfr") is not None or slots.get("crrt") is not None or slots.get("ihd") is not None)
-    missing = []
     if not indication_raw:
-        missing.append("indication")
-    if body_weight_kg is None:
-        missing.append("body_weight_kg")
-    if not has_renal:
-        missing.append("renal_function (GFR/CRRT/IHD)")
-    if missing:
-        return SelectionResult(missing_slots=missing, default_used=True, mode_used="table_lookup")
+        return SelectionResult(missing_slots=["indication"], default_used=True, mode_used="table_lookup")
     indication_tier = _classify_indication_tier(indication_raw)
     if not indication_tier:
         return SelectionResult(missing_slots=["indication (could not classify)"], default_used=True, mode_used="table_lookup")
-    renal_category = _classify_renal_category(slots)
-    if not renal_category:
-        return SelectionResult(missing_slots=["renal_function"], default_used=True, mode_used="table_lookup")
+    renal_category = _classify_renal_category(slots) if has_renal else None
+    if indication_tier == "PROPHYLAXIS":
+        return _tmpsmx_prophylaxis_result(outputs, slots, indication_tier, renal_category)
+    missing_for_exact = []
+    if body_weight_kg is None:
+        missing_for_exact.append("body_weight_kg")
+    if not has_renal or not renal_category:
+        missing_for_exact.append("renal_function (GFR/CRRT/IHD)")
     if renal_category == "IHD":
         od = outputs.get("IHD", {})
         return SelectionResult(output_key="IHD", output_data=od, mode_used="table_lookup",
@@ -688,6 +769,8 @@ def _run_table_lookup(parsed, slots):
         od = outputs.get("GFR_LT_15_WITHOUT_CRRT", {})
         return SelectionResult(output_key="GFR_LT_15_WITHOUT_CRRT", output_data=od, mode_used="table_lookup",
             render_vars={**slots, **od, "indication_tier": indication_tier, "renal_category": "GFR <15 (no CRRT)", "body_weight_kg": str(body_weight_kg)})
+    if missing_for_exact:
+        return _tmpsmx_treatment_framework_result(outputs, slots, indication_tier, renal_category, missing_for_exact)
     table_key = f"{indication_tier}_{renal_category}"
     output_data = outputs.get(table_key, {})
     if not output_data:
@@ -702,10 +785,22 @@ def _run_table_lookup(parsed, slots):
             weight_row = {k.lower().replace(" ","_"): v for k, v in row.items()}
     except (ValueError, TypeError):
         pass
-    practical_dose = (_pick_col(weight_row, "practical") or weight_row.get("practical_dose") or "see table")
-    total_daily = (_pick_col(weight_row, "total") or weight_row.get("total_daily_tmp/smx") or "see table")
-    renal_display = {"GFR_GT_30_OR_CRRT": "GFR >30 or CRRT", "GFR_15_TO_30": "GFR 15-30"}.get(renal_category, renal_category)
+    practical_dose = (
+        _pick_col(weight_row, "practical")
+        or weight_row.get("practical_dose")
+        or output_data.get("practical_dose")
+        or "see table"
+    )
+    total_daily = (
+        _pick_col(weight_row, "total")
+        or weight_row.get("total_daily_tmp/smx")
+        or output_data.get("total_daily_tmp_smx")
+        or "see table"
+    )
+    renal_display = _tmpsmx_renal_display(renal_category)
+    target = output_data.get("target") or ("fixed practical dose" if output_data.get("type") == "fixed_dose" else "")
     rvars = {**slots, **output_data, "indication_tier": indication_tier, "renal_category": renal_display,
+             "target": target,
              "body_weight_kg": str(body_weight_kg), "practical_dose": practical_dose, "total_daily_tmp_smx": total_daily}
     _apply_table_axis_range_guard(parsed, slots, output_data, rvars, axis_slots={"body_weight_kg"})
     return SelectionResult(output_key=table_key, output_data=output_data, mode_used="table_lookup", render_vars=rvars)
@@ -1419,6 +1514,85 @@ def _render_out_of_bounds_reference(parsed, result, lang="en"):
     return "\n".join(lines).strip()
 
 
+def _markdown_table_from_rows(rows):
+    if not rows:
+        return ""
+    headers = list(rows[0].keys())
+    lines = [
+        "| " + " | ".join(header.replace("_", " ").title() for header in headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(str(row.get(header, "")) for header in headers) + " |")
+    return "\n".join(lines)
+
+
+def _render_tmpsmx_prophylaxis(result, lang="en"):
+    rv = result.render_vars or {}
+    od = result.output_data or {}
+    if od.get("type") == "renal_warning":
+        lines = ["TMP/SMX - PROPHYLAXIS"]
+        if rv.get("renal_category"):
+            lines.append(f"- renal function: {rv.get('renal_category')}")
+        if od.get("recommendation"):
+            lines.append(f"- recommendation: {od.get('recommendation')}")
+        return "\n".join(lines).strip()
+
+    lines = ["TMP/SMX - PROPHYLAXIS"]
+    renal_category = rv.get("renal_category")
+    if renal_category and renal_category != "not provided":
+        lines.append(f"- renal function: {renal_category}")
+    options = od.get("practical_options") or []
+    if options:
+        lines.append("- practical prophylaxis options:")
+        lines.extend(f"  - {option}" for option in options)
+    elif rv.get("practical_dose"):
+        lines.append(f"- practical prophylaxis dose: {rv.get('practical_dose')}")
+    if od.get("recommendation"):
+        lines.append(f"- recommendation: {od.get('recommendation')}")
+    if renal_category == "not provided" and not od.get("recommendation"):
+        lines.append("- provide GFR/CRRT/IHD if renal impairment is suspected or known")
+    return "\n".join(lines).strip()
+
+
+def _render_tmpsmx_treatment_framework(result, lang="en"):
+    rv = result.render_vars or {}
+    lines = [
+        f"TMP/SMX - {rv.get('indication_tier', 'TREATMENT')}",
+    ]
+    target = rv.get("target")
+    if target:
+        lines.append(f"- target: {target}")
+    missing = rv.get("missing_for_exact_dose")
+    if missing:
+        lines.append(f"- exact practical dose requires: {missing}")
+    lines.append("- send body weight and GFR/CRRT/IHD for the patient-specific practical dose")
+
+    sections = rv.get("framework_sections") or []
+    for section in sections:
+        data = section.get("data") or {}
+        renal_category = section.get("renal_category")
+        lines.append("")
+        lines.append(f"{renal_category}:")
+        section_target = data.get("target")
+        if section_target and section_target != target:
+            lines.append(f"- target: {section_target}")
+        rows = data.get("_table_rows") or []
+        if rows:
+            lines.append(_markdown_table_from_rows(rows))
+        else:
+            practical = data.get("practical_dose")
+            total = data.get("total_daily_tmp_smx")
+            if practical:
+                dose_line = f"- practical dose: {practical}"
+                if total:
+                    dose_line += f" ({total})"
+                lines.append(dose_line)
+            elif data.get("recommendation"):
+                lines.append(f"- recommendation: {data.get('recommendation')}")
+    return "\n".join(line for line in lines if line is not None).strip()
+
+
 def render_selected_output(parsed, result, lang="en"):
     if result.rendered:
         return result.rendered
@@ -1440,6 +1614,14 @@ def render_selected_output(parsed, result, lang="en"):
     out_of_bounds = _render_out_of_bounds_reference(parsed, result, lang=lang)
     if out_of_bounds:
         return out_of_bounds
+    if output_type == "prophylaxis_fixed_dose" or result.output_key in {
+        "PROPHYLAXIS_GENERAL",
+        "PROPHYLAXIS_GFR_GT_30_OR_CRRT",
+        "PROPHYLAXIS_GFR_15_TO_30",
+    }:
+        return _render_tmpsmx_prophylaxis(result, lang=lang)
+    if output_type == "tmpsmx_treatment_framework":
+        return _render_tmpsmx_treatment_framework(result, lang=lang)
     if template_text:
         return _render_template(template_text, result.render_vars)
     return _plain_render(result.output_key, result.output_data, lang)

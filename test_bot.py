@@ -164,7 +164,7 @@ class TestFooterPlacement(unittest.TestCase):
 
 
 class TestTelegramHtmlFormatting(unittest.IsolatedAsyncioTestCase):
-    def test_telegram_html_italicizes_specific_and_safety_footers(self):
+    def test_telegram_html_italicizes_safety_footer_and_source_only(self):
         specific_footer = "Specific footer with GFR <30 & monitoring."
         text = bot.finalize_answer(
             "Dose body with GFR <30 & caution.",
@@ -172,20 +172,16 @@ class TestTelegramHtmlFormatting(unittest.IsolatedAsyncioTestCase):
             "TEST_SRC",
         )
 
-        with patch.dict(
-            bot.PROTOCOL_PARSED_BY_FILE,
-            {"test": {"default_footer": specific_footer}},
-            clear=True,
-        ):
-            html_text = bot._telegram_html_text(text)
+        html_text = bot._telegram_html_text(text)
 
         self.assertIn("Dose body with GFR &lt;30 &amp; caution.", html_text)
         self.assertIn(
-            "<i>Specific footer with GFR &lt;30 &amp; monitoring.</i>",
+            "\n\nSpecific footer with GFR &lt;30 &amp; monitoring.\n\n",
             html_text,
         )
+        self.assertNotIn("<i>Specific footer", html_text)
         self.assertIn(f"<i>{bot.SAFETY_FOOTER}</i>", html_text)
-        self.assertIn("Source: TEST_SRC", html_text)
+        self.assertIn("<i>Source: TEST_SRC</i>", html_text)
 
     async def test_safe_reply_text_sends_html_parse_mode(self):
         update = MagicMock()
@@ -196,7 +192,7 @@ class TestTelegramHtmlFormatting(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(ok)
         update.message.reply_text.assert_awaited_once_with(
-            f"Body &lt;not html&gt;\n\n<i>{bot.SAFETY_FOOTER}</i>\n\nSource: TEST_SRC",
+            f"Body &lt;not html&gt;\n\n<i>{bot.SAFETY_FOOTER}</i>\n\n<i>Source: TEST_SRC</i>",
             parse_mode="HTML",
         )
 
@@ -1917,11 +1913,15 @@ class TestTMPSMXTableLookup(unittest.TestCase):
         self.assertTrue("4 amp" in rendered or "960" in rendered or "3 x 4" in rendered,
                         f"60 kg weight row not found: {rendered}")
 
-    def test_missing_weight_asks(self):
+    def test_treatment_indication_without_weight_returns_framework(self):
         parsed = _s9_load("tmpsmx.txt")
         slots = {"indication": "stenotrophomonas bsi", "gfr": 60.0}
         result = se.run_selection(parsed, slots)
-        self.assertIn("body_weight_kg", result.missing_slots)
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        self.assertEqual(result.output_key, "HIGH_DOSE_GENERAL")
+        self.assertEqual(result.missing_slots, [])
+        self.assertIn("exact practical dose requires: body_weight_kg", rendered)
+        self.assertIn("3 x 4 amp", rendered)
 
     def test_missing_indication_returns_default(self):
         parsed = _s9_load("tmpsmx.txt")
@@ -1946,6 +1946,26 @@ class TestTMPSMXTableLookup(unittest.TestCase):
         slots = {"indication": "pcp prophylaxis immunosuppressed", "body_weight_kg": 70.0, "gfr": 50.0}
         result = se.run_selection(parsed, slots)
         self.assertEqual(result.output_key, "PROPHYLAXIS_GFR_GT_30_OR_CRRT")
+
+    def test_prophylaxis_without_weight_or_renal_returns_fixed_options(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {"indication": "pcp prophylaxis immunosuppressed"}
+        result = se.run_selection(parsed, slots)
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        self.assertEqual(result.output_key, "PROPHYLAXIS_GENERAL")
+        self.assertEqual(result.missing_slots, [])
+        self.assertIn("1 tablet daily", rendered)
+        self.assertIn("1 tablet three times weekly", rendered)
+        self.assertNotIn("see table", rendered)
+
+    def test_prophylaxis_with_weight_and_renal_renders_fixed_options(self):
+        parsed = _s9_load("tmpsmx.txt")
+        slots = {"indication": "prophylaxis", "body_weight_kg": 60.0, "gfr": 60.0}
+        result = se.run_selection(parsed, slots)
+        rendered = se.render_selected_output(parsed, result, lang="en")
+        self.assertEqual(result.output_key, "PROPHYLAXIS_GFR_GT_30_OR_CRRT")
+        self.assertIn("1 tablet daily", rendered)
+        self.assertNotIn("see table", rendered)
 
     def test_ihd_returns_ihd(self):
         parsed = _s9_load("tmpsmx.txt")
@@ -3524,9 +3544,9 @@ class TestRoutingRegressionGuardrails(unittest.TestCase):
             {
                 "name": "missing_weight",
                 "query": "TMP/SMX Steno BSI GFR 60",
-                "expected_output": "default",
-                "expected_missing": ["body_weight_kg"],
-                "expected_fragments": ["Missing: body_weight_kg", "Source: TMP/SMX"],
+                "expected_output": "HIGH_DOSE_GENERAL",
+                "expected_missing": [],
+                "expected_fragments": ["exact practical dose requires: body_weight_kg", "Source: TMP/SMX"],
             },
             {
                 "name": "out_of_bounds_weight",

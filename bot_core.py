@@ -4343,36 +4343,29 @@ def split_message(text, max_length=4000):
 # Telegram handlers
 # ---------------------------------------------------------------------------
 
-def _known_footer_texts():
-    footers = []
-    seen = set()
-    for footer in [SAFETY_FOOTER] + [
-        parsed.get("default_footer")
-        for parsed in PROTOCOL_PARSED_BY_FILE.values()
-        if isinstance(parsed, dict)
-    ]:
-        footer = (footer or "").strip()
-        if not footer or footer.lower() == "(none)" or footer in seen:
-            continue
-        footers.append(footer)
-        seen.add(footer)
-    return footers
-
-
-def _find_footer_spans(text):
+def _find_telegram_italic_spans(text):
     spans = []
-    for footer in _known_footer_texts():
+    safety_footer = (SAFETY_FOOTER or "").strip()
+    if safety_footer and safety_footer.lower() != "(none)":
         start = 0
         while True:
-            idx = text.find(footer, start)
+            idx = text.find(safety_footer, start)
             if idx == -1:
                 break
-            end = idx + len(footer)
+            end = idx + len(safety_footer)
             before_ok = idx == 0 or text[idx - 2:idx] == "\n\n"
             after_ok = end == len(text) or text[end:end + 2] == "\n\n"
             if before_ok and after_ok:
                 spans.append((idx, end))
             start = end
+
+    source_match = re.search(r"(?:^|\n\n)Source: [^\n\r]*\s*$", text)
+    if source_match:
+        source_start = source_match.start()
+        if text.startswith("\n\n", source_start):
+            source_start += 2
+        spans.append((source_start, len(text)))
+
     spans.sort()
     merged = []
     for start, end in spans:
@@ -4383,7 +4376,7 @@ def _find_footer_spans(text):
 
 
 def _telegram_html_text(text):
-    spans = _find_footer_spans(text)
+    spans = _find_telegram_italic_spans(text)
     if not spans:
         return None
 
