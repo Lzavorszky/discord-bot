@@ -1,8 +1,9 @@
 # meropenem.yaml — kind: drug_dose
 # Migrated from protocols/antibiotics/meropenem.txt (source v0.3) + meropenem.route_claims.json.
-# Every dose / tier / cutoff / administration string below is copied VERBATIM from the
-# source DEFAULT_ANSWER table and SELECTED_OUTPUTS. Selection priority (source SELECTION_RULES
-# priorities 110>100>95>70>60>default) is encoded as list order in `select`.
+# Doses/tiers/admin below are from the source DEFAULT_ANSWER table EXCEPT the NORMAL tier,
+# which the owner (ID team) deliberately revised to 4 g/day, 8.3 mL/h (source was 3 g/day,
+# 6.3 mL/h) on 2026-06-16. Selection priority (source SELECTION_RULES 110>100>95>70>60>default)
+# is encoded as list order in `select`.
 # Clinical hand-check vs source: see id_bot2/docs/meropenem_handcheck.md (Phase 2.4 sign-off).
 id: meropenem
 kind: drug_dose
@@ -38,7 +39,7 @@ slots:
 # --- the actual dose data (was DEFAULT_ANSWER table + SELECTED_OUTPUTS), verbatim ---
 tiers:
   LOADING:    { dose: "1 g once", when: "start of therapy",            admin: "start continuous infusion immediately", always_show: true }
-  NORMAL:     { dose: "3 g/day",  when: "GFR 20+",                      admin: "1 g/50 mL, 6.3 mL/h" }
+  NORMAL:     { dose: "4 g/day",  when: "GFR 20+",                      admin: "1 g/50 mL, 8.3 mL/h" }   # owner-revised 2026-06-16 (source: 3 g/day, 6.3 mL/h)
   SEVERE_AKI: { dose: "1 g/day",  when: "GFR <20 or IHD",              admin: "0.5 g/50 mL, 4.2 mL/h" }
   CRRT:       { dose: "3 g/day",  when: "CRRT",                         admin: "1 g/50 mL, 6.3 mL/h" }
   STEP_UP:    { dose: "6 g/day",  when: "low levels or CNS infection",  admin: "1 g/50 mL, 12.5 mL/h" }
@@ -58,11 +59,11 @@ never:
   - STEP_UP unless cns_infection or tdm_low_level is present
   - alternative antibiotics, duration, toxicity, or indication advice
 
-# footer carries the source DEFAULT_FOOTER plus the reduced-dose preparation note,
-# which the source prints under the DEFAULT_ANSWER table. The drug_dose schema has
-# no dedicated prep/info field, so it is preserved here verbatim (flagged for sign-off).
-footer: >
+# prep: reduced-dose preparation note, migrated verbatim from the source DEFAULT_ANSWER
+# table into the dedicated drug_dose `prep` field (added to the schema 2026-06-16).
+prep: >
   Reduced-dose preparation: dissolve 1 g in 20 mL NaCl 0.9%, withdraw 10 mL,
   dilute to 50 mL for a 0.5 g/50 mL syringe.
-  Step-up dose is only for low exposure/TDM concern or CNS infection.
-  Numeric GFR cutoff: Normal GFR 20+, Severe AKI GFR <20 or IHD.
+
+# footer: owner-set placeholder (replaced the source DEFAULT_FOOTER + GFR-cutoff note).
+footer: "Think TDM! replace later"

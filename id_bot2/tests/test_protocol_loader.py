@@ -50,6 +50,28 @@ def test_valid_drug_dose():
     assert loader.validate_record(rec) == []
 
 
+def test_valid_drug_dose_with_prep_and_notes():
+    # prep/notes are optional free-text strings allowed on every drug_dose protocol.
+    rec = {
+        "id": "meropenem", "kind": "drug_dose",
+        "tiers": {"NORMAL": {"dose": "4 g/day"}},
+        "select": [{"if": "gfr >= 20", "tier": "NORMAL"},
+                   {"default": "DEFAULT_ANSWER"}],
+        "prep": "dissolve 1 g in 20 mL NaCl 0.9%, withdraw 10 mL, dilute to 50 mL",
+        "notes": "Think TDM!",
+    }
+    assert loader.validate_record(rec) == []
+
+
+def test_reject_non_string_prep():
+    p = loader.validate_record({
+        "id": "x", "kind": "drug_dose",
+        "tiers": {"NORMAL": {"dose": "1 g"}},
+        "select": [{"default": "NORMAL"}],
+        "prep": ["not", "a", "string"]})
+    assert any("'prep' must be a string" in m for m in p)
+
+
 def test_valid_pcr_panel():
     rec = {
         "id": "biofire_ji", "kind": "pcr_panel",

@@ -177,6 +177,9 @@ def _check_drug_dose(rec: dict, problems: list[str]) -> None:
                       valid_targets=tier_names)
     if "never" in rec and not _is_list_of_str(rec["never"]):
         problems.append("'never' must be a list of strings")
+    for key in ("prep", "notes"):
+        if key in rec and not _is_str(rec[key]):
+            problems.append(f"'{key}' must be a string")
 
 
 def _check_pcr_panel(rec: dict, problems: list[str]) -> None:

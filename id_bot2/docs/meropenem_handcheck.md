@@ -1,9 +1,11 @@
 # Clinical hand-check — `meropenem.yaml` vs source `meropenem.txt`
 
-**Phase 2.4 sign-off sheet.** This is the human's non-delegable check: confirm every dose,
-tier, cutoff, and administration string in the migrated `id_bot2/protocols/meropenem.yaml`
-matches the source `protocols/antibiotics/meropenem.txt`. Nothing clinical ships on the
-bot's say-so alone.
+**Phase 2.4 sign-off sheet (rev 2 — 2026-06-16, owner edits applied).** This is the human's
+non-delegable check: confirm every dose, tier, cutoff, and admin string in the migrated
+`id_bot2/protocols/meropenem.yaml`. Most values match the source
+`protocols/antibiotics/meropenem.txt`; the **NORMAL tier was deliberately revised by the
+owner** (see ⚠ below) and so intentionally no longer matches source. Nothing clinical ships
+on the bot's say-so alone.
 
 - **Source:** `protocols/antibiotics/meropenem.txt` (v0.3) + `meropenem.route_claims.json`
 - **Migrated:** `id_bot2/protocols/meropenem.yaml` (kind: drug_dose)
@@ -18,9 +20,9 @@ bot's say-so alone.
 | **LOADING** | dose | `1 g once` | `1 g once` | ✓ |
 |  | when | `start of therapy` | `start of therapy` | ✓ |
 |  | admin | `start continuous infusion immediately` | `start continuous infusion immediately` | ✓ |
-| **NORMAL** | dose | `3 g/day` | `3 g/day` | ✓ |
+| **NORMAL** | dose | `3 g/day` | `4 g/day` | ⚠ owner-edited |
 |  | when | `GFR 20+` | `GFR 20+` | ✓ |
-|  | admin | `1 g/50 mL, 6.3 mL/h` | `1 g/50 mL, 6.3 mL/h` | ✓ |
+|  | admin | `1 g/50 mL, 6.3 mL/h` | `1 g/50 mL, 8.3 mL/h` | ⚠ owner-edited |
 | **SEVERE_AKI** | dose | `1 g/day` | `1 g/day` | ✓ |
 |  | when | `GFR <20 or IHD` | `GFR <20 or IHD` | ✓ |
 |  | admin | `0.5 g/50 mL, 4.2 mL/h` | `0.5 g/50 mL, 4.2 mL/h` | ✓ |
@@ -88,29 +90,38 @@ real file keeps all of them so routing is not degraded. No collisions (linter �
 
 ---
 
-## ⚠ ONE DEVIATION TO APPROVE — reduced-dose preparation note
+## 7. Owner-directed edits applied 2026-06-16 (rev 2)
 
-The source prints this line under the DEFAULT_ANSWER table and again in the `administration`
-INFO_BLOCK:
+These are deliberate changes by the owner (ID team), not migration faithfulness issues.
+They intentionally diverge from source `meropenem.txt`:
 
-> Reduced-dose preparation: dissolve 1 g in 20 mL NaCl 0.9%, withdraw 10 mL, dilute to
-> 50 mL for a 0.5 g/50 mL syringe.
+| Item | Source `meropenem.txt` | `meropenem.yaml` now | Status |
+|---|---|---|---|
+| NORMAL dose | `3 g/day` | `4 g/day` | owner-revised — **please confirm** |
+| NORMAL admin (pump rate) | `1 g/50 mL, 6.3 mL/h` | `1 g/50 mL, 8.3 mL/h` | owner-revised — **please confirm** (4 g/day at 1 g/50 mL = 200 mL/24 h ≈ 8.3 mL/h, internally consistent) |
+| footer | `Step-up dose is only for low exposure/TDM concern or CNS infection. Numeric GFR cutoff: Normal GFR 20+, Severe AKI GFR <20 or IHD.` | `Think TDM! replace later` | owner-set placeholder — the original GFR-cutoff guidance is **no longer shown**; replace before go-live |
 
-The `drug_dose` schema has **no dedicated prep/info field**. To avoid silently losing
-clinical content, I preserved this line **verbatim at the top of `footer`** (footer is
-free-text and always shown). The rest of the footer is the source DEFAULT_FOOTER verbatim.
+## 8. Reduced-dose preparation note — DEVIATION RESOLVED ✓
 
-**Your call:** (a) accept it living in `footer` as done; or (b) we add a `prep:` / `notes:`
-field to the drug_dose schema in a follow-up and move it there. Either way, no clinical
-value is lost or altered — only its location differs from source.
+Previously this line had no home in the `drug_dose` schema and sat in `footer`. The schema now
+has a dedicated **`prep`** field (added 2026-06-16, available to every drug_dose/antibiotic
+protocol), and the note lives there verbatim:
+
+> `prep:` Reduced-dose preparation: dissolve 1 g in 20 mL NaCl 0.9%, withdraw 10 mL, dilute
+> to 50 mL for a 0.5 g/50 mL syringe.
+
+No clinical value lost or altered. A sibling **`notes`** field was also added for general
+clinical notes on future antibiotics.
 
 ---
 
 ## Sign-off
 
-- [ ] Tiers §1 — every dose/when/admin matches source
+- [ ] Tiers §1 — LOADING / SEVERE_AKI / CRRT / STEP_UP match source
+- [ ] **NORMAL §7 — confirm the owner-revised 4 g/day, 8.3 mL/h is intended**
 - [ ] Selection §2 — priority order matches source SAFETY_RULES
 - [ ] Slots §3, routing §4, guardrails §5, aliases §6 — match
-- [ ] Reduced-dose prep deviation — accept in `footer` (a) **or** request schema field (b)
+- [ ] §7 footer placeholder noted (`Think TDM! replace later` — original GFR-cutoff text dropped; replace before go-live)
+- [ ] §8 prep field — reduced-dose preparation correctly carried
 
 Signed: ____________________   Date: __________

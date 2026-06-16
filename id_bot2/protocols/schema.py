@@ -123,6 +123,10 @@ PROTOCOL_JSON_SCHEMA = {
         },
         "select": {"type": "array", "items": _SELECT_ENTRY},
         "never": {"type": "array", "items": {"type": "string"}},
+        # free-text preparation/dilution instructions and general clinical notes
+        # (shared by every drug_dose protocol).
+        "prep": {"type": "string"},
+        "notes": {"type": "string"},
         # pcr_panel
         "organisms": {
             "type": "array",
@@ -200,7 +204,7 @@ KIND_REQUIRED = {
 # warning-level smell, surfaced by the validator (helps catch copy-paste errors
 # during the bulk migration). Common fields are allowed on every kind.
 KIND_FIELDS = {
-    "drug_dose": {"slots", "tiers", "select", "never"},
+    "drug_dose": {"slots", "tiers", "select", "never", "prep", "notes"},
     "pcr_panel": {"organisms", "markers", "disambiguate_genus", "requires", "dose_via"},
     "pathway": {"slots", "outputs", "select", "doses"},
     "prose": {"sections"},

@@ -21,8 +21,13 @@
 
 ## Status
 
-- **Current phase:** Phase 2 — **2.4 landed** (meropenem.yaml migrated, schema-valid + linter-green; clinical hand-check sheet produced, human sign-off pending). Next: **3.1 get_dose** (vertical slice).
+- **Current phase:** Phase 2 — **2.4 landed + rev 2** (meropenem.yaml migrated; schema extended with `prep`/`notes`; owner clinical edits applied). Next: **3.1 get_dose** (vertical slice), gated on the meropenem clinical sign-off.
 - **Branch:** `rebuild-d` (created off `main`; live bot on `main` untouched).
+- **Last session (2026-06-16, Opus):** Phase 2.4 rev 2 — schema extension + owner edits on `rebuild-d`:
+  - **Schema extended:** added optional free-text `prep` and `notes` fields to the **drug_dose** kind (`schema.py` JSON-Schema + `KIND_FIELDS`; `loader.py` string-validates both). Available to every antibiotic/drug_dose protocol going forward. +2 loader tests (now 60 id_bot2 unit tests).
+  - **meropenem.yaml owner edits (deliberate, ID-team-directed — diverge from source on purpose):** NORMAL tier `3 g/day` → `4 g/day`, admin `6.3 mL/h` → `8.3 mL/h` (internally consistent: 4 g/day at 1 g/50 mL ≈ 8.3 mL/h). `footer` replaced wholesale with placeholder `"Think TDM! replace later"` (original GFR-cutoff guidance dropped — replace before go-live). Reduced-dose preparation note moved from `footer` into the new `prep:` field (deviation RESOLVED).
+  - `meropenem_handcheck.md` updated to rev 2: NORMAL flagged ⚠ owner-edited, new §7 (owner edits) + §8 (prep resolved), sign-off checklist now asks the human to confirm the 4 g/day change specifically.
+  - `./check.sh` green except the one known env legacy failure; validator green over the corpus.
 - **Last session (2026-06-16, Opus):** Phase 2.4 — migrated the first real protocol on `rebuild-d`:
   - `id_bot2/protocols/meropenem.yaml` (kind: drug_dose) — tiers/select/never/slots/footer transcribed **verbatim** from source `protocols/antibiotics/meropenem.txt` (v0.3) + `meropenem.route_claims.json`. 5 tiers (LOADING `always_show`), 6-rung `select` ladder preserving source priority order (STEP_UP 110 > IHD→SEVERE_AKI 100 > CRRT 95 > GFR≥20 NORMAL 70 > GFR<20 SEVERE_AKI 60 > default full table).
   - **One deviation flagged for sign-off:** the source's *reduced-dose preparation* line has no field in the drug_dose schema; preserved **verbatim in `footer`** (no clinical value lost). Decide later: keep in footer vs add a `prep:`/`notes:` schema field.
@@ -54,7 +59,7 @@
 
 > **Phase 3.1 — implement `get_dose` over `meropenem.yaml` (the vertical slice). Model: Opus (clinical correctness — first tool that emits a dose).**
 > 1. `git checkout rebuild-d && ./check.sh` — confirm green (the one legacy failure is the noted, pre-existing env exception; all id_bot2 / schema+linter / contract / harness blocks must be green). Sandbox deps: `pip install --break-system-packages pytest "httpx[socks]" socksio pyyaml openai python-telegram-bot rapidfuzz`.
-> 2. **Pre-req: clinical sign-off on meropenem.** `id_bot2/docs/meropenem_handcheck.md` must be signed — including the reduced-dose-prep deviation (keep in `footer` vs add a `prep:`/`notes:` schema field). If a field is wanted, add it to schema/loader first.
+> 2. **Pre-req: clinical sign-off on meropenem.** `id_bot2/docs/meropenem_handcheck.md` (rev 2) must be signed — in particular **confirm the owner-revised NORMAL tier (4 g/day, 8.3 mL/h)** and note the placeholder footer. The `prep`/`notes` schema fields are DONE; the reduced-dose prep now lives in `prep:`.
 > 3. Implement `get_dose(drug_id, gfr=None, crrt=False, ihd=False, cns_infection=False, tdm_low_level=False) -> DoseResult` in `id_bot2/tools/`: load the drug_dose record, run the `select:` ladder **in list order**, return the matched tier **verbatim** + `source_label`, plus any `always_show` tier (LOADING). GFR out of declared range → `{needs_confirmation: true}`. Never computes a novel dose.
 > 4. Unit-test every ladder branch against meropenem: cns/tdm→STEP_UP, ihd→SEVERE_AKI, crrt→CRRT, gfr≥20→NORMAL, gfr<20→SEVERE_AKI, no input→DEFAULT_ANSWER+full table, gfr=300→needs_confirmation.
 > 5. Wire the meropenem `--target new` harness rows so `python id_bot2/run_harness.py regression_cases.yaml --target new` exercises the slice; `./check.sh` green.
@@ -79,6 +84,7 @@ After this: the rest of the drug_dose kind (~20 antibiotic files under `protocol
 | 2026-06-16 | Phase 1 | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | LLM provider seam: 28 id_bot2 unit tests + 11 contract tests green (2 live-gated, skipped). Legacy 330/331 (same noted env failure). |
 | 2026-06-16 | Phase 2 (2.1–2.3) | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | Protocol schema + loader/validator + linter stub: 58 id_bot2 unit tests (30 new) + schema/linter block green over empty corpus; 11 contract tests green. Legacy 330/331 (same noted env failure). |
 | 2026-06-16 | Phase 2.4 | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | First real protocol migrated: `meropenem.yaml` (drug_dose) schema-valid + linter-green over **non-empty** corpus (1 record, no alias collisions). 58 id_bot2 unit + 11 contract tests green. Clinical hand-check sheet produced; **human sign-off pending**. Legacy 330/331 (same noted env failure). |
+| 2026-06-16 | Phase 2.4 rev 2 | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | Schema extended (`prep`/`notes` on drug_dose, +2 tests → 60 id_bot2 unit). Owner edits to meropenem.yaml: NORMAL 4 g/day @ 8.3 mL/h, footer placeholder, prep field carries reduced-dose note. Hand-check rev 2; **sign-off (incl. NORMAL change) pending**. Legacy 330/331 (same noted env failure). |
 
 ---
 
