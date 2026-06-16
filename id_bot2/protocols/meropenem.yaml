@@ -1,0 +1,68 @@
+# meropenem.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/meropenem.txt (source v0.3) + meropenem.route_claims.json.
+# Every dose / tier / cutoff / administration string below is copied VERBATIM from the
+# source DEFAULT_ANSWER table and SELECTED_OUTPUTS. Selection priority (source SELECTION_RULES
+# priorities 110>100>95>70>60>default) is encoded as list order in `select`.
+# Clinical hand-check vs source: see id_bot2/docs/meropenem_handcheck.md (Phase 2.4 sign-off).
+id: meropenem
+kind: drug_dose
+source_label: meropenem
+canonical_name: meropenem
+status: draft
+version: 0.3
+
+# --- aliases: full set from source ## ALIASES (verbatim) ---
+aliases:
+  - meropenem
+  - mero
+  - MEM
+  - meronem
+  - meropenemum
+  - meropenem iv
+  - meropenem dose
+  - meropenem dosing
+  - magas meropenem
+
+# --- routing metadata (was meropenem.route_claims.json) ---
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+# --- slots the tool accepts, with validation (was SLOT_SCHEMA + optional_modifiers) ---
+slots:
+  gfr:           { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt:          { type: bool }
+  ihd:           { type: bool }
+  cns_infection: { type: bool }
+  tdm_low_level: { type: bool }
+
+# --- the actual dose data (was DEFAULT_ANSWER table + SELECTED_OUTPUTS), verbatim ---
+tiers:
+  LOADING:    { dose: "1 g once", when: "start of therapy",            admin: "start continuous infusion immediately", always_show: true }
+  NORMAL:     { dose: "3 g/day",  when: "GFR 20+",                      admin: "1 g/50 mL, 6.3 mL/h" }
+  SEVERE_AKI: { dose: "1 g/day",  when: "GFR <20 or IHD",              admin: "0.5 g/50 mL, 4.2 mL/h" }
+  CRRT:       { dose: "3 g/day",  when: "CRRT",                         admin: "1 g/50 mL, 6.3 mL/h" }
+  STEP_UP:    { dose: "6 g/day",  when: "low levels or CNS infection",  admin: "1 g/50 mL, 12.5 mL/h" }
+
+# --- selection: ordered, declarative (was SELECTION_RULES; list order = priority) ---
+select:
+  - { if: "cns_infection or tdm_low_level", tier: STEP_UP }   # source priority 110 (STEP_UP_CNS / STEP_UP_LOW_LEVEL)
+  - { if: "ihd",       tier: SEVERE_AKI }                      # source priority 100 (IHD_AS_SEVERE_AKI)
+  - { if: "crrt",      tier: CRRT }                            # source priority  95 (CRRT)
+  - { if: "gfr >= 20", tier: NORMAL }                          # source priority  70 (NORMAL_GFR_GE_20)
+  - { if: "gfr < 20",  tier: SEVERE_AKI }                      # source priority  60 (SEVERE_AKI_GFR_LT_20)
+  - { default: DEFAULT_ANSWER }                                # source priority   1 (DEFAULT) -> full table
+
+# --- never (was RESTRICTED_OUTPUTS + SAFETY_RULES) ---
+never:
+  - dosing outside the listed tiers
+  - STEP_UP unless cns_infection or tdm_low_level is present
+  - alternative antibiotics, duration, toxicity, or indication advice
+
+# footer carries the source DEFAULT_FOOTER plus the reduced-dose preparation note,
+# which the source prints under the DEFAULT_ANSWER table. The drug_dose schema has
+# no dedicated prep/info field, so it is preserved here verbatim (flagged for sign-off).
+footer: >
+  Reduced-dose preparation: dissolve 1 g in 20 mL NaCl 0.9%, withdraw 10 mL,
+  dilute to 50 mL for a 0.5 g/50 mL syringe.
+  Step-up dose is only for low exposure/TDM concern or CNS infection.
+  Numeric GFR cutoff: Normal GFR 20+, Severe AKI GFR <20 or IHD.
