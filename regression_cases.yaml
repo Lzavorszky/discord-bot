@@ -213,3 +213,927 @@ cases:
     expect: { output_not: ["John Smith", "12345"] }
     status: new
     note: "Must ignore identifiers and remind not to include them."
+
+
+  # ===========================================================================
+  # Phase 3.2 get_dose slice cases — 28 new protocols
+  # Each case carries an explicit `call:` field; harness --target new runs them
+  # directly via the get_dose engine. All status: new.
+  # Clinical values are PENDING owner sign-off (hand-check sheets in id_bot2/docs/).
+  # ===========================================================================
+
+  # ---- amikacin ----
+  - id: amikacin_slice_normal
+    input: "Amikacin dose"
+    lang: en
+    call: { tool: get_dose, drug_id: amikacin, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: amikacin, output_has: ["NORMAL", "25 mg/kg"], output_not: ["IHD", "CRRT"] }
+    status: new
+    note: "GFR 60, no renal adjustment for amikacin."
+
+  - id: amikacin_slice_ihd
+    input: "Amikacin IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: amikacin, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: amikacin, output_has: ["IHD", "do not use"], output_not: ["NORMAL"] }
+    status: new
+    note: "IHD → amikacin do not use (no PK data)."
+
+  - id: amikacin_slice_crrt
+    input: "Amikacin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: amikacin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: amikacin, output_has: ["NORMAL", "25 mg/kg"], output_not: ["IHD"] }
+    status: new
+    note: "CRRT → amikacin use normal dose (monitor levels)."
+
+  # ---- ceftriaxone ----
+  - id: ceftriaxone_slice_normal
+    input: "Ceftriaxone dose gfr 80"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftriaxone, slots: { gfr: 80 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftriaxone, output_has: ["NORMAL", "2 g"], output_not: ["HIGH_DOSE"] }
+    status: new
+    note: "GFR 80, no special condition → NORMAL 1 x 2 g."
+
+  - id: ceftriaxone_slice_high_dose_septic_shock
+    input: "Ceftriaxone septic shock dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftriaxone, slots: { gfr: 60, septic_shock: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftriaxone, output_has: ["HIGH_DOSE", "2 x 2 g"], output_not: ["NORMAL"] }
+    status: new
+    note: "septic_shock=true → HIGH_DOSE 2 x 2 g (guard wins regardless of GFR)."
+
+  - id: ceftriaxone_slice_high_dose_hypoalb
+    input: "Ceftriaxone low albumin dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftriaxone, slots: { gfr: 60, hypoalbuminemia: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftriaxone, output_has: ["HIGH_DOSE", "2 x 2 g"] }
+    status: new
+    note: "hypoalbuminemia → HIGH_DOSE (albumin <30 g/L guard)."
+
+  # ---- metronidazole ----
+  - id: metronidazole_slice_normal
+    input: "Metronidazole dose"
+    lang: en
+    call: { tool: get_dose, drug_id: metronidazole, slots: { gfr: 40 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: metronidazole, output_has: ["NORMAL", "500 mg"], output_not: ["GFR_LT_10"] }
+    status: new
+    note: "GFR 40 → NORMAL 3 x 500 mg."
+
+  - id: metronidazole_slice_low_gfr
+    input: "Metronidazole gfr 5"
+    lang: en
+    call: { tool: get_dose, drug_id: metronidazole, slots: { gfr: 5 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: metronidazole, output_has: ["GFR_LT_10", "do not use"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <10 → do not use (toxic metabolite accumulation)."
+
+  - id: metronidazole_slice_ihd
+    input: "Metronidazole IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: metronidazole, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: metronidazole, output_has: ["IHD", "500 mg"] }
+    status: new
+    note: "IHD → full dose 3 x 500 mg."
+
+  - id: metronidazole_slice_crrt
+    input: "Metronidazole CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: metronidazole, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: metronidazole, output_has: ["CRRT", "500 mg"] }
+    status: new
+    note: "CRRT → full dose 3 x 500 mg."
+
+  # ---- clarithromycin ----
+  - id: clarithromycin_slice_normal
+    input: "Clarithromycin dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: clarithromycin, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: clarithromycin, output_has: ["NORMAL", "2 x 500 mg"], output_not: ["GFR_LT_30"] }
+    status: new
+    note: "GFR 60 → full dose 2 x 500 mg."
+
+  - id: clarithromycin_slice_low_gfr
+    input: "Clarithromycin gfr 20"
+    lang: en
+    call: { tool: get_dose, drug_id: clarithromycin, slots: { gfr: 20 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: clarithromycin, output_has: ["GFR_LT_30", "250 mg"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <30 → half dose 2 x 250 mg."
+
+  - id: clarithromycin_slice_crrt
+    input: "Clarithromycin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: clarithromycin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: clarithromycin, output_has: ["CRRT", "500 mg"], output_not: ["250 mg"] }
+    status: new
+    note: "CRRT → full dose 2 x 500 mg."
+
+  # ---- oseltamivir ----
+  - id: oseltamivir_slice_normal
+    input: "Oseltamivir dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: oseltamivir, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: oseltamivir, output_has: ["NORMAL", "2 x 75 mg"], output_not: ["GFR_LT_30"] }
+    status: new
+    note: "GFR ≥30 → twice daily 75 mg."
+
+  - id: oseltamivir_slice_low_gfr
+    input: "Oseltamivir gfr 20"
+    lang: en
+    call: { tool: get_dose, drug_id: oseltamivir, slots: { gfr: 20 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: oseltamivir, output_has: ["GFR_LT_30", "1 x 75 mg"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <30 → once daily 75 mg."
+
+  - id: oseltamivir_slice_crrt
+    input: "Oseltamivir CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: oseltamivir, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: oseltamivir, output_has: ["CRRT", "1 x 75 mg"] }
+    status: new
+    note: "CRRT → once daily 75 mg."
+
+  # ---- fluconazole ----
+  - id: fluconazole_slice_normal
+    input: "Fluconazole dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: fluconazole, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: fluconazole, output_has: ["NORMAL", "400 mg"], output_not: ["GFR_LT_10"] }
+    status: new
+    note: "GFR ≥10 → NORMAL 1 x 400 mg (after LOADING 800 mg)."
+
+  - id: fluconazole_slice_low_gfr
+    input: "Fluconazole gfr 5"
+    lang: en
+    call: { tool: get_dose, drug_id: fluconazole, slots: { gfr: 5 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: fluconazole, output_has: ["GFR_LT_10", "200 mg"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <10 → halved maintenance 1 x 200 mg."
+
+  - id: fluconazole_slice_crrt
+    input: "Fluconazole CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: fluconazole, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: fluconazole, output_has: ["CRRT", "400 mg"] }
+    status: new
+    note: "CRRT → full maintenance 1 x 400 mg."
+
+  # ---- cefazolin ----
+  - id: cefazolin_slice_normal
+    input: "Cefazolin dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: cefazolin, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefazolin, output_has: ["NORMAL", "6 g/day"], output_not: ["SEVERE_AKI"] }
+    status: new
+    note: "GFR ≥20 → NORMAL 6 g/day CI."
+
+  - id: cefazolin_slice_severe_aki
+    input: "Cefazolin gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: cefazolin, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefazolin, output_has: ["SEVERE_AKI", "2 g/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <20 → SEVERE_AKI 2 g/day CI."
+
+  - id: cefazolin_slice_ihd
+    input: "Cefazolin IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: cefazolin, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefazolin, output_has: ["SEVERE_AKI", "2 g/day"] }
+    status: new
+    note: "IHD routes to SEVERE_AKI for cefazolin."
+
+  - id: cefazolin_slice_crrt
+    input: "Cefazolin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: cefazolin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefazolin, output_has: ["CRRT", "6 g/day"], output_not: ["SEVERE_AKI"] }
+    status: new
+    note: "CRRT → 6 g/day CI (full dose)."
+
+  # ---- cefepime ----
+  - id: cefepime_slice_normal
+    input: "Cefepime dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: cefepime, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefepime, output_has: ["NORMAL", "4 g/day"] }
+    status: new
+    note: "GFR ≥20 → NORMAL 4 g/day CI."
+
+  - id: cefepime_slice_severe_aki
+    input: "Cefepime gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: cefepime, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefepime, output_has: ["SEVERE_AKI", "1 g/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <20 → SEVERE_AKI 1 g/day (neurotoxicity risk at higher doses)."
+
+  - id: cefepime_slice_crrt
+    input: "Cefepime CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: cefepime, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefepime, output_has: ["CRRT", "3 g/day"] }
+    status: new
+    note: "CRRT → 3 g/day CI."
+
+  # ---- ceftazidime ----
+  - id: ceftazidime_slice_normal
+    input: "Ceftazidime dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftazidime, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftazidime, output_has: ["NORMAL", "6 g/day"], output_not: ["SEVERE_AKI"] }
+    status: new
+    note: "GFR ≥20 → NORMAL 6 g/day CI."
+
+  - id: ceftazidime_slice_severe_aki
+    input: "Ceftazidime gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftazidime, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftazidime, output_has: ["SEVERE_AKI", "2 g/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <20 → SEVERE_AKI 2 g/day CI."
+
+  - id: ceftazidime_slice_crrt
+    input: "Ceftazidime CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftazidime, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftazidime, output_has: ["CRRT", "6 g/day"] }
+    status: new
+    note: "CRRT → 6 g/day CI (full dose)."
+
+  # ---- piperacillin_tazobactam ----
+  - id: pip_tazo_slice_normal
+    input: "Pip-tazo dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: piperacillin_tazobactam, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: piperacillin_tazobactam, output_has: ["NORMAL", "18 g/day"], output_not: ["SEVERE_AKI"] }
+    status: new
+    note: "GFR ≥20 → NORMAL 18 g/day CI."
+
+  - id: pip_tazo_slice_severe_aki
+    input: "Pip-tazo gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: piperacillin_tazobactam, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: piperacillin_tazobactam, output_has: ["SEVERE_AKI", "9 g/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <20 → SEVERE_AKI 9 g/day CI."
+
+  - id: pip_tazo_slice_crrt
+    input: "Pip-tazo CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: piperacillin_tazobactam, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: piperacillin_tazobactam, output_has: ["CRRT", "13.5 g/day"] }
+    status: new
+    note: "CRRT → 13.5 g/day CI."
+
+  # ---- penicillin ----
+  - id: penicillin_slice_normal
+    input: "Penicillin dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: penicillin, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: penicillin, output_has: ["NORMAL", "24 ME/day"], output_not: ["SEVERE_AKI"] }
+    status: new
+    note: "GFR ≥20 → NORMAL 24 ME/day CI."
+
+  - id: penicillin_slice_severe_aki
+    input: "Penicillin gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: penicillin, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: penicillin, output_has: ["SEVERE_AKI", "12 ME/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <20 → SEVERE_AKI 12 ME/day CI."
+
+  - id: penicillin_slice_ihd
+    input: "Penicillin IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: penicillin, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: penicillin, output_has: ["SEVERE_AKI", "12 ME/day"] }
+    status: new
+    note: "IHD routes to SEVERE_AKI for penicillin."
+
+  - id: penicillin_slice_crrt
+    input: "Penicillin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: penicillin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: penicillin, output_has: ["CRRT", "24 ME/day"] }
+    status: new
+    note: "CRRT → 24 ME/day CI (full dose)."
+
+  # ---- ampicillin ----
+  - id: ampicillin_slice_normal
+    input: "Ampicillin dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: ampicillin, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampicillin, output_has: ["NORMAL", "12 g/day"], output_not: ["SEVERE_AKI", "ANURIA_IHD"] }
+    status: new
+    note: "GFR ≥20 → NORMAL 12 g/day CI."
+
+  - id: ampicillin_slice_severe_aki
+    input: "Ampicillin gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: ampicillin, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampicillin, output_has: ["SEVERE_AKI", "8 g/day"], output_not: ["NORMAL", "ANURIA_IHD"] }
+    status: new
+    note: "GFR <20 → SEVERE_AKI 8 g/day CI."
+
+  - id: ampicillin_slice_ihd
+    input: "Ampicillin IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ampicillin, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampicillin, output_has: ["ANURIA_IHD", "4 g/day"], output_not: ["NORMAL", "SEVERE_AKI"] }
+    status: new
+    note: "IHD → distinct ANURIA_IHD tier 4 g/day (not SEVERE_AKI)."
+
+  - id: ampicillin_slice_step_up
+    input: "Ampicillin TDM low gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: ampicillin, slots: { gfr: 60, tdm_low_level: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampicillin, output_has: ["STEP_UP", "16 g/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "tdm_low_level → STEP_UP 16 g/day (priority 110, wins over NORMAL)."
+
+  - id: ampicillin_slice_crrt
+    input: "Ampicillin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ampicillin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampicillin, output_has: ["CRRT", "12 g/day"] }
+    status: new
+    note: "CRRT → 12 g/day CI."
+
+  # ---- cefuroxime ----
+  - id: cefuroxime_slice_normal
+    input: "Cefuroxime dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: cefuroxime, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefuroxime, output_has: ["NORMAL", "4 x 1.5 g"], output_not: ["GFR_10_TO_20", "GFR_LT_10"] }
+    status: new
+    note: "GFR >20 → NORMAL 4 x 1.5 g bolus."
+
+  - id: cefuroxime_slice_gfr_10_20
+    input: "Cefuroxime gfr 15"
+    lang: en
+    call: { tool: get_dose, drug_id: cefuroxime, slots: { gfr: 15 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefuroxime, output_has: ["GFR_10_TO_20", "2 x 1.5 g"], output_not: ["NORMAL", "GFR_LT_10"] }
+    status: new
+    note: "GFR 10–20 → 3 x 1.5 g bolus."
+
+  - id: cefuroxime_slice_low_gfr
+    input: "Cefuroxime gfr 5"
+    lang: en
+    call: { tool: get_dose, drug_id: cefuroxime, slots: { gfr: 5 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefuroxime, output_has: ["GFR_LT_10", "1 x 1.5 g"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <10 → 2 x 1.5 g bolus."
+
+  - id: cefuroxime_slice_ihd
+    input: "Cefuroxime IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: cefuroxime, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefuroxime, output_has: ["IHD"], output_not: ["NORMAL"] }
+    status: new
+    note: "IHD → distinct IHD tier for cefuroxime."
+
+  - id: cefuroxime_slice_crrt
+    input: "Cefuroxime CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: cefuroxime, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefuroxime, output_has: ["CRRT", "2 x 1.5 g"] }
+    status: new
+    note: "CRRT → 2 x 1.5 g bolus."
+
+  # ---- ceftazidime_avibactam ----
+  - id: caz_avi_slice_normal
+    input: "Ceftazidime-avibactam dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftazidime_avibactam, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftazidime_avibactam, output_has: ["NORMAL", "7.5 g/day"] }
+    status: new
+    note: "GFR ≥20 → NORMAL 7.5 g/day CI."
+
+  - id: caz_avi_slice_severe_aki
+    input: "Ceftazidime-avibactam gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftazidime_avibactam, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftazidime_avibactam, output_has: ["SEVERE_AKI", "2.5 g/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <20 → SEVERE_AKI 2.5 g/day CI."
+
+  - id: caz_avi_slice_ihd
+    input: "Ceftazidime-avibactam IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftazidime_avibactam, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftazidime_avibactam, output_has: ["ANURIA_IHD", "1.25 g/day"] }
+    status: new
+    note: "IHD → distinct ANURIA_IHD 1.25 g/day."
+
+  - id: caz_avi_slice_step_up
+    input: "Ceftazidime-avibactam TDM low gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftazidime_avibactam, slots: { gfr: 60, tdm_low_level: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftazidime_avibactam, output_has: ["STEP_UP", "10 g/day"] }
+    status: new
+    note: "tdm_low_level → STEP_UP 10 g/day."
+
+  - id: caz_avi_slice_crrt
+    input: "Ceftazidime-avibactam CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftazidime_avibactam, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftazidime_avibactam, output_has: ["CRRT", "7.5 g/day"] }
+    status: new
+    note: "CRRT → 7.5 g/day CI (full dose)."
+
+  # ---- fosfomycin ----
+  - id: fosfomycin_slice_normal
+    input: "Fosfomycin dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: fosfomycin, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: fosfomycin, output_has: ["NORMAL", "16 g/day"], output_not: ["SEVERE_AKI", "ANURIA_IHD"] }
+    status: new
+    note: "GFR ≥20 → NORMAL 16 g/day CI. Glucose or water diluent (NOT saline)."
+
+  - id: fosfomycin_slice_severe_aki
+    input: "Fosfomycin gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: fosfomycin, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: fosfomycin, output_has: ["SEVERE_AKI", "8 g bolus"], output_not: ["ANURIA_IHD", "16 g/day"] }
+    status: new
+    note: "GFR <20 → SEVERE_AKI bolus."
+
+  - id: fosfomycin_slice_ihd
+    input: "Fosfomycin IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: fosfomycin, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: fosfomycin, output_has: ["ANURIA_IHD", "4 g after IHD"], output_not: ["16 g/day", "8 g bolus"] }
+    status: new
+    note: "IHD → ANURIA_IHD complex schedule: 4g post-IHD, none on non-dialysis days."
+
+  - id: fosfomycin_slice_step_up
+    input: "Fosfomycin TDM low gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: fosfomycin, slots: { gfr: 60, tdm_low_level: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: fosfomycin, output_has: ["STEP_UP"] }
+    status: new
+    note: "tdm_low_level → STEP_UP."
+
+  - id: fosfomycin_slice_crrt
+    input: "Fosfomycin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: fosfomycin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: fosfomycin, output_has: ["CRRT", "12 g/day"] }
+    status: new
+    note: "CRRT → 12 g/day CI."
+
+  # ---- ceftolozane_tazobactam ----
+  - id: cef_taz_slice_high_gfr
+    input: "Ceftolozane-tazobactam gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftolozane_tazobactam, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftolozane_tazobactam, output_has: ["NORMAL_GFR_GE_50", "9 g/day"], output_not: ["NORMAL_GFR_20_50", "SEVERE_AKI"] }
+    status: new
+    note: "GFR ≥50 → NORMAL_GFR_GE_50 9 g/day CI."
+
+  - id: cef_taz_slice_mid_gfr
+    input: "Ceftolozane-tazobactam gfr 35"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftolozane_tazobactam, slots: { gfr: 35 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftolozane_tazobactam, output_has: ["NORMAL_GFR_20_50", "4.5 g/day"], output_not: ["NORMAL_GFR_GE_50", "SEVERE_AKI"] }
+    status: new
+    note: "GFR 20–50 → NORMAL_GFR_20_50 4.5 g/day CI."
+
+  - id: cef_taz_slice_severe_aki
+    input: "Ceftolozane-tazobactam gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftolozane_tazobactam, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftolozane_tazobactam, output_has: ["SEVERE_AKI", "3 g/day"], output_not: ["NORMAL_GFR_GE_50"] }
+    status: new
+    note: "GFR <20 → SEVERE_AKI 3 g/day."
+
+  - id: cef_taz_slice_ihd
+    input: "Ceftolozane-tazobactam IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftolozane_tazobactam, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftolozane_tazobactam, output_has: ["ANURIA_IHD", "1.5 g/day"] }
+    status: new
+    note: "IHD → distinct ANURIA_IHD 1.5 g/day."
+
+  - id: cef_taz_slice_crrt
+    input: "Ceftolozane-tazobactam CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ceftolozane_tazobactam, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ceftolozane_tazobactam, output_has: ["CRRT", "4.5 g/day"] }
+    status: new
+    note: "CRRT → 4.5 g/day CI."
+
+  # ---- cefiderocol ----
+  - id: cefiderocol_slice_normal
+    input: "Cefiderocol dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: cefiderocol, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefiderocol, output_has: ["NORMAL", "6 g/day"], output_not: ["SEVERE_AKI", "ANURIA_IHD"] }
+    status: new
+    note: "GFR 30–90 → NORMAL 6 g/day CI."
+
+  - id: cefiderocol_slice_high_gfr_gap
+    input: "Cefiderocol gfr 100"
+    lang: en
+    call: { tool: get_dose, drug_id: cefiderocol, slots: { gfr: 100 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefiderocol, output_has: ["NORMAL", "SEVERE_AKI", "ANURIA_IHD", "CRRT"] }
+    status: new
+    note: "GFR >90 is a gap (no select rule) → DEFAULT_ANSWER shows full table."
+
+  - id: cefiderocol_slice_severe_aki
+    input: "Cefiderocol gfr 20"
+    lang: en
+    call: { tool: get_dose, drug_id: cefiderocol, slots: { gfr: 20 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefiderocol, output_has: ["SEVERE_AKI", "3 g/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <30 → SEVERE_AKI 3 g/day CI."
+
+  - id: cefiderocol_slice_ihd
+    input: "Cefiderocol IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: cefiderocol, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefiderocol, output_has: ["ANURIA_IHD", "1.5 g/day"] }
+    status: new
+    note: "IHD → distinct ANURIA_IHD 1.5 g/day."
+
+  - id: cefiderocol_slice_crrt
+    input: "Cefiderocol CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: cefiderocol, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: cefiderocol, output_has: ["CRRT", "6 g/day"] }
+    status: new
+    note: "CRRT → 6 g/day CI."
+
+  # ---- ciprofloxacin ----
+  - id: cipro_slice_normal
+    input: "Ciprofloxacin dose gfr 80"
+    lang: en
+    call: { tool: get_dose, drug_id: ciprofloxacin, slots: { gfr: 80 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ciprofloxacin, output_has: ["NORMAL", "400 mg"], output_not: ["GFR_30_TO_60"] }
+    status: new
+    note: "GFR ≥60 → NORMAL 3 x 400 mg IV."
+
+  - id: cipro_slice_mid_gfr
+    input: "Ciprofloxacin gfr 40"
+    lang: en
+    call: { tool: get_dose, drug_id: ciprofloxacin, slots: { gfr: 40 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ciprofloxacin, output_has: ["GFR_30_TO_60", "2 x 400 mg"], output_not: ["NORMAL", "GFR_LT_30"] }
+    status: new
+    note: "GFR 30–60 → 2 x 400 mg IV."
+
+  - id: cipro_slice_low_gfr
+    input: "Ciprofloxacin gfr 15"
+    lang: en
+    call: { tool: get_dose, drug_id: ciprofloxacin, slots: { gfr: 15 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ciprofloxacin, output_has: ["GFR_LT_30", "1 x 400 mg"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <30 → 1 x 400 mg IV."
+
+  - id: cipro_slice_ihd
+    input: "Ciprofloxacin IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ciprofloxacin, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ciprofloxacin, output_has: ["IHD"], output_not: ["NORMAL"] }
+    status: new
+    note: "IHD → distinct IHD tier."
+
+  - id: cipro_slice_crrt
+    input: "Ciprofloxacin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ciprofloxacin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ciprofloxacin, output_has: ["CRRT", "2 x 400 mg"] }
+    status: new
+    note: "CRRT → 2 x 400 mg IV."
+
+  # ---- levofloxacin ----
+  - id: levo_slice_normal
+    input: "Levofloxacin dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: levofloxacin, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: levofloxacin, output_has: ["NORMAL", "2 x 750 mg"], output_not: ["GFR_20_TO_50", "GFR_10_TO_20", "GFR_LT_10"] }
+    status: new
+    note: "GFR ≥50 → 2 x 750 mg."
+
+  - id: levo_slice_gfr_20_50
+    input: "Levofloxacin gfr 35"
+    lang: en
+    call: { tool: get_dose, drug_id: levofloxacin, slots: { gfr: 35 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: levofloxacin, output_has: ["GFR_20_TO_50", "2 x 250 mg"], output_not: ["GFR_GE_50"] }
+    status: new
+    note: "GFR 20–50 → 2 x 250 mg."
+
+  - id: levo_slice_gfr_10_20
+    input: "Levofloxacin gfr 15"
+    lang: en
+    call: { tool: get_dose, drug_id: levofloxacin, slots: { gfr: 15 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: levofloxacin, output_has: ["GFR_10_TO_20", "2 x 125 mg"], output_not: ["GFR_GE_50"] }
+    status: new
+    note: "GFR 10–20 → 2 x 125 mg."
+
+  - id: levo_slice_low_gfr
+    input: "Levofloxacin gfr 5"
+    lang: en
+    call: { tool: get_dose, drug_id: levofloxacin, slots: { gfr: 5 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: levofloxacin, output_has: ["GFR_LT_10", "1 x 125 mg"], output_not: ["GFR_GE_50"] }
+    status: new
+    note: "GFR <10 → 1 x 125 mg."
+
+  - id: levo_slice_ihd
+    input: "Levofloxacin IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: levofloxacin, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: levofloxacin, output_has: ["IHD", "1 x 125 mg"] }
+    status: new
+    note: "IHD → distinct IHD tier 1 x 125 mg."
+
+  - id: levo_slice_crrt
+    input: "Levofloxacin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: levofloxacin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: levofloxacin, output_has: ["CRRT", "1 x 500 mg"] }
+    status: new
+    note: "CRRT → 1 x 500 mg."
+
+  # ---- colomycin ----
+  - id: colomycin_slice_normal
+    input: "Colomycin dose gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: colomycin, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: colomycin, output_has: ["NORMAL", "3 x 3 million"], output_not: ["GFR_30_TO_50", "GFR_LT_10"] }
+    status: new
+    note: "GFR ≥50 → NORMAL 3 x 3 MIU."
+
+  - id: colomycin_slice_mid_gfr
+    input: "Colomycin gfr 40"
+    lang: en
+    call: { tool: get_dose, drug_id: colomycin, slots: { gfr: 40 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: colomycin, output_has: ["GFR_30_TO_50", "3 x 2 million"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR 30–50 → 3 x 2 MIU."
+
+  - id: colomycin_slice_gap
+    input: "Colomycin gfr 20"
+    lang: en
+    call: { tool: get_dose, drug_id: colomycin, slots: { gfr: 20 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: colomycin, output_has: ["NORMAL", "GFR_30_TO_50", "GFR_LT_10", "IHD", "CRRT"] }
+    status: new
+    note: "GFR 10–30 is a gap → DEFAULT_ANSWER full table."
+
+  - id: colomycin_slice_low_gfr
+    input: "Colomycin gfr 5"
+    lang: en
+    call: { tool: get_dose, drug_id: colomycin, slots: { gfr: 5 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: colomycin, output_has: ["GFR_LT_10", "3 x 1 million"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <10 → 3 x 1 MIU."
+
+  - id: colomycin_slice_crrt
+    input: "Colomycin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: colomycin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: colomycin, output_has: ["CRRT", "3 x 3 million"] }
+    status: new
+    note: "CRRT → 3 x 3 MIU (full dose)."
+
+  # ---- imipenem_cilastatin ----
+  - id: imipenem_slice_normal
+    input: "Imipenem dose gfr 95"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin, slots: { gfr: 95 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin, output_has: ["NORMAL", "4 x 1 g"], output_not: ["GFR_60_TO_90", "GFR_30_TO_60"] }
+    status: new
+    note: "GFR ≥90 → NORMAL 4 x 1 g bolus (500+500 mg)."
+
+  - id: imipenem_slice_gfr_60_90
+    input: "Imipenem gfr 75"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin, slots: { gfr: 75 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin, output_has: ["GFR_60_TO_90", "3 x 1 g"], output_not: ["NORMAL", "GFR_30_TO_60"] }
+    status: new
+    note: "GFR 60–90 → 3 x 1 g."
+
+  - id: imipenem_slice_gfr_30_60
+    input: "Imipenem gfr 45"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin, slots: { gfr: 45 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin, output_has: ["GFR_30_TO_60", "4 x 500 mg"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR 30–60 → 4 x 500 mg."
+
+  - id: imipenem_slice_gfr_15_30
+    input: "Imipenem gfr 22"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin, slots: { gfr: 22 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin, output_has: ["GFR_15_TO_30", "2 x 500 mg"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR 15–30 → 2 x 500 mg."
+
+  - id: imipenem_slice_low_gfr_gap
+    input: "Imipenem gfr 5"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin, slots: { gfr: 5 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin, output_has: ["NORMAL", "GFR_60_TO_90", "GFR_30_TO_60", "GFR_15_TO_30", "IHD", "CRRT"] }
+    status: new
+    note: "GFR <15 non-IHD is a gap → DEFAULT_ANSWER full table."
+
+  - id: imipenem_slice_ihd
+    input: "Imipenem IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin, output_has: ["IHD", "1 x 1 g"], output_not: ["NORMAL"] }
+    status: new
+    note: "IHD → distinct IHD tier 1 x 1 g."
+
+  - id: imipenem_slice_crrt
+    input: "Imipenem CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin, output_has: ["CRRT", "4 x 1 g"] }
+    status: new
+    note: "CRRT → 4 x 1 g (full dose)."
+
+  # ---- imipenem_cilastatin_relebactam ----
+  - id: imipenem_rel_slice_normal
+    input: "Imipenem-relebactam dose gfr 95"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { gfr: 95 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["NORMAL", "4 x 1.25 g"], output_not: ["GFR_60_TO_90", "IHD"] }
+    status: new
+    note: "GFR ≥90 → NORMAL 4 x 1.25 g bolus."
+
+  - id: imipenem_rel_slice_gfr_60_90
+    input: "Imipenem-relebactam gfr 75"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { gfr: 75 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["GFR_60_TO_90", "4 x 1 g"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR 60–90 → 4 x 1 g."
+
+  - id: imipenem_rel_slice_gfr_30_60
+    input: "Imipenem-relebactam gfr 45"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { gfr: 45 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["GFR_30_TO_60", "4 x 0.75 g"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR 30–60 → 4 x 0.75 g."
+
+  - id: imipenem_rel_slice_gfr_15_30
+    input: "Imipenem-relebactam gfr 22"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { gfr: 22 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["GFR_15_TO_30", "4 x 500 mg"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR 15–30 → 4 x 500 mg."
+
+  - id: imipenem_rel_slice_ihd
+    input: "Imipenem-relebactam IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["IHD", "4 x 500 mg"], output_not: ["NORMAL"] }
+    status: new
+    note: "IHD → distinct IHD tier 4 x 500 mg."
+
+  - id: imipenem_rel_slice_crrt
+    input: "Imipenem-relebactam CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["CRRT", "4 x 1 g"] }
+    status: new
+    note: "CRRT → 4 x 1 g."
+
+  # ---- ampsul ----
+  - id: ampsul_slice_normal
+    input: "Ampsul dose gfr 70"
+    lang: en
+    call: { tool: get_dose, drug_id: ampsul, slots: { gfr: 70 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampsul, output_has: ["CRRT_OR_GFR_GE_60", "sulbactam 9 g/day"], output_not: ["GFR_30_TO_60", "GFR_15_TO_30"] }
+    status: new
+    note: "GFR ≥60 → shared CRRT_OR_GFR_GE_60 tier. MACI/CRAB high-dose only."
+
+  - id: ampsul_slice_gfr_30_60
+    input: "Ampsul gfr 45"
+    lang: en
+    call: { tool: get_dose, drug_id: ampsul, slots: { gfr: 45 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampsul, output_has: ["GFR_30_TO_60"], output_not: ["CRRT_OR_GFR_GE_60", "GFR_15_TO_30"] }
+    status: new
+    note: "GFR 30–60 → GFR_30_TO_60 tier."
+
+  - id: ampsul_slice_gfr_15_30
+    input: "Ampsul gfr 22"
+    lang: en
+    call: { tool: get_dose, drug_id: ampsul, slots: { gfr: 22 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampsul, output_has: ["GFR_15_TO_30"], output_not: ["GFR_30_TO_60"] }
+    status: new
+    note: "GFR 15–30 → GFR_15_TO_30 tier."
+
+  - id: ampsul_slice_low_gfr
+    input: "Ampsul gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: ampsul, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampsul, output_has: ["GFR_LT_15"], output_not: ["GFR_15_TO_30"] }
+    status: new
+    note: "GFR <15 → GFR_LT_15 tier."
+
+  - id: ampsul_slice_ihd
+    input: "Ampsul IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ampsul, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampsul, output_has: ["IHD"], output_not: ["CRRT_OR_GFR_GE_60"] }
+    status: new
+    note: "IHD → distinct IHD tier."
+
+  - id: ampsul_slice_crrt
+    input: "Ampsul CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: ampsul, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: ampsul, output_has: ["CRRT_OR_GFR_GE_60", "sulbactam 9 g/day"] }
+    status: new
+    note: "CRRT → shared CRRT_OR_GFR_GE_60 tier (full dose)."
+
+  # ---- clindamycin ----
+  - id: clindamycin_slice_normal
+    input: "Clindamycin dose"
+    lang: en
+    call: { tool: get_dose, drug_id: clindamycin }
+    expect: { route: drug_dose, tool: get_dose, protocol: clindamycin, output_has: ["NORMAL", "3 x 900 mg"] }
+    status: new
+    note: "No renal adjustment; single NORMAL tier for all renal/RRT states."
+
+  - id: clindamycin_slice_crrt
+    input: "Clindamycin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: clindamycin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: clindamycin, output_has: ["NORMAL", "3 x 900 mg"] }
+    status: new
+    note: "CRRT → same NORMAL dose (hepatic clearance, no renal adjustment)."
+
+  # ---- linezolid ----
+  - id: linezolid_slice_normal
+    input: "Linezolid dose"
+    lang: en
+    call: { tool: get_dose, drug_id: linezolid }
+    expect: { route: drug_dose, tool: get_dose, protocol: linezolid, output_has: ["NORMAL", "1800 mg", "37 mL/h"] }
+    status: new
+    note: "CI 1800 mg/24 h; TDM mandatory 4-10 mg/L. No renal adjustment."
+
+  - id: linezolid_slice_ihd
+    input: "Linezolid IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: linezolid, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: linezolid, output_has: ["NORMAL", "1800 mg"] }
+    status: new
+    note: "IHD → same NORMAL dose. TDM mandatory."
+
+  # ---- moxifloxacin ----
+  - id: moxifloxacin_slice_normal
+    input: "Moxifloxacin dose"
+    lang: en
+    call: { tool: get_dose, drug_id: moxifloxacin }
+    expect: { route: drug_dose, tool: get_dose, protocol: moxifloxacin, output_has: ["NORMAL", "1 x 400 mg"] }
+    status: new
+    note: "No renal adjustment; hepatic clearance."
+
+  - id: moxifloxacin_slice_crrt
+    input: "Moxifloxacin CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: moxifloxacin, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: moxifloxacin, output_has: ["NORMAL", "400 mg"] }
+    status: new
+    note: "CRRT → same NORMAL dose."
+
+  # ---- tigecycline ----
+  - id: tigecycline_slice_normal
+    input: "Tigecycline dose"
+    lang: en
+    call: { tool: get_dose, drug_id: tigecycline }
+    expect: { route: drug_dose, tool: get_dose, protocol: tigecycline, output_has: ["LOADING", "200 mg", "NORMAL", "2 x 100 mg"] }
+    status: new
+    note: "LOADING 200 mg once, then NORMAL 2 x 100 mg. No renal adjustment."
+
+  - id: tigecycline_slice_crrt
+    input: "Tigecycline CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: tigecycline, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: tigecycline, output_has: ["NORMAL", "2 x 100 mg"] }
+    status: new
+    note: "CRRT → same NORMAL dose."
+
+  # ---- voriconazole ----
+  - id: voriconazole_slice_normal
+    input: "Voriconazole dose"
+    lang: en
+    call: { tool: get_dose, drug_id: voriconazole }
+    expect: { route: drug_dose, tool: get_dose, protocol: voriconazole, output_has: ["LOADING", "2 x 6 mg/kg", "NORMAL", "2 x 4 mg/kg"] }
+    status: new
+    note: "LOADING 2 x 6 mg/kg, then NORMAL 2 x 4 mg/kg. No renal adjustment."
+
+  - id: voriconazole_slice_ihd
+    input: "Voriconazole IHD dose"
+    lang: en
+    call: { tool: get_dose, drug_id: voriconazole, slots: { ihd: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: voriconazole, output_has: ["NORMAL", "2 x 4 mg/kg"] }
+    status: new
+    note: "IHD → same NORMAL dose. Use oral route in AKI if possible (IV vehicle accumulation)."

@@ -245,12 +245,18 @@ def get_dose(
     tdm_low_level: bool = False,
     record: Optional[dict] = None,
     protocols_dir=None,
+    **extra_slots: object,
 ) -> DoseResult:
     """Select and return the verbatim dose tier for `drug_id`.
 
     Pass `record` to use an already-loaded protocol dict (offline unit tests);
     otherwise the record is loaded from `protocols_dir` (default: the package
     `protocols/` dir).
+
+    ``extra_slots`` accepts any additional protocol-declared boolean slots
+    (e.g. ``septic_shock=True``, ``hypoalbuminemia=True`` for ceftriaxone)
+    that are not in the fixed signature.  Unknown names are silently ignored
+    unless they appear in the protocol's ``slots:`` section.
     """
     if record is None:
         record = load_drug_dose(drug_id, protocols_dir=protocols_dir)
@@ -266,13 +272,25 @@ def get_dose(
                    if tier_objs[n].always_show]
     slots = record.get("slots") or {}
 
-    ctx = {
+    ctx: dict = {
         "gfr": gfr,
         "crrt": bool(crrt),
         "ihd": bool(ihd),
         "cns_infection": bool(cns_infection),
         "tdm_low_level": bool(tdm_low_level),
     }
+    # Populate any protocol-specific slots declared in the YAML but not in the
+    # fixed signature (e.g. septic_shock, hypoalbuminemia for ceftriaxone).
+    for _sname, _sspec in (slots or {}).items():
+        if _sname in ctx:
+            continue  # already set from fixed parameter
+        if _sname in extra_slots:
+            _stype = _sspec.get("type") if isinstance(_sspec, dict) else None
+            ctx[_sname] = bool(extra_slots[_sname]) if _stype == "bool" else extra_slots[_sname]
+        else:
+            # Default: False for bool slots, None for numeric slots.
+            _stype = _sspec.get("type") if isinstance(_sspec, dict) else None
+            ctx[_sname] = False if _stype == "bool" else None
     inputs = {k: v for k, v in ctx.items()}
 
     base = dict(
