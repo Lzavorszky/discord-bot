@@ -21,7 +21,7 @@
 
 ## Status
 
-- **Current phase:** Phase 3 — **3.1 `get_dose` landed** (first dose-emitting tool; vertical slice over `meropenem.yaml`). Next: **3.2** — migrate the rest of the drug_dose corpus (~20 antibiotic files), each with its own hand-check. **Meropenem hand-check rev 2 SIGNED OFF (2026-06-16)** — NORMAL 4 g/day confirmed; footer placeholder to be replaced before go-live.
+- **Current phase:** Phase 3 — **3.3 `get_dose` slice complete for all 28 protocols** (`**extra_slots` + 118 `--target new` harness cases, all PASS). Next: **3.4** — migrate calculator protocols + vancomycin/tmpsmx (need engine extensions), then Phase 4 (router).
 - **Branch:** `rebuild-d` (created off `main`; live bot on `main` untouched).
 - **Last session (2026-06-16, Sonnet):** Phase 3.2 — **migrated 28 antibiotic drug_dose YAMLs** on `rebuild-d`:
   - All migratable antibiotic source files converted: 5 trivial single-tier, 6 simple GFR-ladder, 6 CI-ladder (GFR≥20 cutoff), 11 extended (multi-tier, ANURIA_IHD, STEP_UP-in-select, or complex combos). Commit: `b04b4d4`.
@@ -69,7 +69,7 @@
 
 ## Next action (do this first, next session)
 
-> **Phase 3.3 — hand-check sheets + harness cases for all 28 new protocols (commit: `b04b4d4`).**
+> **Phase 3.4 — migrate calculator protocols; extend engine for vancomycin (TDM-based) and tmpsmx (table_lookup); or skip to Phase 4 (router) if calculators are lower priority. Discuss with owner L.**
 > 1. `git checkout rebuild-d && ./check.sh` — green except noted pre-existing env failure.
 > 2. For each of the 28 new drug YAMLs produce `id_bot2/docs/<drug>_handcheck.md` (row-by-row: every dose/when/admin/cutoff/selection-priority/slots/guardrails/aliases vs source .txt). Human clinical sign-off required per sheet.
 > 3. Add `--target new` harness cases (≥1 per tier per drug) to `regression_cases.yaml`; all must PASS.
@@ -99,6 +99,7 @@ After this: the rest of the drug_dose kind (~20 antibiotic files under `protocol
 | 2026-06-16 | Phase 2 (2.1–2.3) | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | Protocol schema + loader/validator + linter stub: 58 id_bot2 unit tests (30 new) + schema/linter block green over empty corpus; 11 contract tests green. Legacy 330/331 (same noted env failure). |
 | 2026-06-16 | Phase 2.4 | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | First real protocol migrated: `meropenem.yaml` (drug_dose) schema-valid + linter-green over **non-empty** corpus (1 record, no alias collisions). 58 id_bot2 unit + 11 contract tests green. Clinical hand-check sheet produced; **human sign-off pending**. Legacy 330/331 (same noted env failure). |
 | 2026-06-16 | Phase 2.4 rev 2 | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | Schema extended (`prep`/`notes` on drug_dose, +2 tests → 60 id_bot2 unit). Owner edits to meropenem.yaml: NORMAL 4 g/day @ 8.3 mL/h, footer placeholder, prep field carries reduced-dose note. Hand-check rev 2; **sign-off (incl. NORMAL change) pending**. Legacy 330/331 (same noted env failure). |
+| 2026-06-16 | Phase 3.3 | **`--target new` 118/118 PASS** (100%); 28 test_get_dose.py still pass | `get_dose.py` `**extra_slots` patch; 111 new call: cases (28 protocols) + 7 existing meropenem = 118 total. Commit `590af33`. |
 | 2026-06-16 | Phase 3.2 | 29/29 YAMLs parse valid; harness cases TBD | 28 new drug_dose YAMLs committed (`b04b4d4`). Hand-check sheets + `--target new` cases pending. |
 | 2026-06-16 | Phase 3.1 | offline 26/26 cases valid; `--target new` 6/6 meropenem slice PASS; old-bot baseline **deferred** | `get_dose` vertical slice: 88 id_bot2 unit tests (28 new) + schema/linter + 11 contract green. Harness `--target new` exercises the slice via explicit `call:` (6 PASS / 20 SKIP — router not built). Meropenem clinical **sign-off still pending**. Legacy 330/331 (same noted env failure). |
 
