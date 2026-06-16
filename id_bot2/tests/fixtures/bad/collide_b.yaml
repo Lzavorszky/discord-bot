@@ -1,0 +1,7 @@
+id: drug_b
+kind: drug_dose
+aliases: ["shared   alias", drug_b_only]
+tiers:
+  NORMAL: { dose: "2 g" }
+select:
+  - { default: NORMAL }

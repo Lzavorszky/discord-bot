@@ -1,0 +1,21 @@
+id: meropenem_min
+kind: drug_dose
+source_label: meropenem
+canonical_name: meropenem (fixture)
+status: draft
+aliases: [mero_fixture, "mero fix"]
+answers_intents: [dose]
+refuses_intents: [coverage_question]
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+tiers:
+  NORMAL:     { dose: "3 g/day", when: "GFR 20+", admin: "1 g/50 mL" }
+  SEVERE_AKI: { dose: "1 g/day", when: "GFR <20" }
+select:
+  - { if: "gfr >= 20", tier: NORMAL }
+  - { if: "gfr < 20",  tier: SEVERE_AKI }
+  - { default: DEFAULT_ANSWER }
+never:
+  - dosing outside the listed tiers
+footer: "fixture only"

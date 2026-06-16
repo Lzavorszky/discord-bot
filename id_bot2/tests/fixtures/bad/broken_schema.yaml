@@ -1,0 +1,10 @@
+id: "Bad Id!"
+kind: drug_dose
+status: nonsense_status
+answers_intents: [dose, not_a_real_intent]
+tiers:
+  NORMAL: { when: "no dose field here" }
+select:
+  - { if: "gfr >= 20", tier: GHOST_TIER }
+organisms:
+  - { name: "wrong kind field on drug_dose" }
