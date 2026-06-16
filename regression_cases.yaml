@@ -57,9 +57,10 @@ cases:
   - id: meropenem_normal_table
     input: "Meropenem dose"
     lang: en
-    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["3 g/day"] }
-    status: baseline
-    note: "Normal tier per meropenem.txt."
+    call: { tool: get_dose, drug_id: meropenem }
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["4 g/day"] }
+    status: new
+    note: "Plain dose query -> DEFAULT_ANSWER full table. NORMAL owner-revised to 4 g/day (signed off 2026-06-16); supersedes old-bot 3 g/day."
 
   # ---- Phase 3.1 get_dose vertical slice (meropenem) ----
   # These carry an explicit `call:` — the structured tool invocation the router

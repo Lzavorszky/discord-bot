@@ -97,8 +97,8 @@ They intentionally diverge from source `meropenem.txt`:
 
 | Item | Source `meropenem.txt` | `meropenem.yaml` now | Status |
 |---|---|---|---|
-| NORMAL dose | `3 g/day` | `4 g/day` | owner-revised — **please confirm** |
-| NORMAL admin (pump rate) | `1 g/50 mL, 6.3 mL/h` | `1 g/50 mL, 8.3 mL/h` | owner-revised — **please confirm** (4 g/day at 1 g/50 mL = 200 mL/24 h ≈ 8.3 mL/h, internally consistent) |
+| NORMAL dose | `3 g/day` | `4 g/day` | owner-revised — **CONFIRMED 2026-06-16** |
+| NORMAL admin (pump rate) | `1 g/50 mL, 6.3 mL/h` | `1 g/50 mL, 8.3 mL/h` | owner-revised — **CONFIRMED 2026-06-16** (4 g/day at 1 g/50 mL = 200 mL/24 h ≈ 8.3 mL/h) |
 | footer | `Step-up dose is only for low exposure/TDM concern or CNS infection. Numeric GFR cutoff: Normal GFR 20+, Severe AKI GFR <20 or IHD.` | `Think TDM! replace later` | owner-set placeholder — the original GFR-cutoff guidance is **no longer shown**; replace before go-live |
 
 ## 8. Reduced-dose preparation note — DEVIATION RESOLVED ✓
@@ -117,11 +117,14 @@ clinical notes on future antibiotics.
 
 ## Sign-off
 
-- [ ] Tiers §1 — LOADING / SEVERE_AKI / CRRT / STEP_UP match source
-- [ ] **NORMAL §7 — confirm the owner-revised 4 g/day, 8.3 mL/h is intended**
-- [ ] Selection §2 — priority order matches source SAFETY_RULES
-- [ ] Slots §3, routing §4, guardrails §5, aliases §6 — match
-- [ ] §7 footer placeholder noted (`Think TDM! replace later` — original GFR-cutoff text dropped; replace before go-live)
-- [ ] §8 prep field — reduced-dose preparation correctly carried
+- [x] Tiers §1 — LOADING / SEVERE_AKI / CRRT / STEP_UP match source
+- [x] **NORMAL §7 — owner-revised 4 g/day, 8.3 mL/h CONFIRMED**
+- [x] Selection §2 — priority order matches source SAFETY_RULES
+- [x] Slots §3, routing §4, guardrails §5, aliases §6 — match
+- [x] §7 footer placeholder noted — keep `Think TDM! replace later` for now; replace before go-live
+- [x] §8 prep field — reduced-dose preparation correctly carried
 
-Signed: ____________________   Date: __________
+**Signed: L (owner) — 2026-06-16, confirmed via Cowork session.**
+NORMAL 4 g/day @ 8.3 mL/h approved. Footer placeholder retained for now (to be replaced
+before go-live). All other tiers, selection priority, slots, routing, guardrails, and
+aliases confirmed against source `meropenem.txt`.

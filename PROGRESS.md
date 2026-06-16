@@ -21,7 +21,7 @@
 
 ## Status
 
-- **Current phase:** Phase 3 — **3.1 `get_dose` landed** (first dose-emitting tool; vertical slice over `meropenem.yaml`). Next: **3.2** — migrate the rest of the drug_dose corpus (~20 antibiotic files), each with its own hand-check. **Meropenem clinical sign-off (hand-check rev 2) still pending** — it gates go-live of meropenem’s *values*, not the engine.
+- **Current phase:** Phase 3 — **3.1 `get_dose` landed** (first dose-emitting tool; vertical slice over `meropenem.yaml`). Next: **3.2** — migrate the rest of the drug_dose corpus (~20 antibiotic files), each with its own hand-check. **Meropenem hand-check rev 2 SIGNED OFF (2026-06-16)** — NORMAL 4 g/day confirmed; footer placeholder to be replaced before go-live.
 - **Branch:** `rebuild-d` (created off `main`; live bot on `main` untouched).
 - **Last session (2026-06-16, Opus):** Phase 3.1 — **`get_dose`, the first dose-emitting tool** — on `rebuild-d`:
   - `id_bot2/tools/get_dose.py` — `get_dose(drug_id, *, gfr, crrt, ihd, cns_infection, tdm_low_level, record=None, protocols_dir=None) -> DoseResult`. Loads the drug_dose record (via the validating loader), walks the `select:` ladder **in list order** (first firing guard wins), returns the matched tier **verbatim** + `source_label`, always prepending any `always_show` tier (LOADING). No input → terminal `default` rung → full table. GFR outside the slot range (0–250) → `needs_confirmation=True`, runs no ladder. **Never computes a novel dose.**
@@ -71,7 +71,7 @@
 > 4. Add `--target new` slice cases per drug as you go; `./check.sh` green; **each file gets the human’s clinical sign-off before it is done.**
 > *Done when:* each migrated drug loads, validates, and returns correct verbatim tiers via `get_dose`; hand-check sheets exist; harness green.
 
-> **Clinical sign-off backlog (human, non-delegable):** meropenem hand-check **rev 2** is still unsigned — confirm the owner-revised NORMAL (4 g/day, 8.3 mL/h) + the placeholder footer, then retire/repoint the stale `meropenem_normal_table` baseline (asserts 3 g/day) to 4 g/day. The `get_dose` *engine* is faithful to whatever the YAML says; sign-off governs the values, not the code.
+> **Clinical sign-off — meropenem DONE (2026-06-16, owner L):** hand-check rev 2 **signed** — NORMAL 4 g/day @ 8.3 mL/h confirmed, footer placeholder retained (replace before go-live), all other tiers/selection/slots confirmed. The stale `meropenem_normal_table` case was repointed 3 g/day → **4 g/day** (status `new`, `call:` added). Remaining footer replacement is a go-live (Phase 6) task, not a blocker.
 
 After this: the rest of the drug_dose kind (~20 antibiotic files under `protocols/antibiotics/`) migrates almost mechanically (a cheaper model is fine for the batch), each still getting its own clinical hand-check sheet before sign-off.
 
