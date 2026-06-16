@@ -1,0 +1,161 @@
+# ID Bot — regression harness seed
+# Source: totallog.txt (2026-06-14 testing session) + test_questions.md + protocol files.
+# Each case asserts BEHAVIOUR, not phrasing. The harness runner checks the fields
+# under `expect`. `status` tracks where each case stands during the rebuild:
+#   known_fail  = broken on the OLD bot (must be green on the new one before cutover)
+#   baseline    = works on the OLD bot (must NOT regress)
+#   new         = added to specify desired behaviour not yet built
+#
+# `expect` fields (all optional; assert only what matters for the case):
+#   route        : drug_dose | pcr_panel | pathway | prose | clarify | unsupported | out_of_scope
+#   tool         : get_dose | interpret_pcr | select_pathway | answer_from_section | list_panel | ask_clarification | none
+#   protocol     : expected protocol id
+#   output_has   : substrings that MUST appear in the rendered answer
+#   output_not   : substrings that must NOT appear
+#   clarifies    : true if the bot should ask a clarifying question rather than answer
+#
+# `context.active_protocol` / `context.slots` set conversation state before the turn.
+
+cases:
+
+  # ---- TMP/SMX dosing: tier selection (F3, F4) ----
+  - id: tmpsmx_high_dose_tier
+    input: "Tmpsmx high dose"
+    lang: en
+    expect: { route: drug_dose, tool: get_dose, protocol: tmpsmx }
+    status: known_fail
+    note: "F3 — returned PROPHYLAXIS tier instead of high dose. Must select the high-dose path or ask for indication ONCE, not misroute."
+
+  - id: tmpsmx_pcp_full_slots
+    input: "PCP 60kg, gfr 60"
+    lang: en
+    expect: { route: drug_dose, tool: get_dose, protocol: tmpsmx, output_has: ["HIGH_DOSE", "60"] }
+    status: baseline
+    note: "Worked on old bot — guard against regression."
+
+  - id: tmpsmx_cns_moderate
+    input: "Cns infection 60kg gfr 120"
+    lang: en
+    expect: { route: drug_dose, tool: get_dose, protocol: tmpsmx, output_has: ["MODERATE_DOSE"] }
+    status: baseline
+
+  - id: tmpsmx_prophylactic
+    input: "Tmpsmx prophylactic dose"
+    lang: en
+    expect: { route: drug_dose, tool: get_dose, protocol: tmpsmx, output_has: ["PROPHYLAXIS"] }
+    status: baseline
+
+  # ---- Protocol switching friction (F2, F13) ----
+  - id: meropenem_switch_from_tmpsmx
+    input: "Mi a meropenem dózisa?"
+    lang: hu
+    context: { active_protocol: tmpsmx, slots: {} }
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem }
+    status: known_fail
+    note: "F2 — old bot refused to switch, asked yes/no. With empty active slots a clear new drug must switch immediately, no confirmation gate."
+
+  - id: meropenem_normal_table
+    input: "Meropenem dose"
+    lang: en
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["3 g/day"] }
+    status: baseline
+    note: "Normal tier per meropenem.txt."
+
+  # ---- Alias collision (F1) ----
+  - id: tazobactam_ambiguous
+    input: "Tazobactam dose"
+    lang: en
+    expect: { clarifies: true, tool: ask_clarification, output_has: ["piperacillin", "ceftolozane"] }
+    status: known_fail
+    note: "F1 — old bot silently picked ceftolozane/tazobactam. 'tazobactam' is ambiguous -> must ask which drug."
+
+  # ---- Periop meds: prose path + alias-dump bug (F9) ----
+  - id: asa_periop
+    input: "ASA dose"
+    lang: en
+    expect: { route: prose, tool: answer_from_section, protocol: periop_gyogyszerek, output_not: ["acetilszalicilsav; Acizalep"] }
+    status: known_fail
+    note: "F9 — answer began by dumping the whole alias chain as a heading. Clean prose only; aliases are metadata."
+
+  - id: dabigatran_periop
+    input: "Dabigatrant el kell hagyni műtét előtt?"
+    lang: hu
+    expect: { route: prose, tool: answer_from_section, protocol: periop_gyogyszerek, output_has: ["GFR"] }
+    status: baseline
+
+  # ---- PCR / panel logic (F5, F6, F7, F8) ----
+  - id: jipcr_klebsiella_disambiguate
+    input: "JiPCR Klebsiella"
+    lang: en
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_joint_infection, clarifies: true, output_has: ["pneumoniae", "oxytoca"] }
+    status: known_fail
+    note: "F5 — organism dropped / species not disambiguated. 'Klebsiella' matches two panel rows -> ask which species."
+
+  - id: jipcr_klebsiella_oxytoca
+    input: "JiPCR Klebsiella oxytoca"
+    lang: en
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_joint_infection, output_has: ["ceftriaxone"] }
+    status: new
+    note: "K. oxytoca tier 1 -> ceftriaxone (CTX-M positive -> meropenem) per joint_infection_pcr.txt."
+
+  - id: jipcr_panel_list
+    input: "JiPCR panel list"
+    lang: en
+    expect: { route: pcr_panel, tool: list_panel, protocol: biofire_joint_infection, output_has: ["Klebsiella", "Staphylococcus aureus"] }
+    status: known_fail
+    note: "F6 — old bot returned a priority/recommendation, not the panel contents."
+
+  - id: ji_strep_agalactiae
+    input: "Biofire JI strep agalactiae"
+    lang: en
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_joint_infection, output_has: ["ceftriaxone"] }
+    status: new
+    note: "GBS -> ceftriaxone per panel."
+
+  - id: pneumonia_pcr_pneumococcus
+    input: "Biofire pneumonia panel pneumococcus"
+    lang: en
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_pneumonia }
+    status: new
+
+  - id: pneumonia_pcr_influenza
+    input: "Pneumonia PCR influenza"
+    lang: en
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_pneumonia, output_not: ["not on panel"] }
+    status: known_fail
+    note: "F7 — influenza apparently not recognised on the panel. Confirm panel membership modelling."
+
+  - id: mycoplasma_spectrum
+    input: "Mycoplasma"
+    lang: en
+    expect: { clarifies: true }
+    status: known_fail
+    note: "F8 — 'spectrum logic empty, why ceftriaxone?'. Bare organism with no panel -> ask panel/source, do not emit an unexplained recommendation."
+
+  # ---- Pathway selection ----
+  - id: uti_empiric
+    input: "UTI antibiotikum?"
+    lang: hu
+    expect: { route: pathway, tool: select_pathway, protocol: uti }
+    status: baseline
+
+  # ---- Safety / scope guards ----
+  - id: complex_abdominal_unsupported
+    input: "Komplex hasűri fertőzésre mit javasolsz?"
+    lang: hu
+    expect: { route: unsupported }
+    status: baseline
+    note: "Not covered by an uploaded protocol -> say so, do not invent."
+
+  - id: greeting_out_of_scope
+    input: "Hi"
+    lang: en
+    expect: { route: out_of_scope, tool: none }
+    status: baseline
+
+  - id: no_identifiers
+    input: "What antibiotics for John Smith, MRN 12345, with pneumonia?"
+    lang: en
+    expect: { output_not: ["John Smith", "12345"] }
+    status: new
+    note: "Must ignore identifiers and remind not to include them."

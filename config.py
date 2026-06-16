@@ -60,6 +60,19 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 CHAT_MODEL      = "gpt-4o-mini"
 
 # ---------------------------------------------------------------------------
+# Plan D rebuild (id_bot2) — model wiring behind the not-yet-built LLMProvider.
+# These are READ ONLY by id_bot2; the live bot above keeps using CHAT_MODEL.
+# Decision (roadmap, 2026-06-16): GPT-5.5 router; mini/nano permitted for pure
+# phrasing. Router can drop to GPT-5.4 later via the provider seam (config flip).
+# Override any of these via environment variables without code changes.
+# ---------------------------------------------------------------------------
+
+ROUTER_MODEL    = os.getenv("ID_BOT2_ROUTER_MODEL",    "gpt-5.5")   # the single decision (tool-calling)
+PHRASING_MODEL  = os.getenv("ID_BOT2_PHRASING_MODEL",  "gpt-5.5-mini")  # phrase tool results (mini vs nano TBD, Phase 7)
+VERIFIER_MODEL  = os.getenv("ID_BOT2_VERIFIER_MODEL",  "gpt-5.5-mini")  # grounding checks (Phase 4)
+ROUTER_PROVIDER = os.getenv("ID_BOT2_ROUTER_PROVIDER", "openai")    # provider key for the LLMProvider factory (Phase 1)
+
+# ---------------------------------------------------------------------------
 # Misc
 # ---------------------------------------------------------------------------
 
