@@ -31,7 +31,7 @@
   - `config.py` — added `ROUTER_MODEL=gpt-5.5`, `PHRASING_MODEL`, `VERIFIER_MODEL`, `ROUTER_PROVIDER` (env-overridable, read only by id_bot2). Live `CHAT_MODEL` untouched.
 - **`./check.sh`:** id_bot2 unit tests ✓ (17/17), regression harness offline ✓ (20/20 cases valid). Legacy suite 330/331.
   - **Deliberate noted exception:** the one legacy failure, `test_missing_allowlist_allowed_with_local_debug_warning`, is **pre-existing and environmental** — it fails identically on the original `HEAD:config.py` and in isolation, because this sandbox has a `runtime_options.json` that defines access, so the "ALLOWED USERS NOT DEFINED" warning the test asserts never fires. Not caused by the rebuild. Re-confirm it passes in the real deploy env; otherwise it's a stale test to fix separately.
-- **Old-bot harness baseline:** not yet recorded — the sandbox has no `OPENAI_API_KEY`. Run it where a key exists (see Next action).
+- **Old-bot harness baseline: DEFERRED — do not chase.** The before-picture is already encoded in `regression_cases.yaml` via the `status:` labels (8 `baseline` = works on the old bot, 8 `known_fail` = broken, 4 `new` = not yet specified). A `--live` run would only *confirm* those labels — it adds no new information. The user's OpenAI key lives only on Railway (they test online; no local key or local deps), so a live run isn't worth the friction now. Revisit only if an empirically-measured number is wanted before Phase 3; the easiest route then is to run the 20 cases in a Cowork sandbox with a key pasted in once.
 
 ## Next action (do this first, next session)
 
@@ -45,9 +45,11 @@
 
 After Phase 1: the vertical slice — `meropenem.yaml` (Phase 2.4) + `get_dose` (Phase 3.1) — proves the whole pattern before the 48-file migration.
 
-> **Side task for the human (anytime, needs the OpenAI key):** record the old-bot baseline so we can prove the new pipeline ≥ old. On a machine where `OPENAI_API_KEY` is set:
-> `cd ID_bot_1 && ./check.sh --live`  (or `python id_bot2/run_harness.py regression_cases.yaml --live`).
-> It prints a pass-rate; paste the number into the Pass-rate log below.
+> **Old-bot baseline — DEFERRED, no action needed.** The baseline is already captured by the
+> `status:` labels in `regression_cases.yaml` (8 work / 8 broken / 4 unspecified on the current bot);
+> a live run only confirms them. The user runs the bot on Railway (key not available locally), so we
+> are NOT recording a live number now. If wanted before Phase 3: paste a key into a Cowork session and
+> run `python id_bot2/run_harness.py regression_cases.yaml --live` there (≈ a few cents).
 
 ---
 
@@ -56,7 +58,7 @@ After Phase 1: the vertical slice — `meropenem.yaml` (Phase 2.4) + `get_dose` 
 | Date | Phase | Harness pass-rate | Notes |
 |------|-------|-------------------|-------|
 | 2026-06-16 | planning | — | seeds created; no code yet |
-| 2026-06-16 | Phase 0 | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | id_bot2 scaffolding green: 17/17 unit tests, F12 normaliser, harness machinery. Legacy 330/331 (1 pre-existing env failure, noted). |
+| 2026-06-16 | Phase 0 | offline 20/20 cases valid; live baseline **deferred** (encoded in case labels: 8 ok / 8 fail / 4 new) | id_bot2 scaffolding green: 17/17 unit tests, F12 normaliser, harness machinery. Legacy 330/331 (1 pre-existing env failure, noted). |
 
 ---
 
