@@ -111,6 +111,20 @@ def validate_cases(cases: list[dict]) -> list[str]:
         for key in ("output_has", "output_not"):
             if key in expect and not isinstance(expect[key], list):
                 problems.append(f"{where}: '{key}' must be a list of substrings")
+        # Optional `call:` — an explicit tool invocation for the `new` target
+        # (the structured decision the router will later derive from `input`).
+        call = c.get("call")
+        if call is not None:
+            if not isinstance(call, dict):
+                problems.append(f"{where}: 'call' must be a mapping")
+            else:
+                if call.get("tool") not in VALID_TOOLS:
+                    problems.append(f"{where}: call.tool {call.get('tool')!r} "
+                                    f"not in {sorted(VALID_TOOLS)}")
+                if "drug_id" not in call:
+                    problems.append(f"{where}: call needs a 'drug_id'")
+                if "slots" in call and not isinstance(call["slots"], dict):
+                    problems.append(f"{where}: 'call.slots' must be a mapping")
     return problems
 
 
@@ -152,9 +166,16 @@ def evaluate_case(case: dict, target: str, answer_fn=None) -> dict:
         return result
 
     if target == "new":
-        result["result"] = SKIP
-        result["reasons"] = ["new pipeline not built yet (Phase 3)"]
-        return result
+        # The router isn't built yet, so we can only exercise cases that carry an
+        # explicit `call:` (the structured tool invocation). Everything else
+        # SKIPs until the router can derive a call from `input`.
+        call = case.get("call")
+        if not call:
+            result["result"] = SKIP
+            result["reasons"] = ["no 'call:' — router not built; slice runs "
+                                 "only cases with an explicit tool invocation"]
+            return result
+        return _evaluate_new_call(case, call, result)
 
     # target == "old": run the old bot and check only text-level expectations.
     text_keys_present = bool(set(expect) & {"output_has", "output_not"})
@@ -181,6 +202,55 @@ def evaluate_case(case: dict, target: str, answer_fn=None) -> dict:
 
 
 _CHAT_ID = -98765  # synthetic chat id for harness runs
+
+# Tools the `new` target can execute today (grows as Phase 3 lands more tools).
+_PROTOCOLS_DIR = str(Path(__file__).resolve().parent / "protocols")
+
+
+def _get_dose_module():
+    """Import the get_dose tool lazily (keeps the offline target dependency-free)."""
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here / "tools"))
+    sys.path.insert(0, _PROTOCOLS_DIR)
+    import get_dose as gd  # noqa: E402
+    return gd
+
+
+def _evaluate_new_call(case: dict, call: dict, result: dict) -> dict:
+    """Run a case's explicit `call:` against the new-pipeline slice and check
+    both the structured expectations (route/tool/protocol/clarifies) and the
+    text expectations (output_has/output_not) against the rendered answer."""
+    expect = case.get("expect", {}) or {}
+    tool = call.get("tool")
+    if tool != "get_dose":
+        result["result"] = SKIP
+        result["reasons"] = [f"call.tool {tool!r} not implemented in the slice yet"]
+        return result
+    try:
+        gd = _get_dose_module()
+        slots = call.get("slots") or {}
+        res = gd.get_dose(call["drug_id"], protocols_dir=_PROTOCOLS_DIR, **slots)
+        answer = gd.render_dose(res)
+    except Exception as exc:  # noqa: BLE001
+        result["result"] = ERROR
+        result["reasons"] = [f"{type(exc).__name__}: {exc}"]
+        return result
+
+    result["answer"] = answer
+    reasons: list[str] = []
+    actual = {"route": res.route, "tool": res.tool, "protocol": res.drug_id}
+    for key in ("route", "tool", "protocol"):
+        if key in expect and expect[key] != actual[key]:
+            reasons.append(f"{key}: expected {expect[key]!r}, got {actual[key]!r}")
+    if expect.get("clarifies") and not res.needs_confirmation:
+        reasons.append("expected a clarifying/confirmation response, got a dose")
+    if not expect.get("clarifies") and res.needs_confirmation:
+        reasons.append(f"unexpected confirmation request: {res.confirmation_reason}")
+    _, text_reasons = check_text_expectations(answer, expect)
+    reasons += text_reasons
+    result["result"] = FAIL if reasons else PASS
+    result["reasons"] = reasons
+    return result
 
 
 def _old_bot_answer_fn():

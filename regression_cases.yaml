@@ -61,6 +61,59 @@ cases:
     status: baseline
     note: "Normal tier per meropenem.txt."
 
+  # ---- Phase 3.1 get_dose vertical slice (meropenem) ----
+  # These carry an explicit `call:` — the structured tool invocation the router
+  # (not built yet) will eventually derive from `input`. Until then, the harness
+  # `--target new` runs the call directly so the slice is exercised end to end.
+  # NORMAL = 4 g/day is the owner-revised value (2026-06-16); pending sign-off.
+  - id: meropenem_slice_default_table
+    input: "Meropenem dose"
+    lang: en
+    call: { tool: get_dose, drug_id: meropenem }
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["LOADING", "4 g/day", "CRRT", "STEP_UP"] }
+    status: new
+    note: "No slots -> DEFAULT_ANSWER full table, all tiers in declared order."
+
+  - id: meropenem_slice_normal_gfr
+    input: "Meropenem gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: meropenem, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["NORMAL", "4 g/day"], output_not: ["STEP_UP", "6 g/day"] }
+    status: new
+    note: "GFR 60 -> NORMAL tier; LOADING always shown; no other tiers leak."
+
+  - id: meropenem_slice_severe_aki_low_gfr
+    input: "Meropenem gfr 10"
+    lang: en
+    call: { tool: get_dose, drug_id: meropenem, slots: { gfr: 10 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["SEVERE_AKI", "1 g/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "GFR <20 -> SEVERE_AKI."
+
+  - id: meropenem_slice_crrt
+    input: "Meropenem CRRT dose"
+    lang: en
+    call: { tool: get_dose, drug_id: meropenem, slots: { crrt: true } }
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["CRRT", "3 g/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "CRRT beats GFR; no GFR supplied."
+
+  - id: meropenem_slice_step_up_cns
+    input: "Meropenem CNS infection gfr 80"
+    lang: en
+    call: { tool: get_dose, drug_id: meropenem, slots: { cns_infection: true, gfr: 80 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["STEP_UP", "6 g/day"], output_not: ["NORMAL"] }
+    status: new
+    note: "STEP_UP (priority 110) must beat NORMAL despite GFR 80."
+
+  - id: meropenem_slice_gfr_out_of_range
+    input: "Meropenem gfr 300"
+    lang: en
+    call: { tool: get_dose, drug_id: meropenem, slots: { gfr: 300 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, clarifies: true, output_has: ["confirmation"] }
+    status: new
+    note: "GFR above declared max (250) -> ask confirmation, run no ladder."
+
   # ---- Alias collision (F1) ----
   - id: tazobactam_ambiguous
     input: "Tazobactam dose"
