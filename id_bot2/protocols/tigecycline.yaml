@@ -1,0 +1,36 @@
+# tigecycline.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/tigecycline.txt (v0.1).
+# No renal dose adjustment. Loading dose always shown.
+# Hand-check: id_bot2/docs/tigecycline_handcheck.md
+id: tigecycline
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing PDF
+canonical_name: Tigecycline
+status: draft
+version: 0.1
+
+aliases:
+  - tigecycline
+  - tygacil
+  - tigecycline dose
+  - tigecycline dosing
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  LOADING: { dose: "200 mg once",         when: "start of therapy, then start maintenance 12 h later", always_show: true }
+  NORMAL:  { dose: "2 x 100 mg",          when: "all renal/RRT tiers" }
+
+select:
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+
+footer: "Use only the dose tiers listed in this protocol."

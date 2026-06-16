@@ -1,0 +1,50 @@
+# ampicillin.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/ampicillin.txt (v0.3).
+# CI: LOADING always_show. NORMAL gfr>=20; SEVERE_AKI gfr<20; ANURIA_IHD distinct tier.
+# CRRT = NORMAL dose. STEP_UP has selection rule (tdm_low_level, priority 110) — in select.
+# Hand-check: id_bot2/docs/ampicillin_handcheck.md
+id: ampicillin
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing DOCX - ampicillin
+canonical_name: Ampicillin
+status: draft
+version: 0.1
+
+aliases:
+  - ampicillin
+  - ampicillin dose
+  - ampicillin dosing
+  - ampicillin iv
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:           { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt:          { type: bool }
+  ihd:           { type: bool }
+  tdm_low_level: { type: bool }
+
+tiers:
+  LOADING:    { dose: "4 g once",    when: "start of therapy",  admin: "start continuous infusion immediately",  always_show: true }
+  NORMAL:     { dose: "12 g/day",    when: "GFR >=20",          admin: "4 g/250 mL, 31.3 mL/h" }
+  SEVERE_AKI: { dose: "8 g/day",     when: "GFR <20",           admin: "4 g/250 mL, 20.8 mL/h" }
+  ANURIA_IHD: { dose: "4 g/day",     when: "anuria or IHD",     admin: "4 g/250 mL, 10.4 mL/h" }
+  CRRT:       { dose: "12 g/day",    when: "CRRT",              admin: "4 g/250 mL, 31.3 mL/h" }
+  STEP_UP:    { dose: "16 g/day",    when: "low levels",         admin: "4 g/250 mL, 41.6 mL/h" }
+
+# Priority in source: STEP_UP_LOW_LEVEL 110 > ANURIA_IHD 100 > CRRT 95 > NORMAL 70 > SEVERE_AKI 60
+select:
+  - { if: "tdm_low_level",  tier: STEP_UP }
+  - { if: "ihd",            tier: ANURIA_IHD }
+  - { if: "crrt",           tier: CRRT }
+  - { if: "gfr >= 20",      tier: NORMAL }
+  - { if: "gfr < 20",       tier: SEVERE_AKI }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+  - Step-up dose unless low levels or low exposure/TDM context is explicitly present
+  - alternative antibiotics, duration, or indication advice
+
+footer: "Doses for severe invasive infections; for routine infections or prophylaxis use textbook dosing."

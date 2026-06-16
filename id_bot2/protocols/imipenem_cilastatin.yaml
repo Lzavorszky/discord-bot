@@ -1,0 +1,51 @@
+# imipenem_cilastatin.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/imipenem_cilastatin.txt (v0.1).
+# Intermittent IV bolus dosing. LOADING bolus always_show.
+# 1 g = imipenem/cilastatin 500/500 mg. Four GFR tiers.
+# IHD distinct. No tier for GFR <15 (non-IHD) → DEFAULT_ANSWER (gap).
+# Hand-check: id_bot2/docs/imipenem_cilastatin_handcheck.md
+id: imipenem_cilastatin
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing PDF
+canonical_name: Imipenem/cilastatin
+status: draft
+version: 0.1
+
+aliases:
+  - imipenem/cilastatin
+  - imipenem cilastatin
+  - imipenem
+  - imipenem dose
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  LOADING:      { dose: "1 g once",       when: "start of therapy, then continue scheduled dosing", always_show: true }
+  NORMAL:       { dose: "4 x 1 g",         when: "GFR >=90" }
+  GFR_60_TO_90: { dose: "3 x 1 g",         when: "GFR 60-90" }
+  GFR_30_TO_60: { dose: "4 x 500 mg",      when: "GFR 30-60" }
+  GFR_15_TO_30: { dose: "2 x 500 mg",      when: "GFR 15-30" }
+  IHD:          { dose: "1 x 1 g",         when: "IHD" }
+  CRRT:         { dose: "4 x 1 g",         when: "CRRT" }
+
+# No tier for GFR <15 (non-IHD) → DEFAULT_ANSWER.
+# Source: IHD 100 > CRRT 95 > NORMAL 80 > GFR_60_TO_90 70 > GFR_30_TO_60 60 > GFR_15_TO_30 50
+select:
+  - { if: "ihd",                           tier: IHD }
+  - { if: "crrt",                          tier: CRRT }
+  - { if: "gfr >= 90",                     tier: NORMAL }
+  - { if: "gfr >= 60 and gfr < 90",        tier: GFR_60_TO_90 }
+  - { if: "gfr >= 30 and gfr < 60",        tier: GFR_30_TO_60 }
+  - { if: "gfr >= 15 and gfr < 30",        tier: GFR_15_TO_30 }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+
+footer: "1 g = imipenem/cilastatin 500/500 mg. GFR <15 (non-IHD): no defined tier — provide full table and confirm dose. Use only the dose tiers listed in this protocol."

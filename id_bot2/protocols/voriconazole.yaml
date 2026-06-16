@@ -1,0 +1,36 @@
+# voriconazole.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/voriconazole.txt (v0.1).
+# No renal dose adjustment. Weight-based dose; loading always shown.
+# Hand-check: id_bot2/docs/voriconazole_handcheck.md
+id: voriconazole
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing PDF
+canonical_name: Voriconazole
+status: draft
+version: 0.1
+
+aliases:
+  - voriconazole
+  - voriconazol
+  - vori
+  - voriconazole dose
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  LOADING: { dose: "2 x 6 mg/kg",  when: "first 24 h, then start maintenance", always_show: true }
+  NORMAL:  { dose: "2 x 4 mg/kg",  when: "all renal/RRT tiers" }
+
+select:
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+
+footer: "Use only the dose tiers listed in this protocol."

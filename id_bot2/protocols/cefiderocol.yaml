@@ -1,0 +1,48 @@
+# cefiderocol.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/cefiderocol.txt (v0.3).
+# CI. NORMAL tier only covers GFR 30-90; GFR >90 has NO tier — falls to DEFAULT_ANSWER (gap).
+# ANURIA_IHD distinct. CRRT = NORMAL dose.
+# Hand-check: id_bot2/docs/cefiderocol_handcheck.md
+id: cefiderocol
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing DOCX - cefiderocol
+canonical_name: Cefiderocol
+status: draft
+version: 0.1
+
+aliases:
+  - cefiderocol
+  - cefiderocol dose
+  - cefiderocol dosing
+  - cefiderocol iv
+  - fdc
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  LOADING:    { dose: "2 g once",    when: "start of therapy",  admin: "start continuous infusion immediately", always_show: true }
+  NORMAL:     { dose: "6 g/day",     when: "GFR 30-90",         admin: "2 g/50 mL, 6.3 mL/h" }
+  SEVERE_AKI: { dose: "3 g/day",     when: "GFR <30",           admin: "2 g/50 mL, 3.1 mL/h" }
+  ANURIA_IHD: { dose: "1.5 g/day",   when: "anuria or IHD",     admin: "1 g/50 mL, 3.1 mL/h" }
+  CRRT:       { dose: "6 g/day",     when: "CRRT",              admin: "2 g/50 mL, 6.3 mL/h" }
+
+# GFR >90 has NO matching rule — falls to DEFAULT_ANSWER (faithful to source gap).
+# Source: ANURIA_IHD 100 > CRRT 95 > NORMAL (gfr>=30 and <=90) 80 > SEVERE_AKI (gfr<30) 60
+select:
+  - { if: "ihd",                              tier: ANURIA_IHD }
+  - { if: "crrt",                             tier: CRRT }
+  - { if: "gfr >= 30 and gfr <= 90",          tier: NORMAL }
+  - { if: "gfr < 30",                         tier: SEVERE_AKI }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+  - alternative antibiotics, duration, or indication advice
+
+footer: "Cefiderocol: GFR >90 is outside defined tiers — provide full table and confirm with clinical pharmacist. Numeric cutoffs follow this protocol."

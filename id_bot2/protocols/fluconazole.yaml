@@ -1,0 +1,48 @@
+# fluconazole.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/fluconazole.txt (v0.1).
+# Loading 800 mg always_show (day 1). Maintenance: GFR >=10 = 400 mg, GFR <10 = 200 mg.
+# IHD and CRRT = 400 mg maintenance.
+# Note: in source SELECTED_OUTPUTS the loading dose is embedded in each tier's dose string
+#   rather than as a separate always_show tier. Migrated faithfully: LOADING always_show,
+#   maintenance tiers carry the full dose string per source SELECTED_OUTPUTS.
+# Hand-check: id_bot2/docs/fluconazole_handcheck.md
+id: fluconazole
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing PDF
+canonical_name: Fluconazole
+status: draft
+version: 0.1
+
+aliases:
+  - fluconazole
+  - fluconazol
+  - fluconazole dose
+  - fluconazole dosing
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  LOADING:   { dose: "800 mg once",                              when: "day 1, then start maintenance day 2", always_show: true }
+  NORMAL:    { dose: "800 mg once day 1, then 1 x 400 mg",      when: "GFR >=10" }
+  GFR_LT_10: { dose: "800 mg once day 1, then 1 x 200 mg",      when: "GFR <10" }
+  IHD:       { dose: "800 mg once day 1, then 1 x 400 mg",      when: "IHD" }
+  CRRT:      { dose: "800 mg once day 1, then 1 x 400 mg",      when: "CRRT" }
+
+# Source SELECTION_RULES: IHD 100 > CRRT 95 > NORMAL 70 > GFR_LT_10 50 > DEFAULT 1
+select:
+  - { if: "ihd",       tier: IHD }
+  - { if: "crrt",      tier: CRRT }
+  - { if: "gfr >= 10", tier: NORMAL }
+  - { if: "gfr < 10",  tier: GFR_LT_10 }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+
+footer: "Use only the dose tiers listed in this protocol."

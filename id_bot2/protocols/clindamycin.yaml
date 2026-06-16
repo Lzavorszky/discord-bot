@@ -1,0 +1,35 @@
+# clindamycin.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/clindamycin.txt (v0.1).
+# No renal dose adjustment. Single tier for all renal/RRT states.
+# Hand-check: id_bot2/docs/clindamycin_handcheck.md
+id: clindamycin
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing PDF
+canonical_name: Clindamycin
+status: draft
+version: 0.1
+
+aliases:
+  - clindamycin
+  - clinda
+  - clindamycin dose
+  - clindamycin dosing
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  NORMAL: { dose: "3 x 900 mg", when: "all renal/RRT tiers" }
+
+select:
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+
+footer: "Use only the dose tiers listed in this protocol."

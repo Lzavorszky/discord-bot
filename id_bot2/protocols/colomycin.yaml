@@ -1,0 +1,51 @@
+# colomycin.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/colomycin.txt (v0.1).
+# LOADING always_show (9 million IU, then maintenance 12 h later).
+# GFR gap: GFR 10-30 has NO tier in source → falls to DEFAULT_ANSWER.
+# IHD distinct (complex: extra dose on dialysis day + maintenance on non-dialysis days).
+# TDM: trough target <2.5 mg/L; check daily.
+# Hand-check: id_bot2/docs/colomycin_handcheck.md
+id: colomycin
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing PDF
+canonical_name: Colomycin/colistin
+status: draft
+version: 0.1
+
+aliases:
+  - colomycin
+  - colistin
+  - colistimethate
+  - colomycin dose
+  - colistin dose
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  LOADING:      { dose: "9 million IU once",         when: "start of therapy, then start maintenance 12 h later", always_show: true }
+  NORMAL:       { dose: "3 x 3 million IU",           when: "GFR >=50" }
+  GFR_30_TO_50: { dose: "3 x 2 million IU",           when: "GFR 30-50" }
+  GFR_LT_10:    { dose: "3 x 1 million IU",           when: "GFR <10" }
+  IHD:          { dose: "dialysis days: maintenance 3 x 1 million IU + 3 million IU extra post-dialysis; non-dialysis days: 3 x 1 million IU", when: "IHD" }
+  CRRT:         { dose: "3 x 3 million IU",           when: "CRRT" }
+
+# GFR 10-30 has no rule → falls to DEFAULT_ANSWER (source gap, preserved faithfully).
+# Source: IHD 100 > CRRT 95 > NORMAL 70 > GFR_30_TO_50 60 > GFR_LT_10 50
+select:
+  - { if: "ihd",                          tier: IHD }
+  - { if: "crrt",                         tier: CRRT }
+  - { if: "gfr >= 50",                    tier: NORMAL }
+  - { if: "gfr >= 30 and gfr < 50",       tier: GFR_30_TO_50 }
+  - { if: "gfr < 10",                     tier: GFR_LT_10 }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+
+footer: "TDM mandatory: trough target <2.5 mg/L; check daily before the next dose. GFR 10-30: no defined tier — provide full table and confirm dose with clinical pharmacist."

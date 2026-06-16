@@ -1,0 +1,44 @@
+# ceftriaxone.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/ceftriaxone.txt (v0.1).
+# No renal dose reduction. HIGH_DOSE for CNS / septic shock / albumin <30.
+# Loading always_show (from DEFAULT_ANSWER table, no SELECTED_OUTPUTS entry).
+# Hand-check: id_bot2/docs/ceftriaxone_handcheck.md
+id: ceftriaxone
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing PDF
+canonical_name: Ceftriaxone
+status: draft
+version: 0.1
+
+aliases:
+  - ceftriaxone
+  - ceftriaxon
+  - ceftriaxone dose
+  - ceftriaxone dosing
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:              { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  cns_infection:    { type: bool }
+  septic_shock:     { type: bool }
+  hypoalbuminemia:  { type: bool }
+
+tiers:
+  LOADING:   { dose: "2 g IV bolus once",  when: "start of therapy, then continue scheduled dosing", always_show: true }
+  NORMAL:    { dose: "1 x 2 g IV bolus",   when: "any renal or liver function" }
+  HIGH_DOSE: { dose: "2 x 2 g IV bolus",   when: "CNS infection, septic shock, or albumin <30 g/L" }
+
+# Source SELECTION_RULES: HIGH_DOSE_CNS 110 / HIGH_DOSE_SHOCK 110 / HIGH_DOSE_ALBUMIN 110
+#   > NORMAL_ANY_GFR 10 > DEFAULT 1
+# Three high-dose rules merged into one `or` guard (same effect).
+select:
+  - { if: "cns_infection or septic_shock or hypoalbuminemia", tier: HIGH_DOSE }
+  - { if: "gfr >= 0",  tier: NORMAL }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+
+footer: "No dose reduction is required for renal or liver dysfunction. Use high-dose 2 x 2 g IV bolus for CNS infection, septic shock, or albumin <30 g/L."

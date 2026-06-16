@@ -1,0 +1,40 @@
+# amikacin.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/amikacin.txt (v0.1).
+# No GFR-based dose reduction. IHD = do not use. CRRT = same as NORMAL.
+# TDM: target trough <10 mg/L (in DEFAULT_FOOTER / default table note).
+# Hand-check: id_bot2/docs/amikacin_handcheck.md
+id: amikacin
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing PDF
+canonical_name: Amikacin
+status: draft
+version: 0.1
+
+aliases:
+  - amikacin
+  - amikacin dose
+  - amikacin dosing
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  NORMAL: { dose: "25 mg/kg once, round up", when: "GFR any; no renal dose reduction" }
+  IHD:    { dose: "do not use",              when: "IHD" }
+
+# Source SELECTION_RULES priority: IHD 100 > CRRT 95 (→NORMAL) > ANY_GFR 50 (→NORMAL) > DEFAULT
+select:
+  - { if: "ihd",       tier: IHD }
+  - { if: "crrt",      tier: NORMAL }
+  - { if: "gfr >= 0",  tier: NORMAL }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+
+footer: "Amikacin TDM: target trough <10 mg/L; first dose is not reduced for renal dysfunction. If trough is toxic, skip dose and recheck."

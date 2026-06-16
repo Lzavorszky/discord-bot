@@ -1,0 +1,47 @@
+# ceftazidime.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/ceftazidime.txt (v0.3).
+# CI: LOADING always_show. NORMAL gfr>=20; SEVERE_AKI gfr<20 or IHD; CRRT 6 g/day.
+# STEP_UP (8 g/day) appears in DEFAULT_ANSWER table only — no selection rule in source.
+# Hand-check: id_bot2/docs/ceftazidime_handcheck.md
+id: ceftazidime
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing DOCX - ceftazidim
+canonical_name: Ceftazidime
+status: draft
+version: 0.1
+
+aliases:
+  - ceftazidime
+  - ceftazidim
+  - ceftazidime dose
+  - ceftazidim dose
+  - ceftaz
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  LOADING:    { dose: "2 g once",   when: "start of therapy",  admin: "start continuous infusion immediately", always_show: true }
+  NORMAL:     { dose: "6 g/day",    when: "GFR >=20",          admin: "2 g/50 mL, 6.3 mL/h" }
+  SEVERE_AKI: { dose: "2 g/day",    when: "GFR <20 or IHD",    admin: "2 g/50 mL, 2.1 mL/h" }
+  CRRT:       { dose: "6 g/day",    when: "CRRT",              admin: "2 g/50 mL, 6.3 mL/h" }
+  STEP_UP:    { dose: "8 g/day",    when: "low levels",         admin: "2 g/50 mL, 8.4 mL/h" }
+
+# STEP_UP has no selection rule in source — only shown in DEFAULT_ANSWER table.
+select:
+  - { if: "ihd",       tier: SEVERE_AKI }
+  - { if: "crrt",      tier: CRRT }
+  - { if: "gfr >= 20", tier: NORMAL }
+  - { if: "gfr < 20",  tier: SEVERE_AKI }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+  - alternative antibiotics, duration, or indication advice
+
+footer: "Numeric GFR cutoffs follow this protocol table. Do not use doses outside this protocol."

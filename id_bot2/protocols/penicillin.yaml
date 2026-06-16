@@ -1,0 +1,45 @@
+# penicillin.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/penicillin.txt (v0.3).
+# CI: LOADING always_show. NORMAL gfr>=20; SEVERE_AKI gfr<20 or IHD; CRRT = NORMAL dose.
+# No STEP_UP tier in source.  ME = million units.
+# Hand-check: id_bot2/docs/penicillin_handcheck.md
+id: penicillin
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing DOCX - penicillin
+canonical_name: penicillin G
+status: draft
+version: 0.1
+
+aliases:
+  - penicillin G
+  - benzylpenicillin
+  - benzyl penicillin
+  - penicillin g dose
+  - benzylpenicillin dose
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  LOADING:    { dose: "6 ME once",    when: "start of therapy",  admin: "start continuous infusion immediately", always_show: true }
+  NORMAL:     { dose: "24 ME/day",    when: "GFR >=20",          admin: "6 ME/50 mL, 8.4 mL/h" }
+  SEVERE_AKI: { dose: "12 ME/day",    when: "GFR <20 or IHD",    admin: "6 ME/50 mL, 4.2 mL/h" }
+  CRRT:       { dose: "24 ME/day",    when: "CRRT",              admin: "6 ME/50 mL, 8.4 mL/h" }
+
+select:
+  - { if: "ihd",       tier: SEVERE_AKI }
+  - { if: "crrt",      tier: CRRT }
+  - { if: "gfr >= 20", tier: NORMAL }
+  - { if: "gfr < 20",  tier: SEVERE_AKI }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+  - alternative antibiotics, duration, or indication advice
+
+footer: "Doses for severe invasive infections; for routine infections or prophylaxis use textbook dosing. ME = million units."

@@ -1,0 +1,43 @@
+# clarithromycin.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/clarithromycin.txt (v0.1).
+# GFR <30 = half dose. IHD and CRRT = full dose.
+# Hand-check: id_bot2/docs/clarithromycin_handcheck.md
+id: clarithromycin
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing PDF
+canonical_name: Clarithromycin
+status: draft
+version: 0.1
+
+aliases:
+  - clarithromycin
+  - clarithro
+  - clarithromycin dose
+  - clarithromycin dosing
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:  { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt: { type: bool }
+  ihd:  { type: bool }
+
+tiers:
+  NORMAL:    { dose: "2 x 500 mg", when: "GFR >=30" }
+  GFR_LT_30: { dose: "2 x 250 mg", when: "GFR <30" }
+  IHD:       { dose: "2 x 500 mg", when: "IHD" }
+  CRRT:      { dose: "2 x 500 mg", when: "CRRT" }
+
+# Source SELECTION_RULES: IHD 100 > CRRT 95 > NORMAL 70 > GFR_LT_30 50 > DEFAULT 1
+select:
+  - { if: "ihd",       tier: IHD }
+  - { if: "crrt",      tier: CRRT }
+  - { if: "gfr >= 30", tier: NORMAL }
+  - { if: "gfr < 30",  tier: GFR_LT_30 }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+
+footer: "Use only the dose tiers listed in this protocol."

@@ -1,0 +1,51 @@
+# fosfomycin.yaml — kind: drug_dose
+# Migrated from protocols/antibiotics/fosfomycin.txt (v0.3).
+# No LOADING tier in source. NORMAL CI; SEVERE_AKI bolus; ANURIA_IHD bolus (post-dialysis only).
+# Diluent: glucose or water for injection (source explicitly says NOT saline).
+# STEP_UP has selection rule (tdm_low_level, priority 110) — included in select.
+# Hand-check: id_bot2/docs/fosfomycin_handcheck.md
+id: fosfomycin
+kind: drug_dose
+source_label: uploaded antibiotic renal dosing DOCX - fosfomycin
+canonical_name: Fosfomycin
+status: draft
+version: 0.1
+
+aliases:
+  - fosfomycin
+  - fosfomycin dose
+  - fosfomycin dosing
+  - fosfomycin iv
+  - fosfomycin intravenous
+
+answers_intents: [dose]
+refuses_intents: [coverage_question, targeted_treatment]
+
+slots:
+  gfr:           { type: number, unit: mL/min, min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt:          { type: bool }
+  ihd:           { type: bool }
+  tdm_low_level: { type: bool }
+
+tiers:
+  NORMAL:     { dose: "16 g/day",                              when: "GFR >=20",     admin: "8 g/200 mL glucose or water, 16.6 mL/h" }
+  SEVERE_AKI: { dose: "8 g bolus",                             when: "GFR <20",      admin: "8 g/200 mL glucose or water, bolus" }
+  ANURIA_IHD: { dose: "4 g after IHD; none on non-dialysis days", when: "anuria or IHD", admin: "8 g/200 mL glucose or water, bolus" }
+  CRRT:       { dose: "12 g/day",                              when: "CRRT",         admin: "8 g/200 mL glucose or water, 16.6 mL/h" }
+  STEP_UP:    { dose: "24 g/day",                              when: "low levels",    admin: "8 g/200 mL glucose or water, 25 mL/h" }
+
+# Priority: STEP_UP_LOW_LEVEL 110 > ANURIA_IHD 100 > CRRT 95 > NORMAL 70 > SEVERE_AKI 60
+select:
+  - { if: "tdm_low_level",  tier: STEP_UP }
+  - { if: "ihd",            tier: ANURIA_IHD }
+  - { if: "crrt",           tier: CRRT }
+  - { if: "gfr >= 20",      tier: NORMAL }
+  - { if: "gfr < 20",       tier: SEVERE_AKI }
+  - { default: DEFAULT_ANSWER }
+
+never:
+  - dosing outside the listed tiers
+  - Step-up dose unless low levels or low exposure/TDM context is explicitly present
+  - alternative antibiotics, duration, or indication advice
+
+footer: "Diluent: glucose 5% or water for injection — do NOT use saline. GFR cutoff: Normal GFR >=20, Severe AKI GFR <20."
