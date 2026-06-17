@@ -16,7 +16,10 @@ _PKG = Path(__file__).resolve().parent.parent          # id_bot2/
 sys.path.insert(0, str(_PKG))
 sys.path.insert(0, str(_PKG / "llm"))
 
-from router import Router, resolve_call, RoutedCall, RouterResult   # noqa: E402
+from router import (   # noqa: E402
+    Router, resolve_call, RoutedCall, RouterResult,
+    SAFETY_RULES, ROUTER_SYSTEM, PHRASING_SYSTEM,
+)
 from llm.tools import Tool, ToolCall                                 # noqa: E402
 
 PROTOCOLS = str(_PKG / "protocols")
@@ -356,6 +359,129 @@ class _ExplodingPhraser:
 
     def call_with_tools(self, *a, **k):  # pragma: no cover
         return ""
+
+
+class _CapturingProvider:
+    """Records the messages it is handed, then returns a preset response.
+    Lets a test assert WHAT prompt the router/phraser actually sent."""
+    def __init__(self, response):
+        self.response = response
+        self.seen_messages = None
+
+    def chat(self, messages, **kw):
+        self.seen_messages = messages
+        # echo the grounded text unchanged so the verifier passes it through
+        return messages[-1]["content"]
+
+    def call_with_tools(self, messages, tools, **kw):
+        self.seen_messages = messages
+        return self.response
+
+
+def _system_text(messages):
+    """The concatenated content of any system-role messages."""
+    return "\n".join(m["content"] for m in messages if m.get("role") == "system")
+
+
+class TestSafetyRuleParity(unittest.TestCase):
+    """Roadmap 4.2 — the legacy system_rules.txt safety guarantees are present in
+    the rebuilt router AND answerer (phrasing) prompts, as one shared constant so
+    they cannot drift, and they actually reach the model at call time."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.R = Router(protocols_dir=PROTOCOLS)
+
+    # --- the three named rules the roadmap calls out -----------------------
+    def test_no_identifiers_rule_present(self):
+        self.assertIn("identifier", SAFETY_RULES.lower())
+        self.assertIn("ignore", SAFETY_RULES.lower())  # ignore + remind, not store
+
+    def test_no_outside_knowledge_rule_present(self):
+        low = SAFETY_RULES.lower()
+        self.assertIn("outside medical knowledge", low)
+        self.assertIn("only", low)            # "answer ONLY from ... protocols"
+        self.assertIn("invent", low)          # never invent doses/drugs/etc.
+
+    def test_escalate_on_conflict_rule_present(self):
+        low = SAFETY_RULES.lower()
+        self.assertIn("conflict", low)
+        self.assertIn("senior clinician review", low)
+
+    # --- parity: one shared constant in BOTH seams -------------------------
+    def test_safety_rules_embedded_in_both_prompts(self):
+        self.assertIn(SAFETY_RULES, ROUTER_SYSTEM)
+        self.assertIn(SAFETY_RULES, PHRASING_SYSTEM)
+
+    def test_router_system_message_carries_safety_rules(self):
+        # A message the deterministic resolver can't crack -> LLM stage, so we can
+        # inspect the exact system prompt the router sends.
+        prov = _CapturingProvider(
+            ToolCall(name="get_dose", arguments={"drug_id": "meropenem", "gfr": 55}))
+        self.R.route("the big gun carbapenem, kidneys at 55", provider=prov)
+        self.assertIsNotNone(prov.seen_messages)
+        self.assertIn(SAFETY_RULES, _system_text(prov.seen_messages))
+
+    def test_phrasing_system_message_carries_safety_rules(self):
+        phraser = _CapturingProvider(None)   # chat() echoes grounded text -> survives
+        res = self.R.route("meropenem gfr 40", phrasing_provider=phraser)
+        self.assertIsNotNone(phraser.seen_messages)
+        self.assertIn(SAFETY_RULES, _system_text(phraser.seen_messages))
+        self.assertTrue(res.phrased)
+
+    # --- behavioural: patient identifiers can never ride into the engine ---
+    def test_identifiers_never_become_clinical_slots(self):
+        # Even with a name, MRN and DOB in the message, only the declared clinical
+        # slot (gfr) is extracted; the identifier digits do not leak into slots.
+        res = self.R.route(
+            "meropenem gfr 40 for John Smith MRN 1234567 dob 01/01/1980")
+        self.assertEqual(res.route, "drug_dose")
+        self.assertEqual(res.protocol, "meropenem")
+        self.assertEqual(res.slots, {"gfr": 40})
+        self.assertNotIn("1234567", str(res.slots))
+
+
+class TestNotCoveredOutcome(unittest.TestCase):
+    """Roadmap 4.3 — "not covered by uploaded protocols" is an explicit, tested
+    outcome: route == 'unsupported', no tool, no dose, a non-empty message — and
+    NEVER a silently-emitted answer (closes F10/F11)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.R = Router(protocols_dir=PROTOCOLS)
+
+    def _assert_not_covered(self, res):
+        self.assertEqual(res.route, "unsupported")
+        self.assertEqual(res.tool, "none")
+        self.assertIsNone(res.dose)                 # nothing emitted
+        self.assertFalse(res.needs_clarification)
+        self.assertTrue(res.answer.strip())         # but it does say something
+        self.assertIn("protocol", res.answer.lower())
+
+    def test_off_topic_message_is_explicit_not_covered(self):
+        self._assert_not_covered(self.R.route("what's the weather today"))
+
+    def test_drug_not_in_protocol_set_is_not_covered(self):
+        # aspirin is not in the uploaded antibiotic protocol set.
+        self._assert_not_covered(self.R.route("aspirin 500 mg dose"))
+
+    def test_llm_prose_answer_does_not_become_a_silent_dose(self):
+        # The model free-generates a dose (no tool call). It must be discarded,
+        # not surfaced — the no-outside-knowledge guarantee at the router seam.
+        prov = ScriptedProvider("Meropenem is usually 1 g TDS.")
+        res = self.R.route("how do I dose the big carbapenem", provider=prov)
+        self._assert_not_covered(res)
+        self.assertNotIn("1 g TDS", res.answer)
+
+    def test_llm_off_set_drug_is_not_covered(self):
+        prov = ScriptedProvider(
+            ToolCall(name="get_dose", arguments={"drug_id": "not_a_real_drug"}))
+        self._assert_not_covered(self.R.route("cryptic ask", provider=prov))
+
+    def test_not_covered_without_provider_is_still_explicit(self):
+        # No LLM provider at all (the offline check.sh path): an unresolvable
+        # message still gets the explicit not-covered outcome, never silence.
+        self._assert_not_covered(self.R.route("tell me a joke"))
 
 
 if __name__ == "__main__":

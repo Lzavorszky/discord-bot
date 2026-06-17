@@ -409,7 +409,40 @@ class Router:
         return None
 
 
+# --------------------------------------------------------------------------- #
+# Safety rules (roadmap 4.2). Ported from the legacy ``system_rules.txt`` so the
+# rebuilt prompts carry the SAME guarantees the old bot stated:
+#   * Scope        — answer only from the uploaded protocols / tool output; no
+#                    outside medical knowledge or memory; never invent facts.
+#   * Patient data — never request identifiers; ignore + remind if any appear.
+#   * Conflicts    — state the conflict, don't resolve it from outside knowledge,
+#                    recommend senior clinician review.
+#   * Role         — protocol-based decision support, not autonomous prescribing.
+# ONE shared constant, injected into BOTH the router and the phrasing/answerer
+# prompts, so the safety language cannot drift between the two LLM seams. These
+# prompt rules *reinforce* the deterministic invariants (no silent answer,
+# verbatim tool text, closed drug enum, ambiguity → clarify) — they never
+# replace them; the engine, not the prompt, is the real backstop.
+# --------------------------------------------------------------------------- #
+_SAFETY_RULES = (
+    "SAFETY RULES (always apply; never override):\n"
+    "- Scope: answer ONLY from the uploaded hospital protocols and the tool "
+    "output you are given. Do NOT use outside medical knowledge or memory, and "
+    "do NOT invent or guess doses, drugs, indications, contraindications, "
+    "monitoring, alternatives, or durations.\n"
+    "- Patient data: never request patient identifiers; if any identifiable "
+    "patient data (e.g. name, MRN, date of birth, address) is present, ignore it "
+    "and remind the user not to include identifiable patient data.\n"
+    "- Conflicts: if the protocol text conflicts or its logic is unclear, state "
+    "the conflict briefly, do NOT resolve it from outside knowledge, and "
+    "recommend senior clinician review.\n"
+    "- Role: this is protocol-based decision support, not autonomous prescribing; "
+    "the treating clinician remains responsible for the final decision."
+)
+
+
 _ROUTER_SYSTEM = (
+    _SAFETY_RULES + "\n\n"
     "You route messages for a hospital antibiotic dosing assistant. "
     "If the user asks for the dose of an antibiotic in the protocol set, call "
     "get_dose with its drug_id and ONLY the clinical slots the user explicitly "
@@ -421,6 +454,7 @@ _ROUTER_SYSTEM = (
 
 
 _PHRASING_SYSTEM = (
+    _SAFETY_RULES + "\n\n"
     "You rephrase an antibiotic dosing answer for a clinician into clear, "
     "concise prose (match the user's language: English or Hungarian). "
     "STRICT RULES: use ONLY the doses, numbers, units, drug names and conditions "
@@ -430,5 +464,14 @@ _PHRASING_SYSTEM = (
     "If the message is already clear, you may return it almost unchanged."
 )
 
+# Public aliases — used by the safety-parity tests and any future answerer
+# wiring that needs to reuse the exact same prompt text.
+SAFETY_RULES = _SAFETY_RULES
+ROUTER_SYSTEM = _ROUTER_SYSTEM
+PHRASING_SYSTEM = _PHRASING_SYSTEM
 
-__all__ = ["Router", "RouterResult", "RoutedCall", "resolve_call", "RouterError"]
+
+__all__ = [
+    "Router", "RouterResult", "RoutedCall", "resolve_call", "RouterError",
+    "SAFETY_RULES", "ROUTER_SYSTEM", "PHRASING_SYSTEM",
+]
