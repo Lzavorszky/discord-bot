@@ -19,6 +19,7 @@ sys.path.insert(0, str(_PKG / "llm"))
 from router import (   # noqa: E402
     Router, resolve_call, RoutedCall, RouterResult,
     PanelCall, resolve_pcr,
+    PathwayCall, resolve_pathway,
     SAFETY_RULES, ROUTER_SYSTEM, PHRASING_SYSTEM,
 )
 from llm.tools import Tool, ToolCall                                 # noqa: E402
@@ -591,6 +592,154 @@ class TestPcrRouting(unittest.TestCase):
         r = self.R.route("Pneumonia PCR E. coli CTX-M")
         self.assertNotIn("mg", r.answer)
         self.assertNotIn("g/day", r.answer)
+
+
+class TestPathwayRouting(unittest.TestCase):
+    """Phase 2.5 cont. — the deterministic pathway stage + LLM dispatch."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.R = Router(protocols_dir=PROTOCOLS)
+
+    # --- registry / tool schema ------------------------------------------
+    def test_pathway_tool_registered(self):
+        names = [t.name for t in self.R.tools()]
+        self.assertIn("select_pathway", names)
+
+    def test_pathway_tool_pathway_id_is_closed_enum(self):
+        tool = next(t for t in self.R.tools() if t.name == "select_pathway")
+        enum = tool.parameters["properties"]["pathway_id"]["enum"]
+        for pid in ("cap", "uti", "sbp", "cdiff", "endocarditis_antibiotics",
+                    "intraabdominal_infections"):
+            self.assertIn(pid, enum)
+
+    def test_six_pathways_registered(self):
+        self.assertEqual(
+            set(self.R.pathways),
+            {"cap", "uti", "sbp", "cdiff", "endocarditis_antibiotics",
+             "intraabdominal_infections"})
+
+    # --- deterministic detection -----------------------------------------
+    def test_resolve_pathway_cap(self):
+        call = resolve_pathway("community acquired pneumonia, intubated",
+                               self.R.pathways)
+        self.assertIsInstance(call, PathwayCall)
+        self.assertEqual(call.pathway_id, "cap")
+        self.assertEqual(call.tool, "select_pathway")
+
+    def test_resolve_pathway_none_for_drug(self):
+        # a pure drug query names no pathway -> None (drug stage handles it)
+        self.assertIsNone(resolve_pathway("meropenem gfr 40", self.R.pathways))
+
+    def test_resolve_pathway_ambiguous_returns_list(self):
+        out = resolve_pathway("CAP and UTI", self.R.pathways)
+        self.assertIsInstance(out, list)
+        self.assertEqual(set(out), {"cap", "uti"})
+
+    # --- end-to-end routing ----------------------------------------------
+    def test_route_cap_intubated(self):
+        r = self.R.route("CAP intubated patient")
+        self.assertEqual(r.route, "pathway")
+        self.assertEqual(r.tool, "select_pathway")
+        self.assertEqual(r.protocol, "cap")
+        self.assertEqual(r.pathway.output, "INTUBATED_CAP")
+
+    def test_route_cap_hospitalized_nosocomial(self):
+        r = self.R.route("pneumonia, hospitalized, nosocomial risk")
+        self.assertEqual(r.protocol, "cap")
+        self.assertEqual(r.pathway.output, "HOSPITALIZED_NOSOCOMIAL_RISK")
+        self.assertIn("levofloxacin", r.answer)
+
+    def test_route_uti_complicated_hospitalized(self):
+        r = self.R.route("UTI, complicated, hospitalized")
+        self.assertEqual(r.route, "pathway")
+        self.assertEqual(r.protocol, "uti")
+        self.assertEqual(r.pathway.output, "COMPLICATED_HOSPITALIZED")
+
+    def test_route_uti_asymptomatic(self):
+        r = self.R.route("asymptomatic bacteriuria")
+        self.assertEqual(r.protocol, "uti")
+        self.assertEqual(r.pathway.output, "ASYMPTOMATIC_BACTERIURIA")
+
+    def test_route_cdiff_default_no_section(self):
+        r = self.R.route("cdiff")
+        self.assertEqual(r.protocol, "cdiff")
+        self.assertTrue(r.pathway.is_default)
+        self.assertIn("diagnosis", r.answer)
+        self.assertIn("treatment", r.answer)
+
+    def test_route_cdiff_treatment(self):
+        r = self.R.route("C diff treatment")
+        self.assertEqual(r.pathway.output, "TREATMENT_CHUNK")
+
+    def test_route_sbp(self):
+        r = self.R.route("spontaneous bacterial peritonitis")
+        self.assertEqual(r.protocol, "sbp")
+        self.assertIn("paracentesis", r.answer)
+
+    def test_route_endocarditis_targeted(self):
+        r = self.R.route("endocarditis treatment, MRSA, prosthetic valve")
+        self.assertEqual(r.protocol, "endocarditis_antibiotics")
+        self.assertEqual(r.pathway.output, "MRSA_PVE")
+
+    def test_route_endocarditis_pathway_beats_penicillin_drug(self):
+        # 'penicillin allergy' contains the migrated drug 'penicillin'; the named
+        # pathway must still win (pathway stage precedes drug stage).
+        r = self.R.route("infective endocarditis treatment, penicillin allergy")
+        self.assertEqual(r.route, "pathway")
+        self.assertEqual(r.protocol, "endocarditis_antibiotics")
+        self.assertEqual(r.pathway.output, "EMPIRIC_NVE_LATE_PVE_PENICILLIN_ALLERGY")
+
+    def test_route_iai_context(self):
+        r = self.R.route("intraabdominal infection, pancreatitis")
+        self.assertEqual(r.protocol, "intraabdominal_infections")
+        self.assertEqual(r.pathway.output, "PANCREATITIS")
+
+    # --- precedence: a real drug query is unaffected ---------------------
+    def test_drug_query_still_routes_to_get_dose(self):
+        r = self.R.route("meropenem gfr 40")
+        self.assertEqual(r.route, "drug_dose")
+        self.assertEqual(r.protocol, "meropenem")
+
+    def test_named_panel_still_takes_precedence(self):
+        r = self.R.route("biofire joint infection: Klebsiella oxytoca")
+        self.assertEqual(r.route, "pcr_panel")
+
+    # --- pathway answer never emits a guessed dose (verbatim only) --------
+    def test_pathway_answer_is_verbatim_output(self):
+        r = self.R.route("UTI uncomplicated")
+        # the answer is exactly render_pathway over the selected output
+        self.assertIn("fosfomycin", r.answer)
+        self.assertIn("nitrofurantoin", r.answer)
+
+    # --- LLM dispatch -----------------------------------------------------
+    def test_llm_select_pathway(self):
+        call = ToolCall(name="select_pathway",
+                        arguments={"pathway_id": "uti",
+                                   "syndrome_class": "uncomplicated_uti"})
+        R = Router(protocols_dir=PROTOCOLS, provider=ScriptedProvider(call))
+        r = R.route("opaque free text with no pathway or drug token zzz")
+        self.assertEqual(r.route, "pathway")
+        self.assertEqual(r.protocol, "uti")
+        self.assertEqual(r.via, "llm")
+        self.assertEqual(r.pathway.output, "UNCOMPLICATED_UTI")
+
+    def test_llm_select_pathway_unknown_id_falls_through(self):
+        call = ToolCall(name="select_pathway",
+                        arguments={"pathway_id": "made_up_pathway"})
+        R = Router(protocols_dir=PROTOCOLS, provider=ScriptedProvider(call))
+        r = R.route("opaque free text with no pathway or drug token zzz")
+        self.assertEqual(r.route, "unsupported")
+
+    def test_llm_select_pathway_drops_undeclared_slots(self):
+        # gfr is not a uti slot; it must be dropped, not passed to select_pathway.
+        call = ToolCall(name="select_pathway",
+                        arguments={"pathway_id": "uti",
+                                   "asymptomatic_bacteriuria": True, "gfr": 40})
+        R = Router(protocols_dir=PROTOCOLS, provider=ScriptedProvider(call))
+        r = R.route("opaque free text with no pathway or drug token zzz")
+        self.assertEqual(r.pathway.output, "ASYMPTOMATIC_BACTERIURIA")
+        self.assertNotIn("gfr", r.slots)
 
 
 if __name__ == "__main__":
