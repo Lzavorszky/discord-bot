@@ -27,7 +27,7 @@ from __future__ import annotations
 # --------------------------------------------------------------------------- #
 # Enums shared across the loader, the linter, and (later) the tools.          #
 # --------------------------------------------------------------------------- #
-KINDS = ("drug_dose", "pcr_panel", "pathway", "prose")
+KINDS = ("drug_dose", "pcr_panel", "pathway", "prose", "table_lookup")
 
 # Intents a protocol may declare it answers / refuses (routing metadata that
 # replaces the old .route_claims.json sidecars). Kept permissive but closed so a
@@ -205,6 +205,81 @@ PROTOCOL_JSON_SCHEMA = {
             },
         },
         "doses": {"type": "boolean"},
+        # table_lookup (2-D {indication_tier}_{renal_category} lookup; tmpsmx)
+        "indication_rules": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["tier", "contains"],
+                "properties": {
+                    "tier": {"type": "string"},
+                    "contains": {"type": "array", "items": {"type": "string"}},
+                    "note": {"type": "string"},
+                },
+            },
+        },
+        "renal_rules": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "if": {"type": "string"},
+                    "category": {"type": "string"},
+                    "default": {"type": "string"},
+                    "comment": {"type": "string"},
+                },
+            },
+        },
+        "tables": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                    "type": {"enum": ["dosing_table", "fixed_dose",
+                                       "prophylaxis", "renal_warning"]},
+                    "target": {"type": "string"},
+                    "renal_adjustment": {"type": "string"},
+                    "text": {"type": "string"},
+                    "text_en": {"type": "string"},
+                    "text_hu": {"type": "string"},
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["weight_kg", "practical_dose"],
+                            "properties": {
+                                "weight_kg": {"type": "number"},
+                                "target": {"type": "string"},
+                                "practical_dose": {"type": "string"},
+                                "total": {"type": "string"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        "prophylaxis_tables": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
+        "info_blocks": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "aliases": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        },
+        "weight_slot": {"type": "string"},
+        "supported_weight_min": {"type": "number"},
+        "supported_weight_max": {"type": "number"},
+        "output_template_en": {"type": "string"},
+        "output_template_hu": {"type": "string"},
+        "missing_inputs": {"type": "string"},
+        "missing_inputs_hu": {"type": "string"},
         # prose
         "sections": {
             "type": "object",
@@ -228,6 +303,8 @@ PROTOCOL_JSON_SCHEMA = {
          "then": {"required": ["outputs", "select"]}},
         {"if": {"properties": {"kind": {"const": "prose"}}},
          "then": {"required": ["sections"]}},
+        {"if": {"properties": {"kind": {"const": "table_lookup"}}},
+         "then": {"required": ["tables", "indication_rules", "renal_rules"]}},
     ],
 }
 
@@ -244,6 +321,7 @@ KIND_REQUIRED = {
     "pcr_panel": ("organisms",),
     "pathway": ("outputs", "select"),
     "prose": ("sections",),
+    "table_lookup": ("tables", "indication_rules", "renal_rules"),
 }
 
 # Fields that only make sense for a given kind. Presence on the wrong kind is a
@@ -257,6 +335,13 @@ KIND_FIELDS = {
                   "conflict_answer"},
     "pathway": {"slots", "outputs", "select", "doses"},
     "prose": {"sections"},
+    "table_lookup": {"slots", "requires", "indication_rules", "renal_rules",
+                     "never",
+                     "tables", "prophylaxis_tables", "info_blocks",
+                     "weight_slot", "supported_weight_min", "supported_weight_max",
+                     "output_template_en", "output_template_hu",
+                     "default_answer", "default_answer_hu",
+                     "missing_inputs", "missing_inputs_hu"},
 }
 
 COMMON_FIELDS = set(_COMMON_PROPERTIES.keys())

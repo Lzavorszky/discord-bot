@@ -1439,3 +1439,105 @@ cases:
     call: { tool: select_pathway, pathway_id: intraabdominal_infections, slots: { iai_context: pancreatitis } }
     expect: { route: pathway, tool: select_pathway, protocol: intraabdominal_infections, clarifies: false, output_has: ["not needed at presentation"] }
     status: new
+
+  # ---------------------------------------------------------------------------
+  # tmpsmx (kind: table_lookup) — the final migration phase. Each case carries an
+  # explicit `call:` (get_table_dose + table_id + slots) AND its `input` is routed
+  # through the deterministic router and cross-checked to land on the same
+  # table/tool. These carry the original F3/F4 misrouting fixes (PROPHYLAXIS was
+  # returned where a treatment dose was required, and vice versa).
+  # ---------------------------------------------------------------------------
+  - id: tmpsmx_high_dose_pcp_treatment
+    input: "tmpsmx dose for PCP pneumonia, 70 kg, gfr 40"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "PCP pneumonia treatment", body_weight_kg: 70, gfr: 40 } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: false, output_has: ["HIGH_DOSE", "3 x 4 amp", "960/4800 mg daily"], output_not: ["1 tablet"] }
+    status: new
+    note: "PCP treatment -> HIGH_DOSE treatment table (F3/F4: NOT prophylaxis)."
+
+  - id: tmpsmx_pcp_prophylaxis_not_escalated
+    input: "co-trimoxazole PCP prophylaxis"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "PCP prophylaxis" } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: false, output_has: ["1 tablet"], output_not: ["mg/kg", "3 x 4 amp"] }
+    status: new
+    note: "F3/F4: explicit prophylaxis must NOT escalate to a treatment mg/kg dose."
+
+  - id: tmpsmx_moderate_reduced_renal
+    input: "bactrim severe CNS infection, 55 kg, gfr 20"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "severe CNS infection", body_weight_kg: 55, gfr: 20 } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: false, output_has: ["MODERATE_DOSE", "GFR_15_TO_30", "3 x 1 amp", "240/1200 mg daily"] }
+    status: new
+    note: "Severe/CNS -> MODERATE_DOSE; GFR 20 -> 50% table; 55 kg ties up to the 60 kg row."
+
+  - id: tmpsmx_standard_fixed_dose
+    input: "septrin standard susceptible infection, gfr 50"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "standard susceptible infection", gfr: 50 } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: false, output_has: ["2 x 2 amp", "320/1600 mg daily"] }
+    status: new
+    note: "Standard susceptible + GFR>30 -> fixed dose (no weight needed)."
+
+  - id: tmpsmx_high_dose_100kg_full
+    input: "tmpsmx Stenotrophomonas BSI, 100 kg, gfr 60"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "Stenotrophomonas BSI", body_weight_kg: 100, gfr: 60 } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: false, output_has: ["HIGH_DOSE", "3 x 6 amp", "1440/7200 mg daily"] }
+    status: new
+
+  - id: tmpsmx_renal_unknown_asks
+    input: "bactrim nocardia 70 kg"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "nocardia", body_weight_kg: 70 } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: true, output_has: ["GFR"], output_not: ["3 x 4 amp"] }
+    status: new
+    note: "Treatment tier known but renal missing -> ask, never dump/guess a table."
+
+  - id: tmpsmx_weight_missing_asks
+    input: "tmpsmx PCP pneumonia gfr 50"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "PCP pneumonia", gfr: 50 } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: true, output_not: ["4 x 2 amp", "3 x 4 amp"] }
+    status: new
+    note: "Treatment dosing_table needs body weight -> ask, no full-table dump."
+
+  - id: tmpsmx_gfr_lt_15_warning
+    input: "co-trimoxazole PCP treatment, 70 kg, gfr 10"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "PCP treatment", body_weight_kg: 70, gfr: 10 } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: false, output_has: ["avoid"], output_not: ["3 x 4 amp"] }
+    status: new
+    note: "GFR<15 without CRRT -> verbatim renal warning, no treatment dose."
+
+  - id: tmpsmx_out_of_range_weight
+    input: "tmpsmx PCP 400 kg gfr 50"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "PCP", body_weight_kg: 400, gfr: 50 } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: true, output_has: ["confirmation"] }
+    status: new
+    note: "Body weight beyond clinical max -> ask confirmation, never a band."
+
+  - id: tmpsmx_no_indication_default
+    input: "tmpsmx dose"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: {} }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: true, output_has: ["Indication groups"] }
+    status: new
+    note: "No indication -> required-input gate returns the verbatim DEFAULT_ANSWER."
+
+  - id: tmpsmx_prophylaxis_reduced_renal
+    input: "bactrim prophylaxis, gfr 20"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "prophylaxis", gfr: 20 } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: false, output_has: ["three times weekly"] }
+    status: new
+    note: "Prophylaxis allowed without weight; GFR 15-30 -> 3x weekly option."
+
+  - id: tmpsmx_immunosuppressed_pcp_is_treatment
+    input: "tmpsmx for immunosuppressed patient with PCP pneumonia, 60 kg, gfr 50"
+    lang: en
+    call: { tool: get_table_dose, table_id: tmpsmx, slots: { indication: "immunosuppressed patient with PCP pneumonia", body_weight_kg: 60, gfr: 50 } }
+    expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: false, output_has: ["HIGH_DOSE", "3 x 4 amp"], output_not: ["1 tablet"] }
+    status: new
+    note: "F3/F4: a treatment indication in an immunosuppressed patient is HIGH_DOSE, not prophylaxis."

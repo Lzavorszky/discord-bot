@@ -46,12 +46,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from textnorm import fold_accents  # noqa: E402
 
 VALID_ROUTES = {
-    "drug_dose", "pcr_panel", "pathway", "prose",
+    "drug_dose", "pcr_panel", "pathway", "prose", "table_lookup",
     "clarify", "unsupported", "out_of_scope",
 }
 VALID_TOOLS = {
     "get_dose", "interpret_pcr", "select_pathway", "answer_from_section",
-    "list_panel", "ask_clarification", "none",
+    "list_panel", "get_table_dose", "ask_clarification", "none",
 }
 VALID_STATUS = {"known_fail", "baseline", "new"}
 VALID_EXPECT_KEYS = {
@@ -133,6 +133,12 @@ def validate_cases(cases: list[dict]) -> list[str]:
                     # pathway calls key off a pathway_id (not a drug_id).
                     if "pathway_id" not in call:
                         problems.append(f"{where}: pathway call needs a 'pathway_id'")
+                    if "slots" in call and not isinstance(call["slots"], dict):
+                        problems.append(f"{where}: 'call.slots' must be a mapping")
+                elif ctool == "get_table_dose":
+                    # table_lookup calls key off a table_id.
+                    if "table_id" not in call:
+                        problems.append(f"{where}: table_lookup call needs a 'table_id'")
                     if "slots" in call and not isinstance(call["slots"], dict):
                         problems.append(f"{where}: 'call.slots' must be a mapping")
                 else:
@@ -267,6 +273,15 @@ def _get_pathway_module():
     return sp
 
 
+def _get_table_module():
+    """Import the get_table_dose tool lazily."""
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here / "tools"))
+    sys.path.insert(0, _PROTOCOLS_DIR)
+    import get_table_dose as td  # noqa: E402
+    return td
+
+
 _ROUTER = None
 
 
@@ -321,6 +336,15 @@ def _router_crosscheck(case: dict, call: dict) -> list[str]:
         if res.protocol != call["pathway_id"]:
             problems.append(f"router: input routed to pathway {res.protocol!r}, "
                             f"expected {call['pathway_id']!r}")
+    elif tool == "get_table_dose":
+        if res.route != "table_lookup":
+            problems.append(f"router: input routed to {res.route!r}, expected "
+                            f"'table_lookup' (answer: {res.answer[:60]!r})")
+        if res.tool != "get_table_dose":
+            problems.append(f"router: tool {res.tool!r}, expected 'get_table_dose'")
+        if res.protocol != call["table_id"]:
+            problems.append(f"router: input routed to table {res.protocol!r}, "
+                            f"expected {call['table_id']!r}")
     return problems
 
 
@@ -334,6 +358,8 @@ def _evaluate_new_call(case: dict, call: dict, result: dict) -> dict:
         return _evaluate_pcr_call(case, call, result)
     if tool == "select_pathway":
         return _evaluate_pathway_call(case, call, result)
+    if tool == "get_table_dose":
+        return _evaluate_table_call(case, call, result)
     if tool != "get_dose":
         result["result"] = SKIP
         result["reasons"] = [f"call.tool {tool!r} not implemented in the slice yet"]
@@ -437,6 +463,41 @@ def _evaluate_pathway_call(case: dict, call: dict, result: dict) -> dict:
             reasons.append("expected the default/ask output, got a specific pathway")
         if not expect.get("clarifies") and res.is_default:
             reasons.append("unexpected default/ask output; expected a specific pathway")
+    _, text_reasons = check_text_expectations(answer, expect)
+    reasons += text_reasons
+    reasons += _router_crosscheck(case, call)
+    result["result"] = FAIL if reasons else PASS
+    result["reasons"] = reasons
+    return result
+
+
+def _evaluate_table_call(case: dict, call: dict, result: dict) -> dict:
+    """Run a table_lookup `call:` (get_table_dose) and check the structured +
+    text expectations, plus the router input->call cross-check."""
+    expect = case.get("expect", {}) or {}
+    try:
+        td = _get_table_module()
+        slots = call.get("slots") or {}
+        res = td.get_table_dose(call["table_id"], protocols_dir=_PROTOCOLS_DIR,
+                                **slots)
+        answer = td.render_table_dose(res)
+    except Exception as exc:  # noqa: BLE001
+        result["result"] = ERROR
+        result["reasons"] = [f"{type(exc).__name__}: {exc}"]
+        return result
+
+    result["answer"] = answer
+    reasons: list[str] = []
+    actual = {"route": res.route, "tool": res.tool, "protocol": res.table_id}
+    for key in ("route", "tool", "protocol"):
+        if key in expect and expect[key] != actual[key]:
+            reasons.append(f"{key}: expected {expect[key]!r}, got {actual[key]!r}")
+    # `clarifies` maps to a gating/confirmation ask (needs_input or needs_confirmation).
+    clar = bool(res.needs_input or res.needs_confirmation)
+    if expect.get("clarifies") and not clar:
+        reasons.append("expected a clarifying/ask response, got a dose")
+    if "clarifies" in expect and not expect.get("clarifies") and clar:
+        reasons.append("unexpected clarifying/ask response; expected a dose")
     _, text_reasons = check_text_expectations(answer, expect)
     reasons += text_reasons
     reasons += _router_crosscheck(case, call)

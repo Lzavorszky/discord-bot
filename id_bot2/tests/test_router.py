@@ -20,6 +20,7 @@ from router import (   # noqa: E402
     Router, resolve_call, RoutedCall, RouterResult,
     PanelCall, resolve_pcr,
     PathwayCall, resolve_pathway,
+    TableCall, resolve_table,
     SAFETY_RULES, ROUTER_SYSTEM, PHRASING_SYSTEM,
 )
 from llm.tools import Tool, ToolCall                                 # noqa: E402
@@ -744,3 +745,96 @@ class TestPathwayRouting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# --------------------------------------------------------------------------- #
+# table_lookup routing (tmpsmx) — final migration phase.                       #
+# --------------------------------------------------------------------------- #
+class TestTableLookupRouting(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.R = Router(protocols_dir=PROTOCOLS)
+
+    def test_registry_has_tmpsmx(self):
+        self.assertIn("tmpsmx", self.R.tables)
+
+    def test_tool_schema_exposed(self):
+        names = {t.name for t in self.R.tools()}
+        self.assertIn("get_table_dose", names)
+        tool = next(t for t in self.R.tools() if t.name == "get_table_dose")
+        self.assertEqual(tool.parameters["properties"]["table_id"]["enum"], ["tmpsmx"])
+
+    def test_resolve_by_alias(self):
+        call = resolve_table("co-trimoxazole dose", self.R.tables)
+        self.assertIsInstance(call, TableCall)
+        self.assertEqual(call.table_id, "tmpsmx")
+
+    def test_resolve_none_when_absent(self):
+        self.assertIsNone(resolve_table("meropenem gfr 40", self.R.tables))
+
+    def test_indication_is_whole_message(self):
+        call = resolve_table("bactrim for PCP pneumonia 70 kg gfr 40", self.R.tables)
+        self.assertIn("pcp", call.slots["indication"].lower())
+        self.assertEqual(call.slots.get("gfr"), 40)
+        self.assertEqual(call.slots.get("body_weight_kg"), 70)
+
+    def test_end_to_end_high_dose(self):
+        r = self.R.route("tmpsmx dose for PCP pneumonia, 70 kg, gfr 40")
+        self.assertEqual(r.route, "table_lookup")
+        self.assertEqual(r.tool, "get_table_dose")
+        self.assertEqual(r.protocol, "tmpsmx")
+        self.assertEqual(r.table.indication_tier, "HIGH_DOSE")
+        self.assertIn("3 x 4 amp", r.answer)
+
+    def test_prophylaxis_not_escalated(self):
+        # F3/F4: a prophylaxis request must NOT return a treatment (mg/kg) dose.
+        r = self.R.route("co-trimoxazole PCP prophylaxis")
+        self.assertEqual(r.protocol, "tmpsmx")
+        self.assertEqual(r.table.indication_tier, "PROPHYLAXIS")
+        self.assertIn("1 tablet", r.answer)
+        self.assertNotIn("mg/kg", r.answer)
+
+    def test_table_beats_incidental_pathway_keyword(self):
+        # "pneumonia" is a CAP alias, but an explicitly named tmpsmx wins.
+        r = self.R.route("septrin dose, severe pneumonia, 80 kg, gfr 50")
+        self.assertEqual(r.route, "table_lookup")
+        self.assertEqual(r.protocol, "tmpsmx")
+
+    def test_pathway_unaffected_when_no_table_named(self):
+        r = self.R.route("CAP empiric treatment, intubated")
+        self.assertEqual(r.route, "pathway")
+        self.assertEqual(r.protocol, "cap")
+
+    def test_drug_routing_unaffected(self):
+        r = self.R.route("meropenem gfr 40")
+        self.assertEqual(r.route, "drug_dose")
+        self.assertEqual(r.protocol, "meropenem")
+
+    def test_renal_unknown_asks(self):
+        r = self.R.route("bactrim nocardia 70 kg")
+        self.assertEqual(r.protocol, "tmpsmx")
+        self.assertTrue(r.needs_clarification)
+
+    def test_out_of_range_weight_confirms(self):
+        r = self.R.route("tmpsmx PCP 400 kg gfr 50")
+        self.assertEqual(r.protocol, "tmpsmx")
+        self.assertTrue(r.needs_clarification)
+        self.assertIn("confirmation", r.answer.lower())
+
+    def test_llm_path_dispatches_table(self):
+        prov = ScriptedProvider(ToolCall(
+            name="get_table_dose",
+            arguments={"table_id": "tmpsmx", "indication": "PCP pneumonia",
+                       "body_weight_kg": 70, "gfr": 40}))
+        # a message with no deterministic table alias → falls to the LLM stage
+        r = self.R.route("what co_trim should I give", provider=prov)
+        self.assertEqual(r.route, "table_lookup")
+        self.assertEqual(r.protocol, "tmpsmx")
+        self.assertEqual(r.table.indication_tier, "HIGH_DOSE")
+
+    def test_llm_unknown_table_id_is_unsupported(self):
+        prov = ScriptedProvider(ToolCall(
+            name="get_table_dose",
+            arguments={"table_id": "not_a_table", "indication": "PCP"}))
+        r = self.R.route("zzzqqq nonsense", provider=prov)
+        self.assertEqual(r.route, "unsupported")

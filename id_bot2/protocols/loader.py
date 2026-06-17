@@ -303,11 +303,137 @@ def _check_prose(rec: dict, problems: list[str]) -> None:
             problems.append(f"{where}: 'aliases' must be a list of strings")
 
 
+_TABLE_TYPES = ("dosing_table", "fixed_dose", "prophylaxis", "renal_warning")
+
+
+def _check_table_lookup(rec: dict, problems: list[str]) -> None:
+    if "slots" in rec:
+        _check_slots(rec["slots"], problems)
+
+    # indication_rules: ordered keyword->tier classifier.
+    irules = rec.get("indication_rules")
+    if not isinstance(irules, list) or not irules:
+        problems.append("'indication_rules' must be a non-empty list")
+    else:
+        for i, r in enumerate(irules):
+            where = f"indication_rules[{i}]"
+            if not isinstance(r, dict):
+                problems.append(f"{where}: must be a mapping")
+                continue
+            if not r.get("tier") or not _is_str(r["tier"]):
+                problems.append(f"{where}: missing 'tier' (string)")
+            if not _is_list_of_str(r.get("contains")):
+                problems.append(f"{where}: 'contains' must be a list of strings")
+
+    # renal_rules: ordered guard->category ladder + terminal default.
+    rrules = rec.get("renal_rules")
+    if not isinstance(rrules, list) or not rrules:
+        problems.append("'renal_rules' must be a non-empty list (the renal ladder)")
+    else:
+        saw_default = False
+        for i, r in enumerate(rrules):
+            where = f"renal_rules[{i}]"
+            if not isinstance(r, dict):
+                problems.append(f"{where}: must be a mapping")
+                continue
+            if "default" in r:
+                saw_default = True
+                if not _is_str(r["default"]):
+                    problems.append(f"{where}: 'default' must be a string")
+                continue
+            if "if" not in r or not _is_str(r["if"]):
+                problems.append(f"{where}: needs an 'if' guard (string) or a 'default'")
+            if not r.get("category") or not _is_str(r.get("category")):
+                problems.append(f"{where}: guard needs a 'category' (string) target")
+        if not saw_default:
+            problems.append("'renal_rules' has no terminal {default: ...} rung")
+
+    # tables: keyed verbatim outputs.
+    tables = rec.get("tables")
+    table_names: set = set()
+    if not isinstance(tables, dict) or not tables:
+        problems.append("'tables' must be a non-empty mapping of KEY -> {type, ...}")
+    else:
+        table_names = set(tables.keys())
+        for tname, tspec in tables.items():
+            where = f"table '{tname}'"
+            if not isinstance(tspec, dict):
+                problems.append(f"{where}: must be a mapping")
+                continue
+            ttype = tspec.get("type")
+            if ttype not in _TABLE_TYPES:
+                problems.append(f"{where}: type {ttype!r} not in {list(_TABLE_TYPES)}")
+            if ttype == "dosing_table":
+                rows = tspec.get("rows")
+                if not isinstance(rows, list) or not rows:
+                    problems.append(f"{where}: dosing_table needs a non-empty 'rows' list")
+                else:
+                    for j, row in enumerate(rows):
+                        rw = f"{where} rows[{j}]"
+                        if not isinstance(row, dict):
+                            problems.append(f"{rw}: must be a mapping")
+                            continue
+                        if not isinstance(row.get("weight_kg"), (int, float)):
+                            problems.append(f"{rw}: 'weight_kg' must be a number")
+                        if not _is_str(row.get("practical_dose")):
+                            problems.append(f"{rw}: 'practical_dose' must be a string")
+            else:
+                # fixed_dose / prophylaxis / renal_warning carry verbatim text.
+                if not any(_is_str(tspec.get(k)) for k in ("text", "text_en", "text_hu")):
+                    problems.append(f"{where}: needs verbatim 'text'/'text_en'/'text_hu'")
+            for skey in ("target", "renal_adjustment", "text", "text_en", "text_hu"):
+                if skey in tspec and not _is_str(tspec[skey]):
+                    problems.append(f"{where}: '{skey}' must be a string")
+
+    # prophylaxis_tables: renal_category -> table name (all must resolve).
+    ptab = rec.get("prophylaxis_tables")
+    if ptab is not None:
+        if not isinstance(ptab, dict):
+            problems.append("'prophylaxis_tables' must be a mapping of category -> table name")
+        else:
+            for cat, target in ptab.items():
+                if not _is_str(target):
+                    problems.append(f"prophylaxis_tables[{cat}]: value must be a string")
+                elif table_names and target not in table_names:
+                    problems.append(f"prophylaxis_tables[{cat}]: {target!r} is not a "
+                                    f"defined table {sorted(table_names)}")
+
+    info = rec.get("info_blocks")
+    if info is not None:
+        if not isinstance(info, dict):
+            problems.append("'info_blocks' must be a mapping of name -> {text}")
+        else:
+            for iname, ispec in info.items():
+                if not isinstance(ispec, dict):
+                    problems.append(f"info_blocks['{iname}']: must be a mapping")
+                    continue
+                if not _is_str(ispec.get("text")):
+                    problems.append(f"info_blocks['{iname}']: needs 'text' (string)")
+                if "aliases" in ispec and not _is_list_of_str(ispec["aliases"]):
+                    problems.append(f"info_blocks['{iname}']: 'aliases' must be a list of strings")
+
+    if "requires" in rec and not _is_list_of_str(rec["requires"]):
+        problems.append("'requires' must be a list of strings")
+    if "never" in rec and not _is_list_of_str(rec["never"]):
+        problems.append("'never' must be a list of strings")
+    if "weight_slot" in rec and not _is_str(rec["weight_slot"]):
+        problems.append("'weight_slot' must be a string")
+    for nkey in ("supported_weight_min", "supported_weight_max"):
+        if nkey in rec and not isinstance(rec[nkey], (int, float)):
+            problems.append(f"'{nkey}' must be a number")
+    for skey in ("output_template_en", "output_template_hu",
+                 "default_answer", "default_answer_hu",
+                 "missing_inputs", "missing_inputs_hu"):
+        if skey in rec and not _is_str(rec[skey]):
+            problems.append(f"'{skey}' must be a string")
+
+
 _KIND_CHECKERS = {
     "drug_dose": _check_drug_dose,
     "pcr_panel": _check_pcr_panel,
     "pathway": _check_pathway,
     "prose": _check_prose,
+    "table_lookup": _check_table_lookup,
 }
 
 

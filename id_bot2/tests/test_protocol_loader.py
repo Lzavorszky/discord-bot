@@ -30,7 +30,7 @@ BAD = os.path.join(FIX, "bad")
 # Schema enums / JSON Schema sanity                                           #
 # --------------------------------------------------------------------------- #
 def test_kinds_and_json_schema_consistent():
-    assert set(schema.KINDS) == {"drug_dose", "pcr_panel", "pathway", "prose"}
+    assert set(schema.KINDS) == {"drug_dose", "pcr_panel", "pathway", "prose", "table_lookup"}
     js = schema.PROTOCOL_JSON_SCHEMA
     assert js["required"] == ["id", "kind"]
     # every kind has a required-fields entry
@@ -330,3 +330,98 @@ def test_main_red_over_alias_collision():
 def test_main_green_when_dir_empty(tmp_path):
     # An empty protocols dir (nothing migrated yet) must stay green.
     assert VP.main([str(tmp_path)]) == 0
+
+
+# --------------------------------------------------------------------------- #
+# table_lookup kind (tmpsmx) — Phase 2.5 final / "final migration phase".      #
+# --------------------------------------------------------------------------- #
+def _good_table_lookup():
+    return {
+        "id": "tmpsmx", "kind": "table_lookup",
+        "slots": {
+            "indication": {"type": "string"},
+            "body_weight_kg": {"type": "number", "min": 1, "max": 300,
+                               "on_out_of_range": "ask_confirmation"},
+            "gfr": {"type": "number", "min": 0, "max": 250,
+                    "on_out_of_range": "ask_confirmation"},
+            "crrt": {"type": "bool"}, "ihd": {"type": "bool"},
+        },
+        "requires": ["indication"],
+        "indication_rules": [
+            {"tier": "HIGH_DOSE", "contains": ["pcp", "nocardia"]},
+            {"tier": "PROPHYLAXIS", "contains": ["prophylaxis"]},
+        ],
+        "renal_rules": [
+            {"if": "crrt", "category": "GFR_GT_30_OR_CRRT"},
+            {"if": "gfr > 30", "category": "GFR_GT_30_OR_CRRT"},
+            {"default": "UNKNOWN"},
+        ],
+        "tables": {
+            "HIGH_DOSE_GFR_GT_30_OR_CRRT": {
+                "type": "dosing_table", "target": "15-20 mg/kg/day",
+                "rows": [
+                    {"weight_kg": 40, "practical_dose": "4 x 2 amp",
+                     "total": "640/3200 mg daily"},
+                    {"weight_kg": 70, "practical_dose": "3 x 4 amp",
+                     "total": "960/4800 mg daily"},
+                ],
+            },
+            "PROPHYLAXIS_GENERAL": {
+                "type": "prophylaxis", "text_en": "1 tablet daily"},
+        },
+        "prophylaxis_tables": {"UNKNOWN": "PROPHYLAXIS_GENERAL"},
+    }
+
+
+def test_valid_table_lookup():
+    assert loader.validate_record(_good_table_lookup()) == []
+
+
+def test_table_lookup_requires_tables_and_rules():
+    rec = {"id": "tmpsmx", "kind": "table_lookup"}
+    probs = loader.validate_record(rec)
+    assert any("requires 'tables'" in p for p in probs)
+    assert any("requires 'indication_rules'" in p for p in probs)
+    assert any("requires 'renal_rules'" in p for p in probs)
+
+
+def test_table_lookup_dosing_table_needs_rows():
+    rec = _good_table_lookup()
+    rec["tables"]["HIGH_DOSE_GFR_GT_30_OR_CRRT"]["rows"] = []
+    probs = loader.validate_record(rec)
+    assert any("non-empty 'rows'" in p for p in probs)
+
+
+def test_table_lookup_row_needs_practical_dose():
+    rec = _good_table_lookup()
+    rec["tables"]["HIGH_DOSE_GFR_GT_30_OR_CRRT"]["rows"][0] = {"weight_kg": 40}
+    probs = loader.validate_record(rec)
+    assert any("practical_dose" in p for p in probs)
+
+
+def test_table_lookup_renal_rules_need_default():
+    rec = _good_table_lookup()
+    rec["renal_rules"] = [{"if": "crrt", "category": "GFR_GT_30_OR_CRRT"}]
+    probs = loader.validate_record(rec)
+    assert any("no terminal {default" in p for p in probs)
+
+
+def test_table_lookup_prophylaxis_table_must_resolve():
+    rec = _good_table_lookup()
+    rec["prophylaxis_tables"] = {"UNKNOWN": "DOES_NOT_EXIST"}
+    probs = loader.validate_record(rec)
+    assert any("is not a defined table" in p for p in probs)
+
+
+def test_table_lookup_fixed_dose_needs_text():
+    rec = _good_table_lookup()
+    rec["tables"]["STANDARD"] = {"type": "fixed_dose"}
+    probs = loader.validate_record(rec)
+    assert any("verbatim 'text'" in p for p in probs)
+
+
+def test_table_lookup_bad_table_type():
+    rec = _good_table_lookup()
+    rec["tables"]["WEIRD"] = {"type": "not_a_type", "text_en": "x"}
+    probs = loader.validate_record(rec)
+    assert any("not in ['dosing_table'" in p for p in probs)

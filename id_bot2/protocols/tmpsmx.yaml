@@ -1,0 +1,354 @@
+# tmpsmx.yaml — kind: table_lookup  (the "final migration phase" — Plan D)
+# Migrated VERBATIM from protocols/antibiotics/tmpsmx.txt (source v0.1) +
+# tmpsmx.route_claims.json. Every dose figure, table row, fixed-dose, prophylaxis
+# option and renal warning below is copied character-for-character from the
+# source SELECTED_OUTPUTS; nothing is computed or composed here.
+#
+# This is a NEW engine kind: a 2-D {indication_tier}_{renal_category} table
+# lookup with required-slot gating (ask when indication/weight/renal missing) and
+# weight-band ("closest practical row") dosing. It carries the original F3/F4 bug
+# fixes (the old bot returned the PROPHYLAXIS path instead of the high-dose
+# treatment path): indication is CLASSIFIED first, so "PCP treatment" lands on
+# HIGH_DOSE, never PROPHYLAXIS.
+#
+# Clinical hand-check vs source: id_bot2/docs/tmpsmx_handcheck.md (sign-off PENDING).
+id: tmpsmx
+kind: table_lookup
+source_label: TMP/SMX
+canonical_name: trimethoprim/sulfamethoxazole
+status: draft
+version: 0.1
+
+# --- aliases: full set from source ## ALIASES (verbatim) ---
+aliases:
+  - tmp/smx
+  - tmpsmx
+  - tmp-smx
+  - tmp smx
+  - co-trimoxazole
+  - cotrimoxazole
+  - sumetrolim
+  - sumetrolim forte
+  - trimethoprim/sulfamethoxazole
+  - trimethoprim-sulfamethoxazole
+  - bactrim
+  - septrin
+
+# --- routing metadata (was tmpsmx.route_claims.json) ---
+answers_intents: [dose, info]
+refuses_intents: [coverage_question, targeted_treatment]
+
+# --- slots (was SLOT_SCHEMA + INPUT_SLOTS) ---
+slots:
+  indication:     { type: string }
+  body_weight_kg: { type: number, unit: kg,     min: 1, max: 300, on_out_of_range: ask_confirmation }
+  gfr:            { type: number, unit: mL/min,  min: 0, max: 250, on_out_of_range: ask_confirmation }
+  crrt:           { type: bool }
+  ihd:            { type: bool }
+
+# Required before ANY treatment selection (source STEP CHECK_REQUIRED_INPUTS).
+# Without indication -> default_answer (show the indication groups, ask).
+requires: [indication]
+
+# Weight banding (source SLOT body_weight_kg + ## weight INFO_BLOCK).
+weight_slot: body_weight_kg
+supported_weight_min: 40
+supported_weight_max: 100
+
+# --- STEP CLASSIFY_INDICATION (source ### INDICATION_RULES), ordered ---
+# First rule whose keywords appear in the indication text wins. Order matters:
+# HIGH_DOSE (most specific/serious) is checked first so e.g. "PCP" -> HIGH_DOSE.
+indication_rules:
+  # DEVIATION FROM SOURCE ORDER (flagged for sign-off): an EXPLICIT prophylaxis
+  # intent word pre-empts the treatment tiers, so "PCP prophylaxis" -> PROPHYLAXIS
+  # (1 tablet), never HIGH_DOSE (15-20 mg/kg/day). The source listed HIGH_DOSE
+  # first; read literally that would over-dose "PCP prophylaxis". A treatment
+  # indication never contains "prophylaxis"/"prophylactic", so the F3/F4 fix
+  # (treatment indications reach the treatment dose) is preserved.
+  - tier: PROPHYLAXIS
+    contains: [prophylaxis, prophylactic, "pcp prophylaxis", "pjp prophylaxis"]
+  - tier: HIGH_DOSE
+    contains: [pcp, pjp, pneumocystis, "pneumocystis jirovecii", steno,
+               stenotrophomonas, "stenotrophomonas maltophilia",
+               "bloodstream infection", bsi, bacteraemia, bacteremia, nocardia]
+  - tier: MODERATE_DOSE
+    contains: [severe, cns, meningitis, "brain abscess", bone, joint,
+               osteomyelitis, "septic arthritis", refractory, icu,
+               "critically ill", deep-seated, "severe ssti",
+               "severe skin soft tissue"]
+  - tier: STANDARD_DOSE
+    contains: [standard, susceptible, non-septic, nonseptic, "oral step-down",
+               stepdown, "step down", uncomplicated, "susceptible infection"]
+  # remaining (non-explicit) prophylaxis signals — only reached when NO treatment
+  # keyword is present (so an immunosuppressed patient WITH e.g. PCP pneumonia
+  # still classifies HIGH_DOSE above).
+  - tier: PROPHYLAXIS
+    contains: [immunosuppressed, immunosuppression, hematology, haematology,
+               transplant]
+
+# --- STEP CLASSIFY_RENAL (source ### RENAL_RULES), ordered ladder ---
+# Reuses get_dose's restricted-AST guard evaluator. First firing guard wins; a
+# None (unprovided) gfr makes its comparisons False, so a renal-unknown request
+# falls through to the terminal default (UNKNOWN).
+renal_rules:
+  - { if: "crrt",                   category: GFR_GT_30_OR_CRRT, comment: "full dose generally required" }
+  - { if: "ihd",                    category: IHD,               comment: "dose after dialysis; individualized" }
+  - { if: "gfr > 30",               category: GFR_GT_30_OR_CRRT, comment: "full dose" }
+  - { if: "gfr >= 15 and gfr <= 30", category: GFR_15_TO_30,      comment: "approximately 50% of selected dose" }
+  - { if: "gfr < 15",               category: GFR_LT_15_WITHOUT_CRRT, comment: "avoid if alternative exists" }
+  - { default: UNKNOWN }
+
+# --- STEP SELECT_TABLE / SELECT_WEIGHT_ROW (source ## SELECTED_OUTPUTS) ---
+# Each table is VERBATIM from the source. dosing_table rows carry the source
+# table cells unchanged; fixed_dose / prophylaxis / renal_warning carry verbatim
+# text. The tool renders a selected row through output_template_en (the source
+# ### FINAL_SELECTED template), slotting these verbatim cell values.
+tables:
+  HIGH_DOSE_GFR_GT_30_OR_CRRT:
+    type: dosing_table
+    target: "15-20 mg/kg/day TMP component"
+    renal_adjustment: "100%"
+    rows:
+      - { weight_kg: 40,  target: "600-800 mg",   practical_dose: "4 x 2 amp", total: "640/3200 mg daily" }
+      - { weight_kg: 50,  target: "750-1000 mg",  practical_dose: "3 x 3 amp", total: "720/3600 mg daily" }
+      - { weight_kg: 60,  target: "900-1200 mg",  practical_dose: "3 x 4 amp", total: "960/4800 mg daily" }
+      - { weight_kg: 70,  target: "1050-1400 mg", practical_dose: "3 x 4 amp", total: "960/4800 mg daily" }
+      - { weight_kg: 80,  target: "1200-1600 mg", practical_dose: "3 x 5 amp", total: "1200/6000 mg daily" }
+      - { weight_kg: 90,  target: "1350-1800 mg", practical_dose: "4 x 4 amp", total: "1280/6400 mg daily" }
+      - { weight_kg: 100, target: "1500-2000 mg", practical_dose: "3 x 6 amp", total: "1440/7200 mg daily" }
+
+  HIGH_DOSE_GFR_15_TO_30:
+    type: dosing_table
+    target: "approximately 7.5-10 mg/kg/day TMP after renal reduction"
+    renal_adjustment: "approximately 50%"
+    rows:
+      - { weight_kg: 40,  target: "300-400 mg",  practical_dose: "2 x 2 amp", total: "320/1600 mg daily" }
+      - { weight_kg: 50,  target: "375-500 mg",  practical_dose: "2 x 3 amp", total: "480/2400 mg daily" }
+      - { weight_kg: 60,  target: "450-600 mg",  practical_dose: "2 x 3 amp", total: "480/2400 mg daily" }
+      - { weight_kg: 70,  target: "525-700 mg",  practical_dose: "2 x 4 amp", total: "640/3200 mg daily" }
+      - { weight_kg: 80,  target: "600-800 mg",  practical_dose: "3 x 3 amp", total: "720/3600 mg daily" }
+      - { weight_kg: 90,  target: "675-900 mg",  practical_dose: "3 x 3 amp", total: "720/3600 mg daily" }
+      - { weight_kg: 100, target: "750-1000 mg", practical_dose: "3 x 4 amp", total: "960/4800 mg daily" }
+
+  MODERATE_DOSE_GFR_GT_30_OR_CRRT:
+    type: dosing_table
+    target: "8-10 mg/kg/day TMP component"
+    renal_adjustment: "100%"
+    rows:
+      - { weight_kg: 40,  target: "320-400 mg",  practical_dose: "2 x 2 amp", total: "320/1600 mg daily" }
+      - { weight_kg: 50,  target: "400-500 mg",  practical_dose: "2 x 3 amp", total: "480/2400 mg daily" }
+      - { weight_kg: 60,  target: "480-600 mg",  practical_dose: "2 x 3 amp", total: "480/2400 mg daily" }
+      - { weight_kg: 70,  target: "560-700 mg",  practical_dose: "2 x 4 amp", total: "640/3200 mg daily" }
+      - { weight_kg: 80,  target: "640-800 mg",  practical_dose: "3 x 3 amp", total: "720/3600 mg daily" }
+      - { weight_kg: 90,  target: "720-900 mg",  practical_dose: "3 x 3 amp", total: "720/3600 mg daily" }
+      - { weight_kg: 100, target: "800-1000 mg", practical_dose: "3 x 4 amp", total: "960/4800 mg daily" }
+
+  MODERATE_DOSE_GFR_15_TO_30:
+    type: dosing_table
+    target: "approximately 4-5 mg/kg/day TMP after renal reduction"
+    renal_adjustment: "approximately 50%"
+    rows:
+      - { weight_kg: 40,  target: "160-200 mg", practical_dose: "2 x 1 amp", total: "160/800 mg daily" }
+      - { weight_kg: 50,  target: "200-250 mg", practical_dose: "3 x 1 amp", total: "240/1200 mg daily" }
+      - { weight_kg: 60,  target: "240-300 mg", practical_dose: "3 x 1 amp", total: "240/1200 mg daily" }
+      - { weight_kg: 70,  target: "280-350 mg", practical_dose: "2 x 2 amp", total: "320/1600 mg daily" }
+      - { weight_kg: 80,  target: "320-400 mg", practical_dose: "2 x 2 amp", total: "320/1600 mg daily" }
+      - { weight_kg: 90,  target: "360-450 mg", practical_dose: "2 x 3 amp", total: "480/2400 mg daily" }
+      - { weight_kg: 100, target: "400-500 mg", practical_dose: "2 x 3 amp", total: "480/2400 mg daily" }
+
+  STANDARD_DOSE_GFR_GT_30_OR_CRRT:
+    type: fixed_dose
+    target: "fixed practical dose"
+    text_en: |
+      Standard susceptible infection / non-septic infection / oral step-down:
+      practical dose 2 x 2 amp; total daily TMP/SMX 320/1600 mg daily.
+
+  STANDARD_DOSE_GFR_15_TO_30:
+    type: fixed_dose
+    target: "fixed practical dose, approximately 50% (GFR 15-30)"
+    text_en: |
+      Standard susceptible infection with GFR 15-30 (approximately 50%):
+      practical dose 2 x 1 amp; total daily TMP/SMX 160/800 mg daily.
+
+  PROPHYLAXIS_GENERAL:
+    type: prophylaxis
+    text_en: |
+      PCP/PJP prophylaxis; prophylaxis in immunosuppressed patient.
+      Practical options:
+      - 1 tablet daily
+      - 1 tablet three times weekly
+      Provide renal function if renal impairment is suspected or known.
+
+  PROPHYLAXIS_GFR_GT_30_OR_CRRT:
+    type: prophylaxis
+    text_en: |
+      PCP/PJP prophylaxis; prophylaxis in immunosuppressed patient.
+      Practical options:
+      - 1 tablet daily
+      - 1 tablet three times weekly
+      Discuss with hematology / treating specialty if prolonged prophylaxis.
+
+  PROPHYLAXIS_GFR_15_TO_30:
+    type: prophylaxis
+    text_en: |
+      Prophylaxis with GFR 15-30.
+      Practical options:
+      - 1 tablet three times weekly
+      Discuss with hematology / treating specialty.
+
+  GFR_LT_15_WITHOUT_CRRT:
+    type: renal_warning
+    text_en: |
+      GFR <15 without CRRT: avoid TMP/SMX if alternative exists; if unavoidable,
+      individualized ID/pharmacy decision.
+
+  IHD:
+    type: renal_warning
+    text_en: |
+      IHD: individualized dosing; dose after dialysis; ID/pharmacy decision
+      recommended.
+
+# How a PROPHYLAXIS-tier request maps the classified renal_category to a table.
+# GFR_LT_15 / IHD route to the verbatim renal warning (the safe answer); an
+# unknown renal status returns the general prophylaxis options (allowed without
+# weight/renal per ## RESTRICTED_OUTPUTS).
+prophylaxis_tables:
+  UNKNOWN:                 PROPHYLAXIS_GENERAL
+  GFR_GT_30_OR_CRRT:       PROPHYLAXIS_GFR_GT_30_OR_CRRT
+  GFR_15_TO_30:            PROPHYLAXIS_GFR_15_TO_30
+  GFR_LT_15_WITHOUT_CRRT:  GFR_LT_15_WITHOUT_CRRT
+  IHD:                     IHD
+
+# --- ### FINAL_SELECTED render template (source OUTPUT_TEMPLATES), verbatim ---
+output_template_en: |
+  TMP/SMX - {indication_tier}
+  - body weight: {body_weight_kg} kg
+  - renal function: {renal_category}
+  - target: {target}
+  - practical dose: {practical_dose}
+  - total daily dose: {total_daily_tmp_smx}
+  - same dose enterally if absorption is expected
+output_template_hu: |
+  TMP/SMX - {indication_tier}
+  - testsuly: {body_weight_kg} kg
+  - vesefunkcio: {renal_category}
+  - cel: {target}
+  - javasolt praktikus dozis: {practical_dose}
+  - napi osszesen: {total_daily_tmp_smx}
+  - enteralisan ugyanennyi adhato, ha felszivodas varhato
+
+# --- ## DEFAULT_ANSWER (verbatim) — shown when indication is missing/unclassified ---
+default_answer: |
+  TMP/SMX dosing needs:
+  - indication
+
+  For treatment exact practical dosing, also send:
+  - body weight in kg
+  - renal function: GFR/eGFR/CrCl or CRRT/IHD
+
+  For prophylaxis, the protocol can return fixed prophylaxis options from indication alone.
+
+  Indication groups:
+  1. PCP/PJP treatment, Stenotrophomonas BSI, Nocardia -> HIGH_DOSE
+  2. Severe/CNS/bone-joint/refractory/ICU infection -> MODERATE_DOSE
+  3. Standard susceptible infection or oral step-down -> STANDARD_DOSE
+  4. Prophylaxis in immunosuppressed patient -> PROPHYLAXIS
+default_answer_hu: |
+  TMP/SMX dozishoz kell:
+  - indikacio
+  - testsuly kg-ban
+  - vesefunkcio: GFR/eGFR/CrCl vagy CRRT/IHD
+
+  Indikacios csoportok:
+  1. PCP/PJP kezeles, Stenotrophomonas BSI, Nocardia -> HIGH_DOSE
+  2. Sulyos/CNS/csont-izuleti/refrakter/ICU infekcio -> MODERATE_DOSE
+  3. Standard erzekeny infekcio vagy oral step-down -> STANDARD_DOSE
+  4. Profilaxis immunszupprimalt betegben -> PROPHYLAXIS
+
+# --- ### MISSING_INPUTS (verbatim) — treatment tier known but weight/renal missing ---
+missing_inputs: |
+  TMP/SMX dosing needs indication, body weight and GFR/CRRT/IHD. Send the missing data.
+  If indication is missing, also show the indication groups from DEFAULT_ANSWER.
+missing_inputs_hu: |
+  TMP/SMX dozishoz szukseges: indikacio, testsuly es GFR/CRRT/IHD. Kuldd el a hianyzokat.
+  Ha az indikacio hianyzik, mutasd a DEFAULT_ANSWER indikacios csoportjait is.
+
+# --- ## INFO_BLOCKS (verbatim) — info requests answered only from here, no dosing ---
+info_blocks:
+  toxicity:
+    aliases: [toxicity, adverse effect, adverse effects, hyperkalemia, side effect, side effects]
+    text: |
+      Potential adverse effects listed in this protocol:
+      - hyperkalemia
+      - hyponatremia
+      - AKI
+      - crystalluria
+      - pseudo-creatinine elevation
+      - leukopenia
+      - thrombocytopenia
+      - pancytopenia
+      - megaloblastic anemia
+      - benign liver enzyme elevation
+      - SJS/TEN
+      - DRESS
+      - nausea
+      - vomiting
+
+      High-risk toxicity situations:
+      - renal dysfunction
+      - high-dose treatment
+      - prolonged treatment
+      - elderly patient
+      - ACE inhibitor / ARB / spironolactone / other hyperkalemia risk
+
+      Do not provide dosing from this block.
+  monitoring:
+    aliases: [monitoring, monitor, cbc, potassium, creatinine, sodium]
+    text: |
+      Monitor:
+      - potassium
+      - creatinine
+      - sodium
+      - CBC
+
+      Check potassium and creatinine within 48h.
+  renal:
+    aliases: [renal, kidney, renal function]
+    text: |
+      Renal function is required before TMP/SMX treatment dosing.
+      GFR >30 or CRRT: full dose category.
+      GFR 15-30: approximately 50% treatment dose category.
+      GFR <15 without CRRT: avoid if alternative exists; if unavoidable, individualized ID/pharmacy decision.
+      IHD: individualized dosing, dose after dialysis, ID/pharmacy decision recommended.
+
+      Do not select a treatment dose from this block; use the selection rules and tables.
+  formulation:
+    aliases: [formulation, ampoule, tablet, enteral, oral]
+    text: |
+      1 ampoule contains 80 mg trimethoprim and 400 mg sulfamethoxazole.
+      1 tablet contains 80 mg trimethoprim and 400 mg sulfamethoxazole.
+      Enteral administration uses the same dose as IV if absorption is expected.
+  weight:
+    aliases: [weight, body weight, adjusted body weight, bmi, obese, obesity]
+    text: |
+      Use actual body weight.
+      If BMI >30, use adjusted body weight if available.
+      If adjusted body weight is not available and obesity is relevant, ask for height or adjusted body weight.
+      If body weight >100 kg, individualized dosing decision is required and ID/pharmacy consultation is recommended.
+      If body weight is between table rows, use the closest practical dose that stays within or near the selected TMP mg/kg/day target.
+      Avoid underdosing severe infection.
+
+# --- never (was ## RESTRICTED_OUTPUTS + ## SAFETY_RULES) ---
+never:
+  - patient-specific TMP/SMX treatment dose unless indication, body weight, and renal function are available
+  - empiric/default TMP/SMX treatment dose
+  - doses outside the listed tables
+  - toxicity management not present in the info blocks
+  - in severe infections, do not underdose
+
+# --- footer (was ## DEFAULT_FOOTER, verbatim) ---
+footer: |
+  Formulation: (iv and enteral are equivalent)
+  ampoule: 80 mg trimethoprim / 400 mg sulfamethoxazole
+  tablet: 80 mg trimethoprim / 400 mg sulfamethoxazole
+  Guidelines generally refer to the trimethoprim component

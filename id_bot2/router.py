@@ -59,6 +59,7 @@ from loader import load_protocol_dir              # noqa: E402
 import get_dose as _gd                            # noqa: E402
 import interpret_pcr as _ip                       # noqa: E402
 import select_pathway as _sp                     # noqa: E402
+import get_table_dose as _td                     # noqa: E402
 from llm.tools import Tool, ToolCall              # noqa: E402
 from verifier import verify_grounding             # noqa: E402
 
@@ -120,6 +121,7 @@ class RouterResult:
     dose: object = None              # the DoseResult, when route == "drug_dose"
     pcr: object = None               # the PcrResult, when route == "pcr_panel"
     pathway: object = None           # the PathwayResult, when route == "pathway"
+    table: object = None             # the TableDoseResult, when route == "table_lookup"
     organisms: list = field(default_factory=list)  # detected organisms (pcr)
     markers: list = field(default_factory=list)    # detected markers (pcr)
     phrased: bool = False            # True if the phrasing model rewrote the answer
@@ -671,6 +673,122 @@ def _get_pathway_tools(pathways: dict) -> list:
 
 
 # --------------------------------------------------------------------------- #
+# table_lookup registry + resolver (Plan D, final migration phase). A named
+# table_lookup protocol (today only tmpsmx / TMP-SMX) is a strong, drug-like
+# signal — its aliases never collide with the other kinds — so it is resolved in
+# the drug stage, AHEAD of the generic drug_dose resolver. The whole user message
+# is handed to the tool as the free-text `indication`; the tool's own
+# indication_rules classify it (so "PCP treatment" -> HIGH_DOSE, "PCP
+# prophylaxis" -> PROPHYLAXIS — the F3/F4 fix). gfr / body_weight / crrt / ihd are
+# keyword-extracted with the SAME drug-slot vocabulary.
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class _TableEntry:
+    table_id: str
+    aliases: tuple            # folded aliases, longest first
+    slots: tuple              # declared slot names
+
+
+@dataclass(frozen=True)
+class TableCall:
+    """A deterministic (or LLM) table_lookup routing decision."""
+    tool: str                 # get_table_dose
+    table_id: str
+    slots: dict = field(default_factory=dict)
+    via: str = "deterministic"
+
+
+def _build_table_registry(protocols_dir) -> dict:
+    records = load_protocol_dir(protocols_dir)
+    reg: dict = {}
+    for _path, rec in records:
+        if rec.get("kind") != "table_lookup":
+            continue
+        tid = rec["id"]
+        aliases = set(rec.get("aliases") or [])
+        aliases.add(tid)
+        aliases.add(rec.get("canonical_name") or "")
+        aliases.add(rec.get("source_label") or "")
+        folded = tuple(sorted(
+            {_norm(a) for a in aliases if a and a.strip()}, key=len, reverse=True))
+        reg[tid] = _TableEntry(
+            table_id=tid, aliases=folded,
+            slots=tuple((rec.get("slots") or {}).keys()))
+    return reg
+
+
+def _match_tables(folded_msg: str, tables: dict) -> list:
+    spans = []
+    for tid, entry in tables.items():
+        for alias in entry.aliases:        # longest alias first
+            m = re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", folded_msg)
+            if m:
+                spans.append((m.start(), m.end(), tid))
+                break
+    kept = _span_dedup(spans)
+    out, seen = [], set()
+    for _s, _e, tid in kept:
+        if tid not in seen:
+            seen.add(tid)
+            out.append(tid)
+    return out
+
+
+def resolve_table(message: str, tables: dict):
+    """Deterministic table_lookup stage. Returns:
+        * a TableCall          — exactly one table_lookup protocol named
+        * a list[str]          — >1 named (ambiguous; ids)
+        * None                 — none named (let pathway/drug logic run)
+    """
+    folded = _norm(message)
+    matched = _match_tables(folded, tables)
+    if not matched:
+        return None
+    if len(matched) > 1:
+        return matched
+    tid = matched[0]
+    declared = tables[tid].slots
+    slots = _extract_slots(folded, declared)         # gfr/weight/crrt/ihd
+    # The whole (mojibake-repaired) message is the free-text indication the tool
+    # classifies. Passing the raw message is safe: alias tokens never match an
+    # indication keyword.
+    slots["indication"] = repair_mojibake(message or "")
+    return TableCall(tool="get_table_dose", table_id=tid, slots=slots,
+                     via="deterministic")
+
+
+def _get_table_tools(tables: dict) -> list:
+    """The get_table_dose tool exposed to the LLM: table_id constrained to the
+    loaded table_lookup protocols (closed enum), plus the dosing slots. The model
+    fills `indication` with the clinical indication text; the tool classifies it."""
+    if not tables:
+        return []
+    tool = Tool(
+        name="get_table_dose",
+        description=("Return the approved dose for a 2-D table-lookup protocol "
+                     "(TMP/SMX). Pass `indication` as the clinical indication text "
+                     "the user stated (e.g. 'PCP treatment', 'PCP prophylaxis', "
+                     "'severe CNS infection'); set body_weight_kg / gfr / crrt / "
+                     "ihd only if the user stated them. Never invent values."),
+        parameters={
+            "type": "object",
+            "properties": {
+                "table_id": {"type": "string", "enum": sorted(tables.keys()),
+                             "description": "Which table-lookup protocol."},
+                "indication": {"type": "string",
+                               "description": "The clinical indication, verbatim."},
+                "body_weight_kg": {"type": "number"},
+                "gfr": {"type": "number"},
+                "crrt": {"type": "boolean"},
+                "ihd": {"type": "boolean"},
+            },
+            "required": ["table_id"],
+        },
+    )
+    return [tool]
+
+
+# --------------------------------------------------------------------------- #
 # The router                                                                  #
 # --------------------------------------------------------------------------- #
 _BOOL_SLOT_NAMES = set(_BOOL_SLOTS)
@@ -762,10 +880,14 @@ class Router:
         # Pathway protocols (Phase 2.5 cont.): a parallel registry + tool schema.
         self.pathways = _build_pathway_registry(self.protocols_dir)
         self._pathway_tools = _get_pathway_tools(self.pathways)
+        # table_lookup protocols (final migration phase): parallel registry + tool.
+        self.tables = _build_table_registry(self.protocols_dir)
+        self._table_tools = _get_table_tools(self.tables)
 
     # public ---------------------------------------------------------------
     def tools(self) -> list[Tool]:
-        return [self._tool, *self._pcr_tools, *self._pathway_tools]
+        return [self._tool, *self._pcr_tools, *self._pathway_tools,
+                *self._table_tools]
 
     def route(self, message: str, *, provider=None, phrasing_provider=None) -> RouterResult:
         phraser = phrasing_provider or self.phrasing_provider
@@ -780,7 +902,23 @@ class Router:
                 candidates=pcr, via="deterministic",
                 answer=("Which panel do you mean: " + ", ".join(pcr) + "?"))
 
-        # 1b) deterministic PATHWAY stage — a NAMED empiric/diagnostic pathway
+        # 1b) deterministic TABLE_LOOKUP stage — a named table_lookup protocol
+        #     (tmpsmx / TMP-SMX) is an explicit, specific drug-dose request. Its
+        #     free-text indication often contains a clinical-syndrome word (e.g.
+        #     "PCP pneumonia") that would otherwise trip a pathway alias, so a
+        #     table_lookup explicitly named by the user wins over an incidental
+        #     pathway keyword. (A pathway query never names a tmpsmx alias.)
+        #     Precedence: named panel > named table_lookup > named pathway > drug.
+        tbl = resolve_table(message, self.tables)
+        if isinstance(tbl, TableCall):
+            return self._run_table_call(tbl)
+        if isinstance(tbl, list):                # >1 table named → clarify
+            return RouterResult(
+                route="clarify", tool="ask_clarification", needs_clarification=True,
+                candidates=tbl, via="deterministic",
+                answer=("Which protocol do you mean: " + ", ".join(tbl) + "?"))
+
+        # 1c) deterministic PATHWAY stage — a NAMED empiric/diagnostic pathway
         #     is a strong signal too (like a named panel), so it precedes drug
         #     resolution. (A drug query never matches a pathway alias, so real
         #     dosing requests still fall through to the drug stage below.)
@@ -792,6 +930,7 @@ class Router:
                 route="clarify", tool="ask_clarification", needs_clarification=True,
                 candidates=pw, via="deterministic",
                 answer=("Which pathway do you mean: " + ", ".join(pw) + "?"))
+
 
         # 2) deterministic drug stage
         resolved = resolve_call(message, self.registry)
@@ -890,6 +1029,23 @@ class Router:
             needs_clarification=False, via=call.via,
             slots=dict(call.slots), pathway=res)
 
+    def _run_table_call(self, call: "TableCall") -> RouterResult:
+        if call.table_id not in self.tables:
+            return RouterResult(route="unsupported", tool="none",
+                                answer=f"No uploaded protocol for {call.table_id!r}.")
+        res = _td.get_table_dose(call.table_id,
+                                 protocols_dir=str(self.protocols_dir),
+                                 **call.slots)
+        grounded = _td.render_table_dose(res)
+        # A table_lookup always returns SOME verbatim guidance (a selected dose,
+        # a verbatim renal warning, or the source default_answer / missing_inputs
+        # ask), so this is never a silent answer.
+        return RouterResult(
+            route="table_lookup", tool="get_table_dose", protocol=res.table_id,
+            answer=grounded, grounded_answer=grounded,
+            needs_clarification=bool(res.needs_input or res.needs_confirmation),
+            via=call.via, slots=dict(call.slots), table=res)
+
     def _phrase(self, result: "RouterResult", grounded: str, kind: str,
                 provider) -> None:
         """Rewrite `grounded` into natural prose, then verify it is grounded.
@@ -957,6 +1113,19 @@ class Router:
                 return self._run_pathway_call(PathwayCall(
                     tool="select_pathway", pathway_id=pathway_id,
                     slots=slots, via="llm"))
+            # get_table_dose (table_lookup; tmpsmx).
+            if out.name == "get_table_dose":
+                tool = next((t for t in self._table_tools if t.name == out.name), None)
+                if tool is None or tool.validate_arguments(out.arguments):
+                    return None
+                args = dict(out.arguments)
+                table_id = args.pop("table_id", None)
+                if table_id not in self.tables:
+                    return None
+                allowed = {"indication", "body_weight_kg", "gfr", "crrt", "ihd"}
+                slots = {k: v for k, v in args.items() if k in allowed}
+                return self._run_table_call(TableCall(
+                    tool="get_table_dose", table_id=table_id, slots=slots, via="llm"))
             problems = self._tool.validate_arguments(out.arguments)
             if out.name != "get_dose" or problems:
                 return None
@@ -1041,5 +1210,6 @@ __all__ = [
     "Router", "RouterResult", "RoutedCall", "resolve_call", "RouterError",
     "PanelCall", "resolve_pcr",
     "PathwayCall", "resolve_pathway",
+    "TableCall", "resolve_table",
     "SAFETY_RULES", "ROUTER_SYSTEM", "PHRASING_SYSTEM",
 ]
