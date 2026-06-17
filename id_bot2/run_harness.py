@@ -216,6 +216,45 @@ def _get_dose_module():
     return gd
 
 
+_ROUTER = None
+
+
+def _get_router():
+    """Build the deterministic Router once (loads the 30 protocols). Used to
+    cross-check that each case's `input` routes to the same drug/tool the
+    explicit `call:` names — i.e. the router (roadmap 3.5) actually works."""
+    global _ROUTER
+    if _ROUTER is None:
+        here = Path(__file__).resolve().parent
+        sys.path.insert(0, str(here))
+        from router import Router  # noqa: E402
+        _ROUTER = Router(protocols_dir=_PROTOCOLS_DIR)
+    return _ROUTER
+
+
+def _router_crosscheck(case: dict, call: dict) -> list[str]:
+    """Route the case `input` through the deterministic router and confirm it
+    lands on the same drug_dose/get_dose/<drug_id> decision as the explicit
+    `call:`. Slots are NOT compared (an input may legitimately under-specify
+    them, e.g. 'Amikacin dose' with a representative gfr in the call)."""
+    if call.get("tool") != "get_dose":
+        return []  # only get_dose is routed in this slice
+    try:
+        res = _get_router().route(case["input"])
+    except Exception as exc:  # noqa: BLE001
+        return [f"router raised {type(exc).__name__}: {exc}"]
+    problems: list[str] = []
+    if res.route != "drug_dose":
+        problems.append(f"router: input routed to {res.route!r}, expected 'drug_dose' "
+                        f"(answer: {res.answer[:60]!r})")
+    if res.tool != "get_dose":
+        problems.append(f"router: tool {res.tool!r}, expected 'get_dose'")
+    if res.protocol != call["drug_id"]:
+        problems.append(f"router: input routed to drug {res.protocol!r}, "
+                        f"expected {call['drug_id']!r}")
+    return problems
+
+
 def _evaluate_new_call(case: dict, call: dict, result: dict) -> dict:
     """Run a case's explicit `call:` against the new-pipeline slice and check
     both the structured expectations (route/tool/protocol/clarifies) and the
@@ -248,6 +287,9 @@ def _evaluate_new_call(case: dict, call: dict, result: dict) -> dict:
         reasons.append(f"unexpected confirmation request: {res.confirmation_reason}")
     _, text_reasons = check_text_expectations(answer, expect)
     reasons += text_reasons
+    # Router cross-check: the deterministic router must derive this same
+    # drug/tool from the raw `input` (not just the pre-baked `call:`).
+    reasons += _router_crosscheck(case, call)
     result["result"] = FAIL if reasons else PASS
     result["reasons"] = reasons
     return result
