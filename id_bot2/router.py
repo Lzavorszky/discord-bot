@@ -57,6 +57,7 @@ _sys.path.insert(0, str(_HERE / "tools"))       # get_dose
 from textnorm import repair_mojibake, fold_accents  # noqa: E402
 from loader import load_protocol_dir              # noqa: E402
 import get_dose as _gd                            # noqa: E402
+import interpret_pcr as _ip                       # noqa: E402
 from llm.tools import Tool, ToolCall              # noqa: E402
 from verifier import verify_grounding             # noqa: E402
 
@@ -116,6 +117,9 @@ class RouterResult:
     slots: dict = field(default_factory=dict)
     candidates: list = field(default_factory=list)  # for route == "clarify"
     dose: object = None              # the DoseResult, when route == "drug_dose"
+    pcr: object = None               # the PcrResult, when route == "pcr_panel"
+    organisms: list = field(default_factory=list)  # detected organisms (pcr)
+    markers: list = field(default_factory=list)    # detected markers (pcr)
     phrased: bool = False            # True if the phrasing model rewrote the answer
     phrasing_blocked: bool = False   # True if the verifier rejected the phrasing
     grounded_answer: str = ""        # the verbatim tool text the answer was verified against
@@ -252,6 +256,172 @@ def resolve_call(message: str, registry: dict[str, _Entry]) -> Union[RoutedCall,
 
 
 # --------------------------------------------------------------------------- #
+# PCR panel registry + resolver (roadmap 3.2). The deterministic stage detects a
+# named panel by its aliases, then extracts the detected organisms and resistance
+# markers from the message using THAT panel's own vocabulary, and dispatches to
+# interpret_pcr / list_panel. A bare genus the panel can't disambiguate is passed
+# through so interpret_pcr asks which species (F5); panel listing is F6.        #
+# --------------------------------------------------------------------------- #
+_LIST_INTENT = ("panel list", "list panel", "panel contents", "what is on",
+                "what's on", "what does it cover", "panel membership", "list")
+
+
+@dataclass(frozen=True)
+class _PanelEntry:
+    panel_id: str
+    aliases: tuple             # folded panel aliases, longest first
+    organisms: tuple           # (folded_alias, canonical_name), longest first
+    genera: tuple              # (folded_genus, genus_name)
+    markers: tuple             # folded marker aliases, longest first
+
+
+@dataclass(frozen=True)
+class PanelCall:
+    """A deterministic (or LLM) PCR routing decision."""
+    tool: str                  # interpret_pcr | list_panel
+    panel_id: str
+    organisms: tuple = ()
+    markers: tuple = ()
+    via: str = "deterministic"
+
+
+def _build_panel_registry(protocols_dir) -> dict:
+    records = load_protocol_dir(protocols_dir)
+    reg: dict = {}
+    for _path, rec in records:
+        if rec.get("kind") != "pcr_panel":
+            continue
+        pid = rec["id"]
+        aliases = set(rec.get("aliases") or [])
+        aliases.add(rec.get("canonical_name") or "")
+        aliases.add(rec.get("source_label") or "")
+        folded_aliases = tuple(sorted(
+            {_norm(a) for a in aliases if a and a.strip()}, key=len, reverse=True))
+        orgs = []
+        for o in rec.get("organisms") or []:
+            for n in [o.get("name", "")] + list(o.get("aliases") or []):
+                f = _norm(n)
+                if f:
+                    orgs.append((f, o.get("name", "")))
+        orgs.sort(key=lambda x: len(x[0]), reverse=True)
+        genera = tuple((_norm(g.get("genus", "")), g.get("genus", ""))
+                       for g in rec.get("disambiguate_genus") or [] if g.get("genus"))
+        marks = set()
+        for m in rec.get("markers") or []:
+            for n in [m.get("name", "")] + list(m.get("aliases") or []):
+                f = _norm(n)
+                if f:
+                    marks.add(f)
+        reg[pid] = _PanelEntry(
+            panel_id=pid, aliases=folded_aliases, organisms=tuple(orgs),
+            genera=genera, markers=tuple(sorted(marks, key=len, reverse=True)))
+    return reg
+
+
+def _span_dedup(spans):
+    """Drop any span strictly contained inside a longer one (compound beats part)."""
+    kept = []
+    for a in spans:
+        contained = any(
+            b is not a and b[0] <= a[0] and b[1] >= a[1] and (b[1] - b[0]) > (a[1] - a[0])
+            for b in spans)
+        if not contained:
+            kept.append(a)
+    kept.sort()
+    return kept
+
+
+def _match_panels(folded_msg: str, panels: dict) -> list:
+    spans = []
+    for pid, entry in panels.items():
+        for alias in entry.aliases:        # longest alias first
+            m = re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", folded_msg)
+            if m:
+                spans.append((m.start(), m.end(), pid))
+                break
+    kept = _span_dedup(spans)
+    out, seen = [], set()
+    for _s, _e, pid in kept:
+        if pid not in seen:
+            seen.add(pid)
+            out.append(pid)
+    return out
+
+
+def _extract_organisms(folded_msg: str, entry: _PanelEntry) -> tuple:
+    """Detected organisms = species-alias hits (containment-deduped), plus any
+    bare genus present that no species span already covers (so interpret_pcr can
+    disambiguate it)."""
+    spans = []   # (start, end, canonical)
+    for alias, canon in entry.organisms:      # longest alias first
+        for m in re.finditer(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", folded_msg):
+            spans.append((m.start(), m.end(), canon))
+    kept = _span_dedup(spans)
+    out, seen = [], set()
+    for _s, _e, canon in kept:
+        if canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    # bare genera not covered by any kept species span
+    covered = [(s, e) for s, e, _c in kept]
+    for gfold, gname in entry.genera:
+        for m in re.finditer(r"(?<!\w)" + re.escape(gfold) + r"(?!\w)", folded_msg):
+            gs, ge = m.start(), m.end()
+            if not any(s <= gs and e >= ge for s, e in covered):
+                if gname not in out:
+                    out.append(gname)
+    return tuple(out)
+
+
+def _extract_markers(folded_msg: str, entry: _PanelEntry) -> tuple:
+    found, seen = [], set()
+    for alias in entry.markers:               # longest alias first
+        if re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", folded_msg):
+            if alias not in seen:
+                seen.add(alias)
+                found.append(alias)
+    return tuple(found)
+
+
+def resolve_pcr(message: str, panels: dict):
+    """Deterministic PCR stage. Returns:
+        * a PanelCall          — exactly one panel named
+        * a list[str]          — >1 panel named (ambiguous; panel ids)
+        * None                 — no panel alias present (let drug logic run)
+    """
+    folded = _norm(message)
+    matched = _match_panels(folded, panels)
+    if not matched:
+        return None
+    if len(matched) > 1:
+        return matched
+    pid = matched[0]
+    entry = panels[pid]
+    if any(kw in folded for kw in _LIST_INTENT):
+        return PanelCall(tool="list_panel", panel_id=pid, via="deterministic")
+    organisms = _extract_organisms(folded, entry)
+    markers = _extract_markers(folded, entry)
+    return PanelCall(tool="interpret_pcr", panel_id=pid,
+                     organisms=organisms, markers=markers, via="deterministic")
+
+
+def _organism_panel_hint(message: str, panels: dict) -> list:
+    """For a message with NO panel alias and NO drug match: if it names an organism
+    that belongs to a panel, return the panel ids so the router can ask which
+    panel/source (F8 — never emit an unexplained recommendation). Only fires on a
+    reasonably specific organism token (>= 5 chars) to avoid false positives."""
+    folded = _norm(message)
+    hits = set()
+    for pid, entry in panels.items():
+        for alias, _canon in entry.organisms:
+            if len(alias) >= 5 and re.search(
+                    r"(?<!\w)" + re.escape(alias) + r"(?!\w)", folded):
+                hits.add(pid)
+                break
+    return sorted(hits)
+
+
+# --------------------------------------------------------------------------- #
 # The router                                                                  #
 # --------------------------------------------------------------------------- #
 _BOOL_SLOT_NAMES = set(_BOOL_SLOTS)
@@ -280,6 +450,47 @@ def _get_dose_tool(registry: dict[str, _Entry]) -> Tool:
     )
 
 
+def _get_pcr_tools(panels: dict) -> list:
+    """The two PCR tools exposed to the LLM, with panel_id constrained to the
+    loaded pcr_panel protocols (closed enum). organisms/markers are free-text
+    arrays the model fills from the detected result; interpret_pcr re-validates
+    them against the panel's own vocabulary, so an off-panel string is reported,
+    never silently mapped."""
+    if not panels:
+        return []
+    panel_ids = sorted(panels.keys())
+    interpret = Tool(
+        name="interpret_pcr",
+        description=("Interpret a BioFire/PCR panel result. Pass the detected "
+                     "organism names and any resistance markers EXACTLY as the "
+                     "user stated them; never invent organisms or markers."),
+        parameters={
+            "type": "object",
+            "properties": {
+                "panel_id": {"type": "string", "enum": panel_ids,
+                             "description": "Which PCR panel the result is from."},
+                "organisms": {"type": "array", "items": {"type": "string"},
+                              "description": "Detected organism names, verbatim."},
+                "markers": {"type": "array", "items": {"type": "string"},
+                            "description": "Detected resistance markers, verbatim."},
+            },
+            "required": ["panel_id"],
+        },
+    )
+    listing = Tool(
+        name="list_panel",
+        description="List the organisms a PCR panel covers (no recommendation).",
+        parameters={
+            "type": "object",
+            "properties": {
+                "panel_id": {"type": "string", "enum": panel_ids},
+            },
+            "required": ["panel_id"],
+        },
+    )
+    return [interpret, listing]
+
+
 class Router:
     def __init__(self, protocols_dir=None, provider=None, phrasing_provider=None):
         self.protocols_dir = Path(protocols_dir) if protocols_dir else DEFAULT_PROTOCOLS_DIR
@@ -296,14 +507,28 @@ class Router:
         self.known_drugs = tuple(sorted(
             {a for e in self.registry.values() for a in e.aliases}))
         self._tool = _get_dose_tool(self.registry)
+        # PCR panels (roadmap 3.2): a parallel registry + tool schemas.
+        self.panels = _build_panel_registry(self.protocols_dir)
+        self._pcr_tools = _get_pcr_tools(self.panels)
 
     # public ---------------------------------------------------------------
     def tools(self) -> list[Tool]:
-        return [self._tool]
+        return [self._tool, *self._pcr_tools]
 
     def route(self, message: str, *, provider=None, phrasing_provider=None) -> RouterResult:
         phraser = phrasing_provider or self.phrasing_provider
-        # 1) deterministic stage
+        # 1) deterministic PCR stage — a NAMED panel is a strong signal, so it
+        #    takes precedence over drug resolution.
+        pcr = resolve_pcr(message, self.panels)
+        if isinstance(pcr, PanelCall):
+            return self._run_pcr_call(pcr)
+        if isinstance(pcr, list):                # >1 panel named → clarify
+            return RouterResult(
+                route="clarify", tool="ask_clarification", needs_clarification=True,
+                candidates=pcr, via="deterministic",
+                answer=("Which panel do you mean: " + ", ".join(pcr) + "?"))
+
+        # 2) deterministic drug stage
         resolved = resolve_call(message, self.registry)
         if isinstance(resolved, RoutedCall):
             return self._run_call(resolved, phrasing_provider=phraser)
@@ -314,14 +539,25 @@ class Router:
                 answer=("Which antibiotic do you mean: "
                         + ", ".join(resolved) + "?"))
 
-        # 2) LLM stage (only if a provider is available)
+        # 3) LLM stage (only if a provider is available)
         prov = provider or self.provider
         if prov is not None:
             llm = self._route_via_llm(message, prov, phrasing_provider=phraser)
             if llm is not None:
                 return llm
 
-        # 3) no silent answers
+        # 4) bare organism with no panel/drug → ask which panel/source (F8),
+        #    never an unexplained recommendation.
+        hint = _organism_panel_hint(message, self.panels)
+        if hint:
+            opts = ", ".join(hint)
+            return RouterResult(
+                route="clarify", tool="ask_clarification", needs_clarification=True,
+                candidates=hint, via="deterministic",
+                answer=("That organism is on a PCR panel. Which panel/source is "
+                        f"this result from: {opts}? (Send it as a PCR result.)"))
+
+        # 5) no silent answers
         return RouterResult(
             route="unsupported", tool="none",
             answer=("I don't have an uploaded protocol that covers that. "
@@ -354,6 +590,24 @@ class Router:
         if phrasing_provider is not None and not res.needs_confirmation:
             self._phrase(result, grounded, "drug_dose", phrasing_provider)
         return result
+
+    def _run_pcr_call(self, call: "PanelCall") -> RouterResult:
+        if call.panel_id not in self.panels:
+            return RouterResult(route="unsupported", tool="none",
+                                answer=f"No uploaded panel for {call.panel_id!r}.")
+        pdir = str(self.protocols_dir)
+        if call.tool == "list_panel":
+            res = _ip.list_panel(call.panel_id, protocols_dir=pdir)
+        else:
+            res = _ip.interpret_pcr(call.panel_id, organisms=list(call.organisms),
+                                    markers=list(call.markers), protocols_dir=pdir)
+        grounded = _ip.render_pcr(res)
+        return RouterResult(
+            route="pcr_panel", tool=call.tool, protocol=res.panel_id,
+            answer=grounded, grounded_answer=grounded,
+            needs_clarification=bool(res.needs_clarification or res.needs_input),
+            via=call.via, organisms=list(call.organisms),
+            markers=list(call.markers), pcr=res)
 
     def _phrase(self, result: "RouterResult", grounded: str, kind: str,
                 provider) -> None:
@@ -391,6 +645,23 @@ class Router:
         except Exception as exc:  # provider/network failure → fall through to unsupported
             raise RouterError(f"LLM routing failed: {exc}") from exc
         if isinstance(out, ToolCall):
+            # PCR tools (interpret_pcr / list_panel).
+            if out.name in ("interpret_pcr", "list_panel"):
+                tool = next((t for t in self._pcr_tools if t.name == out.name), None)
+                if tool is None or tool.validate_arguments(out.arguments):
+                    return None
+                args = dict(out.arguments)
+                panel_id = args.get("panel_id")
+                if panel_id not in self.panels:
+                    return None
+                if out.name == "list_panel":
+                    return self._run_pcr_call(PanelCall(tool="list_panel",
+                                                        panel_id=panel_id, via="llm"))
+                orgs = tuple(args.get("organisms") or ())
+                marks = tuple(args.get("markers") or ())
+                return self._run_pcr_call(PanelCall(
+                    tool="interpret_pcr", panel_id=panel_id,
+                    organisms=orgs, markers=marks, via="llm"))
             problems = self._tool.validate_arguments(out.arguments)
             if out.name != "get_dose" or problems:
                 return None
@@ -473,5 +744,6 @@ PHRASING_SYSTEM = _PHRASING_SYSTEM
 
 __all__ = [
     "Router", "RouterResult", "RoutedCall", "resolve_call", "RouterError",
+    "PanelCall", "resolve_pcr",
     "SAFETY_RULES", "ROUTER_SYSTEM", "PHRASING_SYSTEM",
 ]

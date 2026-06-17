@@ -18,6 +18,7 @@ sys.path.insert(0, str(_PKG / "llm"))
 
 from router import (   # noqa: E402
     Router, resolve_call, RoutedCall, RouterResult,
+    PanelCall, resolve_pcr,
     SAFETY_RULES, ROUTER_SYSTEM, PHRASING_SYSTEM,
 )
 from llm.tools import Tool, ToolCall                                 # noqa: E402
@@ -482,6 +483,114 @@ class TestNotCoveredOutcome(unittest.TestCase):
         # No LLM provider at all (the offline check.sh path): an unresolvable
         # message still gets the explicit not-covered outcome, never silence.
         self._assert_not_covered(self.R.route("tell me a joke"))
+
+
+class TestPcrRouting(unittest.TestCase):
+    """Deterministic PCR routing (roadmap 3.2): panel detection, organism/marker
+    extraction, disambiguation (F5), panel listing (F6), membership (F7/F8)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.R = Router(protocols_dir=PROTOCOLS)
+
+    def test_panel_named_routes_to_pcr_panel(self):
+        r = self.R.route("Biofire pneumonia panel pneumococcus")
+        self.assertEqual(r.route, "pcr_panel")
+        self.assertEqual(r.tool, "interpret_pcr")
+        self.assertEqual(r.protocol, "biofire_pneumonia")
+        self.assertIn("ceftriaxone", r.answer)
+
+    def test_joint_panel_alias_jipcr(self):
+        r = self.R.route("JiPCR Klebsiella oxytoca")
+        self.assertEqual(r.protocol, "biofire_joint_infection")
+        self.assertIn("ceftriaxone", r.answer)
+
+    def test_bare_genus_disambiguates_f5(self):
+        r = self.R.route("JiPCR Klebsiella")
+        self.assertEqual(r.route, "pcr_panel")
+        self.assertTrue(r.needs_clarification)
+        self.assertIn("oxytoca", r.answer)
+        self.assertIn("pneumoniae", r.answer)
+
+    def test_panel_list_uses_list_panel_f6(self):
+        r = self.R.route("JiPCR panel list")
+        self.assertEqual(r.tool, "list_panel")
+        self.assertIn("Staphylococcus aureus", r.answer)
+        self.assertTrue(any("Klebsiella" in x for x in r.pcr.panel_organisms))
+
+    def test_influenza_recognised_on_panel_f7(self):
+        r = self.R.route("Pneumonia PCR influenza")
+        self.assertEqual(r.route, "pcr_panel")
+        self.assertIn("oseltamivir", r.answer)
+        self.assertNotIn("not on panel", r.answer.lower())
+
+    def test_bare_organism_no_panel_asks_which_panel_f8(self):
+        r = self.R.route("Mycoplasma")
+        self.assertEqual(r.route, "clarify")
+        self.assertTrue(r.needs_clarification)
+        self.assertIn("biofire_pneumonia", r.candidates)
+
+    def test_marker_with_organism_escalates(self):
+        r = self.R.route("Pneumonia PCR E. coli CTX-M")
+        self.assertEqual(r.protocol, "biofire_pneumonia")
+        self.assertIn("ertapenem", r.answer)        # PN: CTX-M -> ertapenem
+
+    def test_marker_with_organism_joint_meropenem(self):
+        r = self.R.route("BioFire JI E. coli CTX-M")
+        self.assertIn("meropenem", r.answer)         # JI: CTX-M -> meropenem
+
+    def test_staph_mecA_routes_to_mrsa(self):
+        r = self.R.route("Pneumonia panel Staphylococcus aureus mecA")
+        self.assertIn("vancomycin", r.answer)
+
+    def test_drug_request_unaffected_by_pcr_stage(self):
+        r = self.R.route("meropenem gfr 40")
+        self.assertEqual(r.route, "drug_dose")
+        self.assertEqual(r.protocol, "meropenem")
+
+    def test_pcr_tools_exposed_to_llm(self):
+        names = {t.name for t in self.R.tools()}
+        self.assertIn("interpret_pcr", names)
+        self.assertIn("list_panel", names)
+        self.assertIn("get_dose", names)
+
+    def test_pcr_panel_id_enum_closed(self):
+        tool = next(t for t in self.R.tools() if t.name == "interpret_pcr")
+        enum = tool.parameters["properties"]["panel_id"]["enum"]
+        self.assertEqual(set(enum), {"biofire_pneumonia", "biofire_joint_infection"})
+
+    def test_resolve_pcr_none_when_no_panel(self):
+        self.assertIsNone(resolve_pcr("meropenem dose", self.R.panels))
+
+    def test_resolve_pcr_returns_panel_call(self):
+        out = resolve_pcr("JiPCR Klebsiella oxytoca", self.R.panels)
+        self.assertIsInstance(out, PanelCall)
+        self.assertEqual(out.panel_id, "biofire_joint_infection")
+        self.assertEqual(out.tool, "interpret_pcr")
+
+    def test_llm_can_call_interpret_pcr(self):
+        # When nothing resolves deterministically, the LLM may pick interpret_pcr.
+        call = ToolCall(name="interpret_pcr",
+                        arguments={"panel_id": "biofire_pneumonia",
+                                   "organisms": ["Streptococcus pneumoniae"]})
+        R = Router(protocols_dir=PROTOCOLS, provider=ScriptedProvider(call))
+        r = R.route("interpret my respiratory result, pneumococcus detected by the analyser")
+        self.assertEqual(r.route, "pcr_panel")
+        self.assertEqual(r.via, "llm")
+        self.assertIn("ceftriaxone", r.answer)
+
+    def test_llm_interpret_pcr_unknown_panel_falls_through(self):
+        call = ToolCall(name="interpret_pcr",
+                        arguments={"panel_id": "made_up_panel",
+                                   "organisms": ["x"]})
+        R = Router(protocols_dir=PROTOCOLS, provider=ScriptedProvider(call))
+        r = R.route("some opaque message with no panel or drug token zzz")
+        self.assertEqual(r.route, "unsupported")
+
+    def test_pcr_answer_carries_no_dose_numbers(self):
+        r = self.R.route("Pneumonia PCR E. coli CTX-M")
+        self.assertNotIn("mg", r.answer)
+        self.assertNotIn("g/day", r.answer)
 
 
 if __name__ == "__main__":

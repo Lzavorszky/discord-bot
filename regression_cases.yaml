@@ -137,10 +137,14 @@ cases:
     expect: { route: prose, tool: answer_from_section, protocol: periop_gyogyszerek, output_has: ["GFR"] }
     status: baseline
 
-  # ---- PCR / panel logic (F5, F6, F7, F8) ----
+  # ---- PCR / panel logic (F5, F6, F7, F8) — Phase 2.5 (interpret_pcr) ----
+  # Each case now carries an explicit `call:` (interpret_pcr / list_panel) OR
+  # `route_input: true`; --target new runs the engine and cross-checks that the
+  # raw input routes to the same panel/tool.
   - id: jipcr_klebsiella_disambiguate
     input: "JiPCR Klebsiella"
     lang: en
+    call: { tool: interpret_pcr, panel_id: biofire_joint_infection, organisms: ["Klebsiella"] }
     expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_joint_infection, clarifies: true, output_has: ["pneumoniae", "oxytoca"] }
     status: known_fail
     note: "F5 — organism dropped / species not disambiguated. 'Klebsiella' matches two panel rows -> ask which species."
@@ -148,6 +152,7 @@ cases:
   - id: jipcr_klebsiella_oxytoca
     input: "JiPCR Klebsiella oxytoca"
     lang: en
+    call: { tool: interpret_pcr, panel_id: biofire_joint_infection, organisms: ["Klebsiella oxytoca"] }
     expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_joint_infection, output_has: ["ceftriaxone"] }
     status: new
     note: "K. oxytoca tier 1 -> ceftriaxone (CTX-M positive -> meropenem) per joint_infection_pcr.txt."
@@ -155,6 +160,7 @@ cases:
   - id: jipcr_panel_list
     input: "JiPCR panel list"
     lang: en
+    call: { tool: list_panel, panel_id: biofire_joint_infection }
     expect: { route: pcr_panel, tool: list_panel, protocol: biofire_joint_infection, output_has: ["Klebsiella", "Staphylococcus aureus"] }
     status: known_fail
     note: "F6 — old bot returned a priority/recommendation, not the panel contents."
@@ -162,6 +168,7 @@ cases:
   - id: ji_strep_agalactiae
     input: "Biofire JI strep agalactiae"
     lang: en
+    call: { tool: interpret_pcr, panel_id: biofire_joint_infection, organisms: ["strep agalactiae"] }
     expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_joint_infection, output_has: ["ceftriaxone"] }
     status: new
     note: "GBS -> ceftriaxone per panel."
@@ -169,22 +176,74 @@ cases:
   - id: pneumonia_pcr_pneumococcus
     input: "Biofire pneumonia panel pneumococcus"
     lang: en
-    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_pneumonia }
+    call: { tool: interpret_pcr, panel_id: biofire_pneumonia, organisms: ["pneumococcus"] }
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_pneumonia, output_has: ["ceftriaxone"] }
     status: new
 
   - id: pneumonia_pcr_influenza
     input: "Pneumonia PCR influenza"
     lang: en
-    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_pneumonia, output_not: ["not on panel"] }
+    call: { tool: interpret_pcr, panel_id: biofire_pneumonia, organisms: ["influenza"] }
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_pneumonia, output_has: ["oseltamivir"], output_not: ["not on panel"] }
     status: known_fail
     note: "F7 — influenza apparently not recognised on the panel. Confirm panel membership modelling."
 
   - id: mycoplasma_spectrum
     input: "Mycoplasma"
     lang: en
-    expect: { clarifies: true }
+    route_input: true
+    expect: { route: clarify, clarifies: true }
     status: known_fail
     note: "F8 — 'spectrum logic empty, why ceftriaxone?'. Bare organism with no panel -> ask panel/source, do not emit an unexplained recommendation."
+
+  # ---- PCR resistance-marker rules (Phase 2.5; verbatim escalation) ----
+  - id: pneumonia_pcr_ctxm_ertapenem
+    input: "Pneumonia PCR E. coli CTX-M"
+    lang: en
+    call: { tool: interpret_pcr, panel_id: biofire_pneumonia, organisms: ["E. coli"], markers: ["CTX-M"] }
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_pneumonia, output_has: ["ertapenem"] }
+    status: new
+    note: "PN: CTX-M ESBL marker escalates Enterobacterales backbone to ertapenem (Tier 3)."
+
+  - id: jipcr_ctxm_meropenem
+    input: "BioFire JI E. coli CTX-M"
+    lang: en
+    call: { tool: interpret_pcr, panel_id: biofire_joint_infection, organisms: ["E. coli"], markers: ["CTX-M"] }
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_joint_infection, output_has: ["meropenem"], output_not: ["ertapenem"] }
+    status: new
+    note: "JI: CTX-M escalates to meropenem (panel-specific, differs from pneumonia)."
+
+  - id: pneumonia_pcr_staph_meca_mrsa
+    input: "Pneumonia panel Staphylococcus aureus mecA"
+    lang: en
+    call: { tool: interpret_pcr, panel_id: biofire_pneumonia, organisms: ["Staphylococcus aureus"], markers: ["mecA"] }
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_pneumonia, output_has: ["MRSA", "vancomycin"] }
+    status: new
+    note: "mecA/MREJ -> MRSA likely -> vancomycin (replaces the MSSA cefazolin output)."
+
+  - id: jipcr_carbapenemase_tier4
+    input: "JiPCR Klebsiella pneumoniae KPC"
+    lang: en
+    call: { tool: interpret_pcr, panel_id: biofire_joint_infection, organisms: ["Klebsiella pneumoniae group"], markers: ["KPC"] }
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_joint_infection, output_has: ["meropenem + colistin", "ID consultation"] }
+    status: new
+    note: "Carbapenemase -> Tier 4 meropenem + colistin + ID consult."
+
+  - id: pneumonia_pcr_ctxm_not_strep
+    input: "Pneumonia PCR Streptococcus pneumoniae CTX-M"
+    lang: en
+    call: { tool: interpret_pcr, panel_id: biofire_pneumonia, organisms: ["Streptococcus pneumoniae"], markers: ["CTX-M"] }
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_pneumonia, output_has: ["ceftriaxone"], output_not: ["ertapenem"] }
+    status: new
+    note: "Source rule: do NOT apply CTX-M to non-Enterobacterales (S. pneumoniae stays ceftriaxone)."
+
+  - id: pneumonia_pcr_polymicrobial_escalate
+    input: "Pneumonia PCR Streptococcus pneumoniae and Pseudomonas aeruginosa"
+    lang: en
+    call: { tool: interpret_pcr, panel_id: biofire_pneumonia, organisms: ["Streptococcus pneumoniae", "Pseudomonas aeruginosa"] }
+    expect: { route: pcr_panel, tool: interpret_pcr, protocol: biofire_pneumonia, output_has: ["cefepime"] }
+    status: new
+    note: "Polymicrobial -> highest spectrum tier (Pseudomonas tier 2 -> cefepime)."
 
   # ---- Pathway selection ----
   - id: uti_empiric

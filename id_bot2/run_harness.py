@@ -118,13 +118,24 @@ def validate_cases(cases: list[dict]) -> list[str]:
             if not isinstance(call, dict):
                 problems.append(f"{where}: 'call' must be a mapping")
             else:
-                if call.get("tool") not in VALID_TOOLS:
-                    problems.append(f"{where}: call.tool {call.get('tool')!r} "
+                ctool = call.get("tool")
+                if ctool not in VALID_TOOLS:
+                    problems.append(f"{where}: call.tool {ctool!r} "
                                     f"not in {sorted(VALID_TOOLS)}")
-                if "drug_id" not in call:
-                    problems.append(f"{where}: call needs a 'drug_id'")
-                if "slots" in call and not isinstance(call["slots"], dict):
-                    problems.append(f"{where}: 'call.slots' must be a mapping")
+                if ctool in ("interpret_pcr", "list_panel"):
+                    # PCR calls key off a panel_id (not a drug_id).
+                    if "panel_id" not in call:
+                        problems.append(f"{where}: pcr call needs a 'panel_id'")
+                    for k in ("organisms", "markers"):
+                        if k in call and not isinstance(call[k], list):
+                            problems.append(f"{where}: 'call.{k}' must be a list")
+                else:
+                    if "drug_id" not in call:
+                        problems.append(f"{where}: call needs a 'drug_id'")
+                    if "slots" in call and not isinstance(call["slots"], dict):
+                        problems.append(f"{where}: 'call.slots' must be a mapping")
+        if "route_input" in c and not isinstance(c["route_input"], bool):
+            problems.append(f"{where}: 'route_input' must be a boolean")
         # Optional `phrase:` — exercise the router's phrasing+grounding-verifier
         # loop offline with a *scripted* phraser (no real model). Keys:
         #   candidate: the text the scripted phrasing model returns
@@ -181,16 +192,17 @@ def evaluate_case(case: dict, target: str, answer_fn=None) -> dict:
         return result
 
     if target == "new":
-        # The router isn't built yet, so we can only exercise cases that carry an
-        # explicit `call:` (the structured tool invocation). Everything else
-        # SKIPs until the router can derive a call from `input`.
+        # Cases carry either an explicit `call:` (a structured tool invocation we
+        # run directly) or `route_input: true` (route the raw input through the
+        # router and assert the routing outcome). Everything else SKIPs.
         call = case.get("call")
-        if not call:
-            result["result"] = SKIP
-            result["reasons"] = ["no 'call:' — router not built; slice runs "
-                                 "only cases with an explicit tool invocation"]
-            return result
-        return _evaluate_new_call(case, call, result)
+        if call:
+            return _evaluate_new_call(case, call, result)
+        if case.get("route_input"):
+            return _evaluate_route_input(case, result)
+        result["result"] = SKIP
+        result["reasons"] = ["no 'call:'/'route_input:' — not part of the slice"]
+        return result
 
     # target == "old": run the old bot and check only text-level expectations.
     text_keys_present = bool(set(expect) & {"output_has", "output_not"})
@@ -231,6 +243,15 @@ def _get_dose_module():
     return gd
 
 
+def _get_pcr_module():
+    """Import the interpret_pcr tool lazily."""
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here / "tools"))
+    sys.path.insert(0, _PROTOCOLS_DIR)
+    import interpret_pcr as ip  # noqa: E402
+    return ip
+
+
 _ROUTER = None
 
 
@@ -249,24 +270,33 @@ def _get_router():
 
 def _router_crosscheck(case: dict, call: dict) -> list[str]:
     """Route the case `input` through the deterministic router and confirm it
-    lands on the same drug_dose/get_dose/<drug_id> decision as the explicit
-    `call:`. Slots are NOT compared (an input may legitimately under-specify
+    lands on the same tool/protocol decision as the explicit `call:`. Slots /
+    organisms / markers are NOT compared (an input may legitimately under-specify
     them, e.g. 'Amikacin dose' with a representative gfr in the call)."""
-    if call.get("tool") != "get_dose":
-        return []  # only get_dose is routed in this slice
+    tool = call.get("tool")
     try:
         res = _get_router().route(case["input"])
     except Exception as exc:  # noqa: BLE001
         return [f"router raised {type(exc).__name__}: {exc}"]
     problems: list[str] = []
-    if res.route != "drug_dose":
-        problems.append(f"router: input routed to {res.route!r}, expected 'drug_dose' "
-                        f"(answer: {res.answer[:60]!r})")
-    if res.tool != "get_dose":
-        problems.append(f"router: tool {res.tool!r}, expected 'get_dose'")
-    if res.protocol != call["drug_id"]:
-        problems.append(f"router: input routed to drug {res.protocol!r}, "
-                        f"expected {call['drug_id']!r}")
+    if tool == "get_dose":
+        if res.route != "drug_dose":
+            problems.append(f"router: input routed to {res.route!r}, expected "
+                            f"'drug_dose' (answer: {res.answer[:60]!r})")
+        if res.tool != "get_dose":
+            problems.append(f"router: tool {res.tool!r}, expected 'get_dose'")
+        if res.protocol != call["drug_id"]:
+            problems.append(f"router: input routed to drug {res.protocol!r}, "
+                            f"expected {call['drug_id']!r}")
+    elif tool in ("interpret_pcr", "list_panel"):
+        if res.route != "pcr_panel":
+            problems.append(f"router: input routed to {res.route!r}, expected "
+                            f"'pcr_panel' (answer: {res.answer[:60]!r})")
+        if res.tool != tool:
+            problems.append(f"router: tool {res.tool!r}, expected {tool!r}")
+        if res.protocol != call["panel_id"]:
+            problems.append(f"router: input routed to panel {res.protocol!r}, "
+                            f"expected {call['panel_id']!r}")
     return problems
 
 
@@ -276,6 +306,8 @@ def _evaluate_new_call(case: dict, call: dict, result: dict) -> dict:
     text expectations (output_has/output_not) against the rendered answer."""
     expect = case.get("expect", {}) or {}
     tool = call.get("tool")
+    if tool in ("interpret_pcr", "list_panel"):
+        return _evaluate_pcr_call(case, call, result)
     if tool != "get_dose":
         result["result"] = SKIP
         result["reasons"] = [f"call.tool {tool!r} not implemented in the slice yet"]
@@ -309,6 +341,74 @@ def _evaluate_new_call(case: dict, call: dict, result: dict) -> dict:
     # confirm a faithful paraphrase survives and an ungrounded one is blocked
     # (falls back to the verbatim tool text). Offline — no real model.
     reasons += _phrase_crosscheck(case, call)
+    result["result"] = FAIL if reasons else PASS
+    result["reasons"] = reasons
+    return result
+
+
+def _evaluate_pcr_call(case: dict, call: dict, result: dict) -> dict:
+    """Run a pcr_panel `call:` (interpret_pcr / list_panel) and check the
+    structured + text expectations, plus the router input->call cross-check."""
+    expect = case.get("expect", {}) or {}
+    try:
+        ip = _get_pcr_module()
+        pid = call["panel_id"]
+        if call["tool"] == "list_panel":
+            res = ip.list_panel(pid, protocols_dir=_PROTOCOLS_DIR)
+        else:
+            res = ip.interpret_pcr(pid, organisms=call.get("organisms") or [],
+                                   markers=call.get("markers") or [],
+                                   protocols_dir=_PROTOCOLS_DIR)
+        answer = ip.render_pcr(res)
+    except Exception as exc:  # noqa: BLE001
+        result["result"] = ERROR
+        result["reasons"] = [f"{type(exc).__name__}: {exc}"]
+        return result
+
+    result["answer"] = answer
+    reasons: list[str] = []
+    actual = {"route": res.route, "tool": res.tool, "protocol": res.panel_id}
+    for key in ("route", "tool", "protocol"):
+        if key in expect and expect[key] != actual[key]:
+            reasons.append(f"{key}: expected {expect[key]!r}, got {actual[key]!r}")
+    clar = bool(res.needs_clarification or res.needs_input)
+    if expect.get("clarifies") and not clar:
+        reasons.append("expected a clarifying response, got an interpretation")
+    if "clarifies" in expect and not expect.get("clarifies") and clar:
+        reasons.append(f"unexpected clarifying response ({res.clarify_reason})")
+    _, text_reasons = check_text_expectations(answer, expect)
+    reasons += text_reasons
+    reasons += _router_crosscheck(case, call)
+    result["result"] = FAIL if reasons else PASS
+    result["reasons"] = reasons
+    return result
+
+
+def _evaluate_route_input(case: dict, result: dict) -> dict:
+    """Route the raw `input` through the deterministic router and assert the
+    routing-level expectations (route/tool/protocol/clarifies/output). Used for
+    behavioural cases that resolve to a clarify/unsupported outcome with no single
+    tool invocation (e.g. a bare organism with no panel named)."""
+    expect = case.get("expect", {}) or {}
+    try:
+        res = _get_router().route(case["input"])
+    except Exception as exc:  # noqa: BLE001
+        result["result"] = ERROR
+        result["reasons"] = [f"{type(exc).__name__}: {exc}"]
+        return result
+    answer = res.answer
+    result["answer"] = answer
+    reasons: list[str] = []
+    actual = {"route": res.route, "tool": res.tool, "protocol": res.protocol}
+    for key in ("route", "tool", "protocol"):
+        if key in expect and expect[key] != actual[key]:
+            reasons.append(f"{key}: expected {expect[key]!r}, got {actual[key]!r}")
+    if expect.get("clarifies") and not res.needs_clarification:
+        reasons.append("expected a clarifying response, got a definitive answer")
+    if "clarifies" in expect and not expect.get("clarifies") and res.needs_clarification:
+        reasons.append("unexpected clarifying response")
+    _, text_reasons = check_text_expectations(answer, expect)
+    reasons += text_reasons
     result["result"] = FAIL if reasons else PASS
     result["reasons"] = reasons
     return result
