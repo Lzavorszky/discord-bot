@@ -1,0 +1,163 @@
+id: cap
+kind: pathway
+canonical_name: community acquired respiratory infection
+source_label: CAP
+status: draft
+version: 0.1
+answers_intents: [empiric_treatment, info]
+aliases:
+  - CAP
+  - community acquired pneumonia
+  - community-acquired pneumonia
+  - community pneumonia
+  - pneumonia
+  - tudogyulladas
+  - COPD exacerbation
+  - aspiration pneumonia
+
+slots:
+  patient_status:
+    type: enum
+    values: [intubated, hospitalized, dischargeable]
+  intubated: {type: bool}
+  influenza: {type: bool}
+  aspiration_event: {type: bool}
+  copd_exacerbation: {type: bool}
+  nosocomial_risk: {type: bool}
+  atypical_suspicion: {type: bool}
+  viral_test_result:
+    type: enum
+    values: [positive, negative]
+
+outputs:
+  DEFAULT_ANSWER:
+    items: []
+    text_hu: |
+      CAP gyors terkep
+      - intubalt / kritikus: BioFire PN trachea/BAL mintabol; eredmenyig ceftriaxone
+      - hospitalizalt, nem intubalt, nosocomialis riziko nelkul: ceftriaxone + clarithromycin
+      - hospitalizalt, nem intubalt, nosocomialis rizikoval: levofloxacin
+      - hazaengedheto, viral negativ: amoxicillin
+      - hazaengedheto, atypusos gyanu: azithromycin
+      - influenza: oseltamivir
+      - aspiratio: antibiotikum csak masodlagos infekcio gyanunall; ha kell: ceftriaxone
+      - COPD exacerbation bacterial superinfection gyanunall: ceftriaxone + clarithromycin
+
+      Pontosabb valasztashoz kuldd: hazaengedheto / hospitalizalt / intubalt, illetve viral teszt, atypusos gyanu, nosocomialis riziko.
+    text_en: |
+      CAP quick map
+      - intubated / critical: BioFire PN from trachea/BAL sample; ceftriaxone until result
+      - hospitalized, not intubated, no nosocomial risk: ceftriaxone + clarithromycin
+      - hospitalized, not intubated, nosocomial risk: levofloxacin
+      - dischargeable, viral negative: amoxicillin
+      - dischargeable, atypical suspicion: azithromycin
+      - influenza: oseltamivir
+      - aspiration: antibiotics only if secondary infection suspected; if needed: ceftriaxone
+      - COPD exacerbation with suspected bacterial superinfection: ceftriaxone + clarithromycin
+
+      For more exact selection send: dischargeable / hospitalized / intubated, plus viral test, atypical suspicion, nosocomial risk.
+  INTUBATED_CAP:
+    items:
+      - BioFire Pneumonia Panel
+      - ceftriaxone
+    text_hu: |
+      Küldj trachea/BAL mintát Biofire Pneumonia PCE panelre. Telefonon értesítsd a mikrobiológiát és futárral küld direkt hozzájuk (ne a körponti laborba). Az eredmény 2-3 órán belül elérhető!
+      Eredmenyek alapjan celzott terapia; ha megirod az eredmenyt, segitek valasztani. Eredményig ceftriaxont adhatsz.
+    text_en: |
+      Send BAL, trahceal sample for Biofire Pneumonia PCR panel. Notify Micro and request direct transfer.
+      Use targeted therapy based on results; send the result and I can help choose.Until result can give ceftriaxone.
+  HOSPITALIZED_STANDARD:
+    items:
+      - ceftriaxone
+      - clarithromycin
+    text_hu: |
+      Hospitalizalt, nem intubalt, nosocomialis riziko nelkul: ceftriaxone + clarithromycin.
+      Ezutan tisztazd: viral teszt? atypusos gyanu?
+    text_en: |
+      Hospitalized, not intubated, no nosocomial risk: ceftriaxone + clarithromycin.
+      Then clarify: viral test? atypical suspicion?
+  HOSPITALIZED_NOSOCOMIAL_RISK:
+    items:
+      - levofloxacin
+    text_hu: |
+      Hospitalizalt, nem intubalt, nosocomialis rizikoval: levofloxacin.
+      Ezutan tisztazd: viral teszt? atypusos gyanu?
+    text_en: |
+      Hospitalized, not intubated, nosocomial risk: levofloxacin.
+      Then clarify: viral test? atypical suspicion?
+  OUTPATIENT_VIRAL_POSITIVE:
+    items:
+      - antibiotics_not_required
+    text_hu: |
+      Hazaengedheto es viral teszt pozitiv: antibiotikum nem szukseges.
+    text_en: |
+      Dischargeable and viral test positive: antibiotics not required.
+  OUTPATIENT_STANDARD:
+    items:
+      - amoxicillin
+    text_hu: |
+      Hazaengedheto es viral teszt negativ: amoxicillin.
+    text_en: |
+      Dischargeable and viral test negative: amoxicillin.
+  OUTPATIENT_ATYPICAL:
+    items:
+      - azithromycin
+    text_hu: |
+      Hazaengedheto, atypusos korokozo gyanu: azithromycin.
+    text_en: |
+      Dischargeable, atypical pathogen suspicion: azithromycin.
+  INFLUENZA:
+    items:
+      - oseltamivir
+    text_hu: |
+      Influenza: oseltamivir.
+      Antibiotikum csak bacterial superinfection gyanunall.
+    text_en: |
+      Influenza: oseltamivir.
+      Antibiotics only if bacterial superinfection is suspected.
+  ASPIRATION_PNEUMONIA:
+    items:
+      - ceftriaxone
+    text_hu: |
+      Aspiratio: antibiotikum csak masodlagos infekcio gyanunall.
+      Ha antibiotikum szukseges: ceftriaxone.
+    text_en: |
+      Aspiration: antibiotics only if secondary infection is suspected.
+      If antibiotic is needed: ceftriaxone.
+  COPD_ACUTE_EXACERBATION:
+    items:
+      - ceftriaxone
+      - clarithromycin
+    text_hu: |
+      COPD exacerbation bacterial superinfection gyanunall: ceftriaxone + clarithromycin.
+    text_en: |
+      COPD exacerbation with suspected bacterial superinfection: ceftriaxone + clarithromycin.
+
+# List order IS priority (source SELECTION_RULES priorities, high->low). The
+# source lower outpatient rules carried a redundant `viral_test_result != positive`
+# clause; ladder order already guarantees OUTPATIENT_VIRAL_POSITIVE is tested
+# first, so the redundant clause is dropped (documented in the hand-check).
+select:
+  - if: "intubated or patient_status == 'intubated'"
+    output: INTUBATED_CAP
+  - if: "influenza"
+    output: INFLUENZA
+  - if: "aspiration_event"
+    output: ASPIRATION_PNEUMONIA
+  - if: "copd_exacerbation"
+    output: COPD_ACUTE_EXACERBATION
+  - if: "patient_status == 'hospitalized' and nosocomial_risk"
+    output: HOSPITALIZED_NOSOCOMIAL_RISK
+  - if: "patient_status == 'hospitalized'"
+    output: HOSPITALIZED_STANDARD
+  - if: "patient_status == 'dischargeable' and viral_test_result == 'positive'"
+    output: OUTPATIENT_VIRAL_POSITIVE
+  - if: "patient_status == 'dischargeable' and atypical_suspicion"
+    output: OUTPATIENT_ATYPICAL
+  - if: "patient_status == 'dischargeable'"
+    output: OUTPATIENT_STANDARD
+  - default: DEFAULT_ANSWER
+
+footer: |
+  Ha Biofire alapján segítseg választani, írd be: "Biofire PN: kórokozó_neve"
+  Ha antimikrobiális szer dózisára van szükség, csak írd meg a nevét

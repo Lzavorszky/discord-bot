@@ -1271,3 +1271,171 @@ cases:
     expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["4 g/day"], output_not: ["6 g/day"] }
     status: new
     note: "An invented 6 g/day dose must be blocked; answer falls back to verbatim tool text."
+
+  # ---- Pathway selection (CAP / UTI / SBP / cdiff / endocarditis / IAI) ----
+  # Phase 2.5 cont. (select_pathway). Each case carries an explicit `call:`
+  # (select_pathway + pathway_id + the selector slots) AND its `input` is routed
+  # through the deterministic router and cross-checked to land on the same
+  # pathway/tool. clarifies:true marks the source DEFAULT_ANSWER (quick-map /
+  # choose-a-section) outputs; clarifies:false marks a specific selected output.
+  - id: cap_intubated
+    input: "CAP intubated patient"
+    lang: en
+    call: { tool: select_pathway, pathway_id: cap, slots: { intubated: true } }
+    expect: { route: pathway, tool: select_pathway, protocol: cap, clarifies: false, output_has: ["Biofire", "ceftriaxone"] }
+    status: new
+    note: "Intubated CAP -> BioFire PN + ceftriaxone until result (highest-priority rung)."
+
+  - id: cap_hospitalized_nosocomial
+    input: "pneumonia hospitalized nosocomial risk"
+    lang: en
+    call: { tool: select_pathway, pathway_id: cap, slots: { patient_status: hospitalized, nosocomial_risk: true } }
+    expect: { route: pathway, tool: select_pathway, protocol: cap, clarifies: false, output_has: ["levofloxacin"] }
+    status: new
+    note: "Hospitalized + nosocomial risk -> levofloxacin (beats the plain hospitalized rung)."
+
+  - id: cap_hospitalized_standard
+    input: "community acquired pneumonia, hospitalized"
+    lang: en
+    call: { tool: select_pathway, pathway_id: cap, slots: { patient_status: hospitalized } }
+    expect: { route: pathway, tool: select_pathway, protocol: cap, clarifies: false, output_has: ["ceftriaxone", "clarithromycin"] }
+    status: new
+
+  - id: cap_dischargeable_standard
+    input: "pneumonia, dischargeable"
+    lang: en
+    call: { tool: select_pathway, pathway_id: cap, slots: { patient_status: dischargeable } }
+    expect: { route: pathway, tool: select_pathway, protocol: cap, clarifies: false, output_has: ["amoxicillin"] }
+    status: new
+
+  - id: cap_influenza
+    input: "pneumonia, influenza"
+    lang: en
+    call: { tool: select_pathway, pathway_id: cap, slots: { influenza: true } }
+    expect: { route: pathway, tool: select_pathway, protocol: cap, clarifies: false, output_has: ["oseltamivir"] }
+    status: new
+
+  - id: cap_default_quick_map
+    input: "CAP"
+    lang: en
+    call: { tool: select_pathway, pathway_id: cap }
+    expect: { route: pathway, tool: select_pathway, protocol: cap, clarifies: true, output_has: ["quick map"] }
+    status: new
+    note: "No context -> source quick map (default_then_selected_output)."
+
+  - id: uti_asymptomatic
+    input: "asymptomatic bacteriuria"
+    lang: en
+    call: { tool: select_pathway, pathway_id: uti, slots: { asymptomatic_bacteriuria: true } }
+    expect: { route: pathway, tool: select_pathway, protocol: uti, clarifies: false, output_has: ["do not treat"] }
+    status: new
+    note: "Asymptomatic bacteriuria -> no treatment (highest-priority UTI rung)."
+
+  - id: uti_complicated_hospitalized
+    input: "UTI complicated hospitalized"
+    lang: en
+    call: { tool: select_pathway, pathway_id: uti, slots: { complicated: true, patient_status: hospitalized } }
+    expect: { route: pathway, tool: select_pathway, protocol: uti, clarifies: false, output_has: ["ceftriaxone"] }
+    status: new
+
+  - id: uti_complicated_hospitalized_nosocomial
+    input: "complicated UTI hospitalized nosocomial risk"
+    lang: en
+    call: { tool: select_pathway, pathway_id: uti, slots: { complicated: true, patient_status: hospitalized, nosocomial_risk: true } }
+    expect: { route: pathway, tool: select_pathway, protocol: uti, clarifies: false, output_has: ["ertapenem"], output_not: ["ceftriaxone"] }
+    status: new
+    note: "Nosocomial risk escalates complicated hospitalized UTI to ertapenem."
+
+  - id: uti_uncomplicated
+    input: "uncomplicated urinary tract infection"
+    lang: en
+    call: { tool: select_pathway, pathway_id: uti, slots: { uncomplicated: true } }
+    expect: { route: pathway, tool: select_pathway, protocol: uti, clarifies: false, output_has: ["fosfomycin", "nitrofurantoin"] }
+    status: new
+
+  - id: cdiff_treatment
+    input: "C diff treatment"
+    lang: en
+    call: { tool: select_pathway, pathway_id: cdiff, slots: { cdiff_request_type: treatment } }
+    expect: { route: pathway, tool: select_pathway, protocol: cdiff, clarifies: false, output_has: ["vancomycin", "metronidazole"] }
+    status: new
+
+  - id: cdiff_diagnosis
+    input: "cdiff diagnosis"
+    lang: en
+    call: { tool: select_pathway, pathway_id: cdiff, slots: { cdiff_request_type: diagnosis } }
+    expect: { route: pathway, tool: select_pathway, protocol: cdiff, clarifies: false, output_has: ["Bristol", "toxin"] }
+    status: new
+
+  - id: cdiff_default_choose_section
+    input: "cdiff"
+    lang: en
+    call: { tool: select_pathway, pathway_id: cdiff }
+    expect: { route: pathway, tool: select_pathway, protocol: cdiff, clarifies: true, output_has: ["diagnosis", "treatment"] }
+    status: new
+    note: "cdiff requires choosing diagnosis vs treatment -> default asks which."
+
+  - id: sbp_whole
+    input: "spontaneous bacterial peritonitis"
+    lang: en
+    call: { tool: select_pathway, pathway_id: sbp }
+    expect: { route: pathway, tool: select_pathway, protocol: sbp, output_has: ["paracentesis", "ceftriaxone"] }
+    status: new
+
+  - id: endocarditis_default_empiric
+    input: "endocarditis treatment"
+    lang: en
+    call: { tool: select_pathway, pathway_id: endocarditis_antibiotics }
+    expect: { route: pathway, tool: select_pathway, protocol: endocarditis_antibiotics, output_has: ["ampicillin", "gentamicin"] }
+    status: new
+
+  - id: endocarditis_vre
+    input: "endocarditis treatment, VRE"
+    lang: en
+    call: { tool: select_pathway, pathway_id: endocarditis_antibiotics, slots: { pathogen_group: vre } }
+    expect: { route: pathway, tool: select_pathway, protocol: endocarditis_antibiotics, clarifies: false, output_has: ["daptomycin"] }
+    status: new
+
+  - id: endocarditis_mrsa_pve
+    input: "endocarditis treatment, MRSA, prosthetic valve"
+    lang: en
+    call: { tool: select_pathway, pathway_id: endocarditis_antibiotics, slots: { resistance_profile: mrsa, valve_context: pve } }
+    expect: { route: pathway, tool: select_pathway, protocol: endocarditis_antibiotics, clarifies: false, output_has: ["vancomycin", "rifampicin"] }
+    status: new
+
+  - id: endocarditis_penicillin_allergy
+    input: "infective endocarditis treatment, penicillin allergy"
+    lang: en
+    call: { tool: select_pathway, pathway_id: endocarditis_antibiotics, slots: { penicillin_allergy: true } }
+    expect: { route: pathway, tool: select_pathway, protocol: endocarditis_antibiotics, clarifies: false, output_has: ["cefazolin", "vancomycin"] }
+    status: new
+    note: "Named pathway must beat the incidental 'penicillin' drug match in 'penicillin allergy'."
+
+  - id: endocarditis_streptococcus
+    input: "native valve endocarditis treatment, streptococcus"
+    lang: en
+    call: { tool: select_pathway, pathway_id: endocarditis_antibiotics, slots: { pathogen_group: streptococcus } }
+    expect: { route: pathway, tool: select_pathway, protocol: endocarditis_antibiotics, clarifies: false, output_has: ["ceftriaxone 2 g/day"] }
+    status: new
+    note: "Targeted pathogen output beats the empiric NVE rung."
+
+  - id: iai_complex_nosocomial
+    input: "complex nosocomial intraabdominal infection"
+    lang: en
+    call: { tool: select_pathway, pathway_id: intraabdominal_infections, slots: { iai_context: complex_nosocomial } }
+    expect: { route: pathway, tool: select_pathway, protocol: intraabdominal_infections, clarifies: false, output_has: ["meropenem"] }
+    status: new
+
+  - id: iai_dischargeable
+    input: "intraabdominal infection, diverticulosis, dischargeable"
+    lang: en
+    call: { tool: select_pathway, pathway_id: intraabdominal_infections, slots: { iai_context: dischargeable } }
+    expect: { route: pathway, tool: select_pathway, protocol: intraabdominal_infections, clarifies: false, output_has: ["amoxicillin/clavulanate"] }
+    status: new
+
+  - id: iai_pancreatitis
+    input: "intraabdominal infection, pancreatitis"
+    lang: en
+    call: { tool: select_pathway, pathway_id: intraabdominal_infections, slots: { iai_context: pancreatitis } }
+    expect: { route: pathway, tool: select_pathway, protocol: intraabdominal_infections, clarifies: false, output_has: ["not needed at presentation"] }
+    status: new

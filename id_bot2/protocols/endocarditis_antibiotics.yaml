@@ -1,0 +1,287 @@
+id: endocarditis_antibiotics
+kind: pathway
+canonical_name: infective endocarditis antibiotics
+source_label: 2023 ESC endocarditis guideline antibiotic section, local ID simplification
+status: draft
+version: 0.1
+answers_intents: [empiric_treatment, targeted_treatment, info]
+aliases:
+  - endocarditis antibiotics
+  - infective endocarditis antibiotics
+  - infective endocarditis treatment
+  - endocarditis treatment
+  - endocarditis empiric treatment
+  - empiric endocarditis
+  - empirical endocarditis
+  - endocarditis empiric antibiotics
+  - IE antibiotics
+  - IE treatment
+  - IE empiric
+  - NVE antibiotics
+  - NVE treatment
+  - native valve endocarditis treatment
+  - native valve endocarditis antibiotics
+  - PVE antibiotics
+  - PVE treatment
+  - prosthetic valve endocarditis treatment
+  - prosthetic valve endocarditis antibiotics
+
+slots:
+  treatment_mode:
+    type: enum
+    values: [empiric, targeted]
+  pathogen_group:
+    type: enum
+    values: [staphylococcus_aureus, mssa, mrsa, enterococcus, streptococcus, vre, unsupported]
+  resistance_profile:
+    type: enum
+    values: [mssa, mrsa, vre, beta_lactam_sensitive, beta_lactam_resistant_not_vre]
+  valve_context:
+    type: enum
+    values: [nve, pve, early_pve]
+  pve_timing:
+    type: enum
+    values: [early, late]
+  penicillin_allergy: {type: bool}
+  unsupported_topic:
+    type: enum
+    values: [culture_negative, fungal, opat]
+
+outputs:
+  DEFAULT_ANSWER:
+    items: [ampicillin, ceftriaxone, gentamicin, cefazolin, vancomycin]
+    text_en: |
+      Empiric infective endocarditis treatment - starting options:
+      - NVE / late PVE: ampicillin 12 g/day IV + ceftriaxone 4 g/day IV/IM in 2 doses + gentamicin 3 mg/kg
+      - Penicillin allergy: cefazolin 6 g/day IV + vancomycin 2 g load + 2 g/24h (see local guideline) + gentamicin 3 mg/kg
+      - Early PVE (<12 months after surgery): cefazolin 6 g/day IV + vancomycin 2 g load + 2 g/24h (see local guideline) + gentamicin 3 mg/kg
+
+      If a pathogen is known, send the pathogen name or susceptibility, for example MSSA, MRSA, Enterococcus, VRE, or Streptococcus.
+  EMPIRIC_NVE_LATE_PVE:
+    items: [ampicillin, ceftriaxone, gentamicin]
+    text_en: |
+      Endocarditis antibiotics - Empiric NVE / late PVE
+      - regimen: ampicillin + ceftriaxone + gentamicin
+      - starting doses:
+      ampicillin 12 g/day IV
+      ceftriaxone 4 g/day IV/IM in 2 doses
+      gentamicin 3 mg/kg
+      - note: Use for NVE or late PVE unless another listed modifier applies.
+  EMPIRIC_NVE_LATE_PVE_PENICILLIN_ALLERGY:
+    items: [cefazolin, vancomycin, gentamicin]
+    text_en: |
+      Endocarditis antibiotics - Empiric NVE / late PVE - penicillin allergy
+      - regimen: cefazolin + vancomycin + gentamicin
+      - starting doses:
+      cefazolin 6 g/day IV
+      vancomycin 2 g load + 2 g/24h (see local guideline)
+      gentamicin 3 mg/kg
+      - note: Penicillin allergy severity is not evaluated in this protocol; see footer.
+  EMPIRIC_EARLY_PVE:
+    items: [cefazolin, vancomycin, gentamicin]
+    text_en: |
+      Endocarditis antibiotics - Empiric early PVE
+      - regimen: cefazolin + vancomycin + gentamicin
+      - starting doses:
+      cefazolin 6 g/day IV
+      vancomycin 2 g load + 2 g/24h (see local guideline)
+      gentamicin 3 mg/kg
+      - note: Use for PVE less than 12 months after surgery.
+  EMPIRIC_PVE_TIMING_OPTIONS:
+    items: [ampicillin, ceftriaxone, gentamicin, cefazolin, vancomycin]
+    text_en: |
+      Endocarditis antibiotics - Empiric PVE - timing needed
+      - regimen: show early and late PVE options
+      - starting doses:
+      Late PVE (>=12 months): ampicillin 12 g/day IV + ceftriaxone 4 g/day IV/IM in 2 doses + gentamicin 3 mg/kg
+      Early PVE (<12 months): cefazolin 6 g/day IV + vancomycin 2 g load + 2 g/24h (see local guideline) + gentamicin 3 mg/kg
+      - note: If possible, specify whether PVE is early (<12 months after surgery) or late.
+  MSSA_NVE:
+    items: [cefazolin]
+    text_en: |
+      Endocarditis antibiotics - MSSA NVE
+      - regimen: cefazolin
+      - starting doses:
+      cefazolin 6 g/day IV
+      - note: Targeted treatment for MSSA NVE.
+  MSSA_PVE:
+    items: [cefazolin, gentamicin, rifampicin]
+    text_en: |
+      Endocarditis antibiotics - MSSA PVE
+      - regimen: cefazolin + gentamicin; add rifampicin after bacteremia clears
+      - starting doses:
+      cefazolin 6 g/day IV
+      gentamicin 3 mg/kg
+      rifampicin 900-1200 mg/day after bacteremia clears
+      - note: Add rifampicin after bacteremia clears.
+  MSSA_BOTH_VALVES:
+    items: [cefazolin, gentamicin, rifampicin]
+    text_en: |
+      Endocarditis antibiotics - MSSA - NVE and PVE options
+      - regimen: show NVE and PVE options
+      - starting doses:
+      NVE: cefazolin 6 g/day IV
+      PVE: cefazolin 6 g/day IV + gentamicin 3 mg/kg; add rifampicin 900-1200 mg/day after bacteremia clears
+      - note: If possible, specify NVE or PVE.
+  MRSA_NVE:
+    items: [vancomycin]
+    text_en: |
+      Endocarditis antibiotics - MRSA NVE
+      - regimen: vancomycin
+      - starting doses:
+      vancomycin 2 g load + 2 g/24h (see local guideline)
+      - note: Targeted treatment for MRSA NVE.
+  MRSA_PVE:
+    items: [vancomycin, gentamicin, rifampicin]
+    text_en: |
+      Endocarditis antibiotics - MRSA PVE
+      - regimen: vancomycin + gentamicin; add rifampicin after bacteremia clears
+      - starting doses:
+      vancomycin 2 g load + 2 g/24h (see local guideline)
+      gentamicin 3 mg/kg
+      rifampicin 900-1200 mg/day after bacteremia clears
+      - note: Add rifampicin after bacteremia clears.
+  MRSA_BOTH_VALVES:
+    items: [vancomycin, gentamicin, rifampicin]
+    text_en: |
+      Endocarditis antibiotics - MRSA - NVE and PVE options
+      - regimen: show NVE and PVE options
+      - starting doses:
+      NVE: vancomycin 2 g load + 2 g/24h (see local guideline)
+      PVE: vancomycin 2 g load + 2 g/24h (see local guideline) + gentamicin 3 mg/kg; add rifampicin 900-1200 mg/day after bacteremia clears
+      - note: If possible, specify NVE or PVE.
+  STAPH_AUREUS_MSSA_MRSA:
+    items: [cefazolin, gentamicin, rifampicin, vancomycin]
+    text_en: |
+      Endocarditis antibiotics - Staphylococcus aureus - susceptibility not specified
+      - regimen: show MSSA and MRSA options
+      - starting doses:
+      MSSA NVE: cefazolin 6 g/day IV
+      MSSA PVE: cefazolin 6 g/day IV + gentamicin 3 mg/kg; add rifampicin 900-1200 mg/day after bacteremia clears
+      MRSA NVE: vancomycin 2 g load + 2 g/24h (see local guideline)
+      MRSA PVE: vancomycin 2 g load + 2 g/24h (see local guideline) + gentamicin 3 mg/kg; add rifampicin 900-1200 mg/day after bacteremia clears
+      - note: If possible, specify MSSA/MRSA and NVE/PVE.
+  ENTERO_BETA_LACTAM_SENSITIVE:
+    items: [ampicillin, ceftriaxone]
+    text_en: |
+      Endocarditis antibiotics - Enterococcus - beta-lactam sensitive
+      - regimen: ampicillin + ceftriaxone
+      - starting doses:
+      ampicillin 12 g/day IV
+      ceftriaxone 4 g/day IV/IM in 2 doses
+      - note: Targeted treatment for beta-lactam-sensitive Enterococcus.
+  ENTERO_BETA_LACTAM_RESISTANT_NOT_VRE:
+    items: [vancomycin, gentamicin]
+    text_en: |
+      Endocarditis antibiotics - Enterococcus - beta-lactam resistant, not VRE
+      - regimen: vancomycin + gentamicin
+      - starting doses:
+      vancomycin 2 g load + 2 g/24h (see local guideline)
+      gentamicin 3 mg/kg
+      - note: Use when beta-lactam resistant but not vancomycin resistant.
+  ENTERO_VRE:
+    items: [daptomycin, ampicillin]
+    text_en: |
+      Endocarditis antibiotics - VRE
+      - regimen: daptomycin + ampicillin
+      - starting doses:
+      daptomycin 10-12 mg/kg/day
+      ampicillin 12 g/day IV
+      - note: ID consult please.
+  ENTEROCOCCUS_ALL_THREE:
+    items: [ampicillin, ceftriaxone, vancomycin, gentamicin, daptomycin]
+    text_en: |
+      Endocarditis antibiotics - Enterococcus - resistance not specified
+      - regimen: show all three resistance options
+      - starting doses:
+      Beta-lactam sensitive: ampicillin 12 g/day IV + ceftriaxone 4 g/day IV/IM in 2 doses
+      Beta-lactam resistant, not VRE: vancomycin 2 g load + 2 g/24h (see local guideline) + gentamicin 3 mg/kg
+      VRE: daptomycin 10-12 mg/kg/day + ampicillin 12 g/day IV; ID consult please
+      - note: If possible, specify beta-lactam susceptibility and vancomycin resistance.
+  STREPTOCOCCUS_CEFTRIAXONE:
+    items: [ceftriaxone]
+    text_en: |
+      Endocarditis antibiotics - Streptococcus / S. gallolyticus / S. pneumoniae
+      - regimen: ceftriaxone
+      - starting doses:
+      ceftriaxone 2 g/day IV
+      - note: Covers oral streptococci, Streptococcus gallolyticus, and Streptococcus pneumoniae in this simplified pathway.
+  PATHOGEN_NOT_COVERED:
+    items: []
+    text_en: |
+      Endocarditis antibiotics - Pathogen-specific guideline not available
+      - regimen: not available
+      - starting doses:
+      Pathogen-specific endocarditis guideline is not available in this bot protocol.
+      - note: Refer to specialist/full guideline.
+  NOT_COVERED_CULTURE_NEGATIVE:
+    items: []
+    text_en: |
+      Endocarditis antibiotics - Culture-negative endocarditis not covered
+      - regimen: not available
+      - starting doses:
+      Culture-negative endocarditis is not covered in this bot guideline.
+      - note: Refer to specialist/full guideline.
+  NOT_COVERED_FUNGAL:
+    items: []
+    text_en: |
+      Endocarditis antibiotics - Fungal endocarditis not covered
+      - regimen: not available
+      - starting doses:
+      Fungal endocarditis is not covered in this bot guideline.
+      - note: Refer to specialist/full guideline.
+  NOT_COVERED_OPAT:
+    items: []
+    text_en: |
+      Endocarditis antibiotics - OPAT / oral step-down not covered
+      - regimen: not available
+      - starting doses:
+      OPAT and oral step-down decisions are not covered in this bot guideline.
+      - note: Refer to specialist/full guideline.
+
+# List order IS priority (source SELECTION_RULES priorities 300 -> 80 -> default).
+select:
+  - if: "unsupported_topic == 'culture_negative'"
+    output: NOT_COVERED_CULTURE_NEGATIVE
+  - if: "unsupported_topic == 'fungal'"
+    output: NOT_COVERED_FUNGAL
+  - if: "unsupported_topic == 'opat'"
+    output: NOT_COVERED_OPAT
+  - if: "pathogen_group == 'vre' or resistance_profile == 'vre'"
+    output: ENTERO_VRE
+  - if: "resistance_profile == 'mrsa' and valve_context == 'pve'"
+    output: MRSA_PVE
+  - if: "resistance_profile == 'mrsa' and valve_context == 'nve'"
+    output: MRSA_NVE
+  - if: "pathogen_group == 'mrsa' or (pathogen_group == 'staphylococcus_aureus' and resistance_profile == 'mrsa')"
+    output: MRSA_BOTH_VALVES
+  - if: "resistance_profile == 'mssa' and valve_context == 'pve'"
+    output: MSSA_PVE
+  - if: "resistance_profile == 'mssa' and valve_context == 'nve'"
+    output: MSSA_NVE
+  - if: "pathogen_group == 'mssa' or (pathogen_group == 'staphylococcus_aureus' and resistance_profile == 'mssa')"
+    output: MSSA_BOTH_VALVES
+  - if: "pathogen_group == 'staphylococcus_aureus'"
+    output: STAPH_AUREUS_MSSA_MRSA
+  - if: "pathogen_group == 'enterococcus' and resistance_profile == 'beta_lactam_sensitive'"
+    output: ENTERO_BETA_LACTAM_SENSITIVE
+  - if: "pathogen_group == 'enterococcus' and resistance_profile == 'beta_lactam_resistant_not_vre'"
+    output: ENTERO_BETA_LACTAM_RESISTANT_NOT_VRE
+  - if: "pathogen_group == 'enterococcus'"
+    output: ENTEROCOCCUS_ALL_THREE
+  - if: "pathogen_group == 'streptococcus'"
+    output: STREPTOCOCCUS_CEFTRIAXONE
+  - if: "pathogen_group == 'unsupported'"
+    output: PATHOGEN_NOT_COVERED
+  - if: "pve_timing == 'early' or valve_context == 'early_pve'"
+    output: EMPIRIC_EARLY_PVE
+  - if: "valve_context == 'pve'"
+    output: EMPIRIC_PVE_TIMING_OPTIONS
+  - if: "penicillin_allergy"
+    output: EMPIRIC_NVE_LATE_PVE_PENICILLIN_ALLERGY
+  - if: "treatment_mode == 'empiric' or valve_context == 'nve' or pve_timing == 'late'"
+    output: EMPIRIC_NVE_LATE_PVE
+  - default: DEFAULT_ANSWER
+
+footer: |
+  Check penicillin allergy severity. If not severe, cephalosporins can usually be given. If severe allergy and no pathway is listed above, consult the guideline/specialist. ID advice should always be sought in daytime.

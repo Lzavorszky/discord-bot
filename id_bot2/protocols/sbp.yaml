@@ -1,0 +1,50 @@
+id: sbp
+kind: pathway
+canonical_name: spontaneous bacterial peritonitis
+source_label: uploaded DOCX - SBP
+status: draft
+version: 0.1
+answers_intents: [empiric_treatment, info]
+aliases:
+  - SBP
+  - spontaneous bacterial peritonitis
+  - spontan bakterialis peritonitis
+  - "spontán bakteriális peritonitis"
+  - ascites infection
+  - ascites infekcio
+  - "ascites infekció"
+  - paracentesis SBP
+  - paracentezis SBP
+
+# SBP has a single rule: any request returns the whole protocol chunk.
+# (Source SELECTION_RULES: RULE DEFAULT -> WHOLE_SBP.)
+outputs:
+  WHOLE_SBP:
+    items:
+      - ceftriaxone
+    text_hu: |
+      SBP protokoll:
+      Diagnozis = paracentezis.
+      Kuldd: mikrobiologia, ten mL ascites hemokulturas palackban.
+      Kuldd: kemia, LDH, glukoz, bilirubin, amilaz, albumin, feherversejtszam.
+      Kuldd: sejtszam.
+      Kuldd: citologia.
+      Kuldd: ascites vergaz gepbe, ha makroszkoposan tiszta.
+      Diagnozis: 500/ul-t meghalado neutrofil granulocita, alacsony pH, alacsony cukor es magas laktat, magas albumin gradiens.
+      Kezeles a hasuri tablazat szerint: ceftriaxone. Reszletes ceftriaxone dosinghez hasznald a ceftriaxone protokollt.
+    text_en: |
+      SBP protocol:
+      Diagnosis = paracentesis.
+      Send microbiology: ten mL ascites in a blood culture bottle.
+      Send chemistry: LDH, glucose, bilirubin, amylase, albumin, white blood cell count.
+      Send cell count.
+      Send cytology.
+      Send ascites into blood gas machine if macroscopically clear.
+      Diagnosis: neutrophil granulocytes above 500/uL, low pH, low glucose and high lactate, high albumin gradient.
+      Treatment from the abdominal infection table: ceftriaxone. For detailed ceftriaxone dosing use the ceftriaxone protocol.
+
+select:
+  - default: WHOLE_SBP
+
+footer: |
+  SBP forras szerint; ceftriaxone dozis kulon protokollbol.

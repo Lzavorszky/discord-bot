@@ -1,0 +1,102 @@
+id: cdiff
+kind: pathway
+canonical_name: Clostridium difficile
+source_label: uploaded DOCX - Clostridium difficile
+status: draft
+version: 0.1
+answers_intents: [empiric_treatment, info]
+aliases:
+  - Clostridium difficile
+  - C. difficile
+  - C difficile
+  - C diff
+  - C.diff
+  - cdiff
+  - CDI
+  - difficile
+  - clostridioides difficile
+  - hasmenes cdiff
+  - cdiff kezeles
+  - cdiff diagnozis
+
+# Required selection input: exactly one of diagnosis / treatment.
+# No choice -> DEFAULT_ANSWER asks which section (source answer_mode:
+# required_slots_then_selected_output).
+slots:
+  cdiff_request_type:
+    type: enum
+    values: [diagnosis, treatment]
+
+outputs:
+  DEFAULT_ANSWER:
+    items: []
+    text_hu: |
+      C. difficile protokollhoz valassz egy reszt:
+      - diagnozis
+      - kezeles
+
+      Pelda: "cdiff diagnozis" vagy "cdiff kezeles".
+    text_en: |
+      Choose one C. difficile section:
+      - diagnosis
+      - treatment
+
+      Example: "C diff diagnosis" or "C diff treatment".
+  DIAGNOSIS_CHUNK:
+    items:
+      - cdiff_diagnosis
+    text_hu: |
+      Diagnozis:
+      Napi 3-nal tobb hig szeklet, Bristol stool chart 5-7.
+      Pozitiv C. difficile toxin.
+      Megjegyzes: hasmenes nelkuli toxin vagy antigen pozitivitas nem kezelendo.
+      Ha hasmenese van es toxin negativ, de antigen pozitiv: ismeteld meg a vizsgalatot, es figyelj ra, hogy a minta gyorsan a mikrobiologiai laborba erjen. Ha a minta sokat all, a toxin lebomolhat.
+      A toxin es antigen kimutatas gyors eredmenyt ad. A tenyesztesnek kesobb lesz eredmenye, viszont ez mar biztos eredmenyt ad a toxin szempontjabol, mert nem tud lebomlani.
+      Kontakt izolacio es szappanos kezmosas szukseges.
+      Az izolaciot a hasmenes megszuneset koveto 48 oraig kell fenntartani; ezt kovetoen megszuntetheto, negativ vizsgalat nem szukseges.
+    text_en: |
+      Diagnosis:
+      More than 3 loose stools per day, Bristol stool chart 5-7.
+      Positive C. difficile toxin.
+      Note: toxin or antigen positivity without diarrhea should not be treated.
+      If diarrhea is present and toxin is negative but antigen is positive: repeat the test and ensure the sample reaches the microbiology lab quickly. If the sample stands too long, toxin may degrade.
+      Toxin and antigen detection gives a rapid result. Culture results arrive later, but toxin status is more secure from culture because toxin cannot degrade in the same way.
+      Contact isolation and soap-and-water handwashing are required.
+      Keep isolation until 48 hours after diarrhea stops; after that it may be stopped, and a negative test is not required.
+  TREATMENT_CHUNK:
+    items:
+      - vancomycin
+      - metronidazole
+      - tigecycline
+      - fidaxomicin
+      - fecal_microbiota_transplantation
+    text_hu: |
+      Kezeles:
+      NG vancomycin 4x125 mg.
+      Sulyos fertozesben, es ha NG ut nem megbizhato: + metronidazol.
+      Ha lehet, allitsd meg a konvencionalis antibiotikumokat.
+      Tigecyclin is hatekony; kulonosen toxikus megacolon vagy szeptikus allapot eseten jon szoba. Konzultalj infektologussal.
+      Terapiarezisztens esetekben fidaxomicin beszerezheto, illetve szeklettranszplantacio merul fel. Szt. Laszlo Infektologiai Centrummal konzultacio szukseges.
+      Probiotikumok nem hatekonyak.
+      Hossz: minimum 10 nap; illetve a hasmenes megszunte utan +48 oraig.
+      10 napnal hosszabb vagy visszatero fertozes eseten hosszabb kezelesre vagy alternativ strategiara lehet szukseg; konzultalj infektologussal.
+    text_en: |
+      Treatment:
+      NG vancomycin 4x125 mg.
+      In severe infection, and if the NG route is unreliable: add metronidazole.
+      Stop conventional antibiotics if possible.
+      Tigecycline is also effective; especially in toxic megacolon or septic state. Consult infectious diseases.
+      In therapy-resistant cases, fidaxomicin may be obtained, and fecal microbiota transplantation may be considered. Consultation with Szt. Laszlo Infectious Diseases Center is required.
+      Probiotics are not effective.
+      Duration: minimum 10 days; and until 48 hours after diarrhea stops.
+      If treatment longer than 10 days is needed or infection recurs, longer treatment or an alternative strategy may be needed; consult infectious diseases.
+
+select:
+  - if: "cdiff_request_type == 'diagnosis'"
+    output: DIAGNOSIS_CHUNK
+  - if: "cdiff_request_type == 'treatment'"
+    output: TREATMENT_CHUNK
+  - default: DEFAULT_ANSWER
+
+footer: |
+  C. difficile protokoll: forras szerint; sulyos, visszatero vagy terapiarezisztens esetben ID konzultacio.

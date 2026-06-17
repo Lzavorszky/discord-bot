@@ -58,6 +58,7 @@ from textnorm import repair_mojibake, fold_accents  # noqa: E402
 from loader import load_protocol_dir              # noqa: E402
 import get_dose as _gd                            # noqa: E402
 import interpret_pcr as _ip                       # noqa: E402
+import select_pathway as _sp                     # noqa: E402
 from llm.tools import Tool, ToolCall              # noqa: E402
 from verifier import verify_grounding             # noqa: E402
 
@@ -118,6 +119,7 @@ class RouterResult:
     candidates: list = field(default_factory=list)  # for route == "clarify"
     dose: object = None              # the DoseResult, when route == "drug_dose"
     pcr: object = None               # the PcrResult, when route == "pcr_panel"
+    pathway: object = None           # the PathwayResult, when route == "pathway"
     organisms: list = field(default_factory=list)  # detected organisms (pcr)
     markers: list = field(default_factory=list)    # detected markers (pcr)
     phrased: bool = False            # True if the phrasing model rewrote the answer
@@ -422,6 +424,253 @@ def _organism_panel_hint(message: str, panels: dict) -> list:
 
 
 # --------------------------------------------------------------------------- #
+# Pathway registry + resolver (Plan D, Phase 2.5 cont.). A NAMED empiric/
+# diagnostic pathway (CAP, UTI, SBP, cdiff, endocarditis, intra-abdominal) is a
+# strong signal — like a named PCR panel — so it precedes drug resolution. The
+# deterministic stage matches a pathway by its aliases, keyword-extracts the
+# clinical selector slots from the message (only slots the matched pathway
+# declares), and dispatches select_pathway. Slot extraction quality only affects
+# WHICH output is surfaced; an unrecognised context simply falls through to the
+# pathway's own DEFAULT_ANSWER (the source "quick map") — never a guessed pathway.
+# --------------------------------------------------------------------------- #
+
+# Pathway slot vocabulary, mirroring the drug _BOOL_SLOTS approach (kept in the
+# router, not the YAML, exactly as the drug slot keywords are). Each entry maps a
+# folded phrase -> the value to assign; ordered most-specific-first, first hit
+# per slot wins. Extraction is gated to the slots the matched pathway declares,
+# so e.g. patient_status is only read for CAP/UTI, pathogen_group only for
+# endocarditis. Phrases are in _norm() form (accents/separators folded).
+_PATHWAY_SLOT_VOCAB: dict[str, tuple[tuple[str, object], ...]] = {
+    # shared (CAP, UTI, intra-abdominal where declared)
+    "patient_status": (
+        ("intubated", "intubated"), ("mechanically ventilated", "intubated"),
+        ("ventilated", "intubated"),
+        ("hospitalized", "hospitalized"), ("hospitalised", "hospitalized"),
+        ("admitted", "hospitalized"), ("inpatient", "hospitalized"),
+        ("hospitalizalt", "hospitalized"),
+        ("dischargeable", "dischargeable"), ("outpatient", "dischargeable"),
+        ("ambulant", "dischargeable"), ("hazaengedheto", "dischargeable"),
+    ),
+    "nosocomial_risk": (
+        ("nosocomial", True), ("nozokomialis", True), ("icu", True), ("ito", True),
+    ),
+    # CAP
+    "intubated": (("intubated", True), ("mechanically ventilated", True),
+                  ("ventilated", True)),
+    "influenza": (("influenza", True), ("flu", True)),
+    "aspiration_event": (("aspiration", True), ("aspiratio", True)),
+    "copd_exacerbation": (("copd", True),),
+    "atypical_suspicion": (("atypical", True), ("atypusos", True)),
+    "viral_test_result": (
+        ("viral test positive", "positive"), ("viral positive", "positive"),
+        ("viral test negative", "negative"), ("viral negative", "negative"),
+    ),
+    # UTI
+    "syndrome_class": (
+        ("asymptomatic bacteriuria", "asymptomatic_bacteriuria"),
+        ("asymptomatic", "asymptomatic_bacteriuria"),
+        ("uncomplicated", "uncomplicated_uti"), ("cystitis", "uncomplicated_uti"),
+        ("complicated", "complicated_uti"), ("pyelonephritis", "complicated_uti"),
+        ("prostatitis", "complicated_uti"),
+    ),
+    "asymptomatic_bacteriuria": (("asymptomatic bacteriuria", True),
+                                 ("asymptomatic", True), ("bacteriuria", True)),
+    "uncomplicated": (("uncomplicated", True), ("cystitis", True)),
+    "complicated": (("complicated", True), ("pyelonephritis", True),
+                    ("prostatitis", True)),
+    "catheter_associated": (("catheter associated", True),
+                            ("catheter-associated", True), ("ca uti", True),
+                            ("catheter", True), ("kateter", True)),
+    # cdiff
+    "cdiff_request_type": (
+        ("diagnosis", "diagnosis"), ("diagnostic", "diagnosis"),
+        ("diagnosztika", "diagnosis"), ("diagnozis", "diagnosis"),
+        ("toxin", "diagnosis"), ("antigen", "diagnosis"),
+        ("treatment", "treatment"), ("therapy", "treatment"),
+        ("kezeles", "treatment"),
+    ),
+    # intra-abdominal
+    "iai_context": (
+        ("clostridium difficile", "cdiff"), ("c difficile", "cdiff"),
+        ("c diff", "cdiff"), ("cdiff", "cdiff"),
+        ("spontaneous bacterial peritonitis", "sbp"),
+        ("ascites infection", "sbp"), ("sbp", "sbp"), ("peritonitis", "sbp"),
+        ("splenectomy", "splenectomy_prophylaxis"),
+        ("asplenia", "splenectomy_prophylaxis"),
+        ("variceal", "varix_bleeding_prophylaxis"),
+        ("varix", "varix_bleeding_prophylaxis"),
+        ("pancreatitis", "pancreatitis"),
+        ("anastomotic leak", "complex_nosocomial"),
+        ("complex nosocomial", "complex_nosocomial"),
+        ("reoperation", "complex_nosocomial"),
+        ("source control", "hospitalized_source_control"),
+        ("perforation", "hospitalized_source_control"),
+        ("ileus", "hospitalized_source_control"),
+        ("diverticulosis", "dischargeable"),
+        ("dischargeable", "dischargeable"), ("outpatient", "dischargeable"),
+    ),
+    # endocarditis
+    "treatment_mode": (("empiric", "empiric"), ("empirical", "empiric"),
+                       ("targeted", "targeted")),
+    "pathogen_group": (
+        ("staphylococcus aureus", "staphylococcus_aureus"),
+        ("staph aureus", "staphylococcus_aureus"),
+        ("s aureus", "staphylococcus_aureus"),
+        ("mrsa", "mrsa"), ("mssa", "mssa"),
+        ("enterococcus", "enterococcus"),
+        ("vre", "vre"),
+        ("streptococcus", "streptococcus"), ("strep", "streptococcus"),
+        ("pneumococcus", "streptococcus"), ("pneumoniae", "streptococcus"),
+    ),
+    "resistance_profile": (
+        ("beta lactam sensitive", "beta_lactam_sensitive"),
+        ("beta lactam resistant", "beta_lactam_resistant_not_vre"),
+        ("mrsa", "mrsa"), ("mssa", "mssa"), ("vre", "vre"),
+    ),
+    "pve_timing": (("early pve", "early"), ("late pve", "late")),
+    "valve_context": (
+        ("early pve", "early_pve"),
+        ("native valve", "nve"), ("nve", "nve"),
+        ("prosthetic valve", "pve"), ("pve", "pve"),
+    ),
+    "penicillin_allergy": (("penicillin allergy", True),
+                           ("beta lactam allergy", True),
+                           ("penicillin allergic", True),
+                           ("penicillin allergia", True)),
+    "unsupported_topic": (
+        ("culture negative", "culture_negative"),
+        ("blood culture negative", "culture_negative"),
+        ("fungal", "fungal"), ("candida", "fungal"),
+        ("opat", "opat"), ("oral step down", "opat"),
+    ),
+}
+
+
+@dataclass(frozen=True)
+class _PathwayEntry:
+    pathway_id: str
+    aliases: tuple            # folded pathway aliases, longest first
+    slots: tuple              # declared slot names
+
+
+@dataclass(frozen=True)
+class PathwayCall:
+    """A deterministic (or LLM) pathway routing decision."""
+    tool: str                 # select_pathway
+    pathway_id: str
+    slots: dict = field(default_factory=dict)
+    via: str = "deterministic"
+
+
+def _build_pathway_registry(protocols_dir) -> dict:
+    records = load_protocol_dir(protocols_dir)
+    reg: dict = {}
+    for _path, rec in records:
+        if rec.get("kind") != "pathway":
+            continue
+        pid = rec["id"]
+        aliases = set(rec.get("aliases") or [])
+        aliases.add(rec.get("canonical_name") or "")
+        aliases.add(rec.get("source_label") or "")
+        folded = tuple(sorted(
+            {_norm(a) for a in aliases if a and a.strip()}, key=len, reverse=True))
+        reg[pid] = _PathwayEntry(
+            pathway_id=pid, aliases=folded,
+            slots=tuple((rec.get("slots") or {}).keys()))
+    return reg
+
+
+def _match_pathways(folded_msg: str, pathways: dict) -> list:
+    spans = []
+    for pid, entry in pathways.items():
+        for alias in entry.aliases:        # longest alias first
+            m = re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", folded_msg)
+            if m:
+                spans.append((m.start(), m.end(), pid))
+                break
+    kept = _span_dedup(spans)
+    out, seen = [], set()
+    for _s, _e, pid in kept:
+        if pid not in seen:
+            seen.add(pid)
+            out.append(pid)
+    return out
+
+
+def _extract_pathway_slots(folded_msg: str, declared) -> dict:
+    """Keyword-extract only the slots the matched pathway declares. First
+    matching phrase per slot wins (vocab is ordered specific-first)."""
+    out: dict = {}
+    for slot in declared:
+        vocab = _PATHWAY_SLOT_VOCAB.get(slot)
+        if not vocab:
+            continue
+        for phrase, value in vocab:
+            if _alias_hit(folded_msg, phrase):
+                out[slot] = value
+                break
+    # Endocarditis timing/valve disambiguation: when the message pins PVE timing
+    # (early/late PVE), don't ALSO set valve_context=pve — the timing rungs
+    # (EMPIRIC_EARLY_PVE / EMPIRIC_NVE_LATE_PVE) must win over the
+    # timing-unknown EMPIRIC_PVE_TIMING_OPTIONS rung.
+    if out.get("pve_timing") in ("early", "late") and out.get("valve_context") == "pve":
+        del out["valve_context"]
+    return out
+
+
+def resolve_pathway(message: str, pathways: dict):
+    """Deterministic pathway stage. Returns:
+        * a PathwayCall         — exactly one pathway named
+        * a list[str]           — >1 pathway named (ambiguous; pathway ids)
+        * None                  — no pathway alias present (let drug logic run)
+    """
+    folded = _norm(message)
+    matched = _match_pathways(folded, pathways)
+    if not matched:
+        return None
+    if len(matched) > 1:
+        return matched
+    pid = matched[0]
+    slots = _extract_pathway_slots(folded, pathways[pid].slots)
+    return PathwayCall(tool="select_pathway", pathway_id=pid, slots=slots,
+                       via="deterministic")
+
+
+def _get_pathway_tools(pathways: dict) -> list:
+    """The select_pathway tool exposed to the LLM: pathway_id constrained to the
+    loaded pathway protocols (closed enum), plus the union of pathway slot names
+    as optional args. select_pathway ignores undeclared/invalid slots, so an
+    off-pathway slot is never used."""
+    if not pathways:
+        return []
+    bool_like = {"intubated", "influenza", "aspiration_event", "copd_exacerbation",
+                 "nosocomial_risk", "atypical_suspicion", "asymptomatic_bacteriuria",
+                 "uncomplicated", "complicated", "catheter_associated",
+                 "penicillin_allergy"}
+    props: dict = {
+        "pathway_id": {"type": "string", "enum": sorted(pathways.keys()),
+                       "description": "Which empiric/diagnostic pathway the "
+                                      "question is about."},
+    }
+    all_slots: set = set()
+    for entry in pathways.values():
+        all_slots.update(entry.slots)
+    for s in sorted(all_slots):
+        props[s] = {"type": "boolean"} if s in bool_like else {"type": "string"}
+    tool = Tool(
+        name="select_pathway",
+        description=("Select the empiric/diagnostic treatment pathway output for "
+                     "a clinical syndrome (CAP, UTI, SBP, C. difficile, "
+                     "endocarditis, intra-abdominal infection). Set only the "
+                     "context slots the user actually stated; never invent values. "
+                     "This selects a pathway, it does NOT dose drugs."),
+        parameters={"type": "object", "properties": props,
+                    "required": ["pathway_id"]},
+    )
+    return [tool]
+
+
+# --------------------------------------------------------------------------- #
 # The router                                                                  #
 # --------------------------------------------------------------------------- #
 _BOOL_SLOT_NAMES = set(_BOOL_SLOTS)
@@ -510,10 +759,13 @@ class Router:
         # PCR panels (roadmap 3.2): a parallel registry + tool schemas.
         self.panels = _build_panel_registry(self.protocols_dir)
         self._pcr_tools = _get_pcr_tools(self.panels)
+        # Pathway protocols (Phase 2.5 cont.): a parallel registry + tool schema.
+        self.pathways = _build_pathway_registry(self.protocols_dir)
+        self._pathway_tools = _get_pathway_tools(self.pathways)
 
     # public ---------------------------------------------------------------
     def tools(self) -> list[Tool]:
-        return [self._tool, *self._pcr_tools]
+        return [self._tool, *self._pcr_tools, *self._pathway_tools]
 
     def route(self, message: str, *, provider=None, phrasing_provider=None) -> RouterResult:
         phraser = phrasing_provider or self.phrasing_provider
@@ -527,6 +779,19 @@ class Router:
                 route="clarify", tool="ask_clarification", needs_clarification=True,
                 candidates=pcr, via="deterministic",
                 answer=("Which panel do you mean: " + ", ".join(pcr) + "?"))
+
+        # 1b) deterministic PATHWAY stage — a NAMED empiric/diagnostic pathway
+        #     is a strong signal too (like a named panel), so it precedes drug
+        #     resolution. (A drug query never matches a pathway alias, so real
+        #     dosing requests still fall through to the drug stage below.)
+        pw = resolve_pathway(message, self.pathways)
+        if isinstance(pw, PathwayCall):
+            return self._run_pathway_call(pw)
+        if isinstance(pw, list):                 # >1 pathway named → clarify
+            return RouterResult(
+                route="clarify", tool="ask_clarification", needs_clarification=True,
+                candidates=pw, via="deterministic",
+                answer=("Which pathway do you mean: " + ", ".join(pw) + "?"))
 
         # 2) deterministic drug stage
         resolved = resolve_call(message, self.registry)
@@ -609,6 +874,22 @@ class Router:
             via=call.via, organisms=list(call.organisms),
             markers=list(call.markers), pcr=res)
 
+    def _run_pathway_call(self, call: "PathwayCall") -> RouterResult:
+        if call.pathway_id not in self.pathways:
+            return RouterResult(route="unsupported", tool="none",
+                                answer=f"No uploaded pathway for {call.pathway_id!r}.")
+        res = _sp.select_pathway(call.pathway_id,
+                                 protocols_dir=str(self.protocols_dir),
+                                 **call.slots)
+        grounded = _sp.render_pathway(res)
+        # A pathway always returns SOME verbatim guidance (a matched output or
+        # the source DEFAULT_ANSWER quick map), so this is never a silent answer.
+        return RouterResult(
+            route="pathway", tool="select_pathway", protocol=res.pathway_id,
+            answer=grounded, grounded_answer=grounded,
+            needs_clarification=False, via=call.via,
+            slots=dict(call.slots), pathway=res)
+
     def _phrase(self, result: "RouterResult", grounded: str, kind: str,
                 provider) -> None:
         """Rewrite `grounded` into natural prose, then verify it is grounded.
@@ -662,6 +943,20 @@ class Router:
                 return self._run_pcr_call(PanelCall(
                     tool="interpret_pcr", panel_id=panel_id,
                     organisms=orgs, markers=marks, via="llm"))
+            # select_pathway (Phase 2.5 cont.).
+            if out.name == "select_pathway":
+                tool = next((t for t in self._pathway_tools if t.name == out.name), None)
+                if tool is None or tool.validate_arguments(out.arguments):
+                    return None
+                args = dict(out.arguments)
+                pathway_id = args.pop("pathway_id", None)
+                if pathway_id not in self.pathways:
+                    return None
+                declared = set(self.pathways[pathway_id].slots)
+                slots = {k: v for k, v in args.items() if k in declared}
+                return self._run_pathway_call(PathwayCall(
+                    tool="select_pathway", pathway_id=pathway_id,
+                    slots=slots, via="llm"))
             problems = self._tool.validate_arguments(out.arguments)
             if out.name != "get_dose" or problems:
                 return None
@@ -745,5 +1040,6 @@ PHRASING_SYSTEM = _PHRASING_SYSTEM
 __all__ = [
     "Router", "RouterResult", "RoutedCall", "resolve_call", "RouterError",
     "PanelCall", "resolve_pcr",
+    "PathwayCall", "resolve_pathway",
     "SAFETY_RULES", "ROUTER_SYSTEM", "PHRASING_SYSTEM",
 ]

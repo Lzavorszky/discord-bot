@@ -1,0 +1,147 @@
+id: uti
+kind: pathway
+canonical_name: urinary tract infection
+source_label: UTI
+status: draft
+version: 0.1
+answers_intents: [empiric_treatment, info]
+aliases:
+  - UTI
+  - urinary tract infection
+  - urinary infection
+  - cystitis
+  - pyelonephritis
+  - prostatitis
+  - complicated UTI
+  - uncomplicated UTI
+  - catheter associated UTI
+  - catheter-associated UTI
+  - CA-UTI
+  - asymptomatic bacteriuria
+  - bacteriuria
+  - "húgyúti fertőzés"
+  - hugyuti fertozes
+  - "húgyúti infekció"
+  - hugyuti infekcio
+  - "húgyúti infekciók"
+  - hugyuti infekciok
+  - "hólyaghurut"
+  - holyaghurut
+  - "katéter asszociált UTI"
+  - kateter asszocialt UTI
+  - "katéter mellett kialakult fertőzés"
+  - kateter mellett kialakult fertozes
+  - "tünetmentes bacteriuria"
+  - tunetmentes bacteriuria
+  - hugyuti
+
+slots:
+  syndrome_class:
+    type: enum
+    values: [asymptomatic_bacteriuria, uncomplicated_uti, complicated_uti]
+  asymptomatic_bacteriuria: {type: bool}
+  uncomplicated: {type: bool}
+  complicated: {type: bool}
+  catheter_associated: {type: bool}
+  nosocomial_risk: {type: bool}
+  patient_status:
+    type: enum
+    values: [dischargeable, hospitalized]
+
+outputs:
+  DEFAULT_ANSWER:
+    items: []
+    text_hu: |
+      UTI gyors terkep
+      - tunetmentes bacteriuria: nem kell kezelni
+      - nem komplikalt hugyuti fertozes: fosfomycin vagy nitrofurantoin
+      - komplikalt hugyuti fertozes, hazaengedheto: cefuroxime
+      - komplikalt hugyuti fertozes, hospitalizalt: ceftriaxone
+      - komplikalt hugyuti fertozes, hospitalizalt + nosocomialis rizikofaktor: ertapenem
+
+      Diagnosztika: vizelet tenyesztes es kemia; kateteres betegnnel katetercsere utan friss vizeletbol kuldj mintat. Szisztemas fertozes eseten ket par hemokultura. Merlegeld kismedencei ultrahang, CT es urologus szuksegesseget.
+
+      Pontosabb valasztashoz kuldd: tunetmentes bacteriuria / nem komplikalt / komplikalt, hazaengedheto vagy hospitalizalt, van-e nosocomialis rizikofaktor.
+    text_en: |
+      UTI quick map
+      - asymptomatic bacteriuria: do not treat
+      - uncomplicated urinary tract infection: fosfomycin or nitrofurantoin
+      - complicated urinary tract infection, dischargeable: cefuroxime
+      - complicated urinary tract infection, hospitalized: ceftriaxone
+      - complicated urinary tract infection, hospitalized + nosocomial risk factor: ertapenem
+
+      Diagnostics: urine culture and urine chemistry; in catheterized patients send a fresh urine sample after catheter change. If systemic infection is present, send two blood-culture pairs. Consider pelvic ultrasound, CT, and urology involvement.
+
+      For more exact selection send: asymptomatic bacteriuria / uncomplicated / complicated, dischargeable or hospitalized, and whether nosocomial risk factor is present.
+  ASYMPTOMATIC_BACTERIURIA:
+    items:
+      - antibiotics_not_required
+    text_hu: |
+      Tunetmentes bacteriuria: nem kell kezelni.
+    text_en: |
+      Asymptomatic bacteriuria: do not treat.
+  UNCOMPLICATED_UTI:
+    items:
+      - fosfomycin
+      - nitrofurantoin
+    text_hu: |
+      Nem komplikalt hugyuti fertozes: fosfomycin vagy nitrofurantoin.
+    text_en: |
+      Uncomplicated urinary tract infection: fosfomycin or nitrofurantoin.
+  COMPLICATED_DISCHARGEABLE:
+    items:
+      - cefuroxime
+    text_hu: |
+      Komplikalt hugyuti fertozes, hazaengedheto beteg: cefuroxime.
+    text_en: |
+      Complicated urinary tract infection, dischargeable patient: cefuroxime.
+  COMPLICATED_HOSPITALIZED:
+    items:
+      - ceftriaxone
+    text_hu: |
+      Komplikalt hugyuti fertozes, hospitalizalt beteg: ceftriaxone.
+    text_en: |
+      Complicated urinary tract infection, hospitalized patient: ceftriaxone.
+  COMPLICATED_HOSPITALIZED_NOSOCOMIAL_RISK:
+    items:
+      - ertapenem
+    text_hu: |
+      Komplikalt hugyuti fertozes, hospitalizalt beteg nosocomialis rizikofaktorral: ertapenem.
+    text_en: |
+      Complicated urinary tract infection, hospitalized patient with nosocomial risk factor: ertapenem.
+  CATHETER_ASSOCIATED_UTI_DIAGNOSTICS:
+    items:
+      - urine_culture
+      - urine_chemistry
+      - catheter_change_before_sampling
+    text_hu: |
+      CA-UTI gyanunall: katetercsere utan, friss vizeletbol kuldj vizelet tenyesztest es kemiakat.
+      ITO-n szerzett sulyos CA-UTI ritka.
+      Ha antibiotikum-valasztas kell, add meg hogy hazaengedheto vagy hospitalizalt, es van-e nosocomialis rizikofaktor.
+    text_en: |
+      If CA-UTI is suspected: change catheter first, then send urine culture and urine chemistry from a fresh urine sample.
+      Severe ICU-acquired CA-UTI is rare.
+      For antibiotic selection, send whether the patient is dischargeable or hospitalized, and whether nosocomial risk factor is present.
+
+# List order IS priority. The source's duplicate BY_STATUS rules (which fired the
+# SAME output off either the boolean `complicated` slot or `syndrome_class ==
+# complicated_uti`) are merged into one rung each with an `or` (documented in the
+# hand-check) — behaviourally identical, same target output.
+select:
+  - if: "asymptomatic_bacteriuria or syndrome_class == 'asymptomatic_bacteriuria'"
+    output: ASYMPTOMATIC_BACTERIURIA
+  - if: "(complicated or syndrome_class == 'complicated_uti') and patient_status == 'hospitalized' and nosocomial_risk"
+    output: COMPLICATED_HOSPITALIZED_NOSOCOMIAL_RISK
+  - if: "(complicated or syndrome_class == 'complicated_uti') and patient_status == 'hospitalized'"
+    output: COMPLICATED_HOSPITALIZED
+  - if: "(complicated or syndrome_class == 'complicated_uti') and patient_status == 'dischargeable'"
+    output: COMPLICATED_DISCHARGEABLE
+  - if: "catheter_associated"
+    output: CATHETER_ASSOCIATED_UTI_DIAGNOSTICS
+  - if: "uncomplicated or syndrome_class == 'uncomplicated_uti'"
+    output: UNCOMPLICATED_UTI
+  - default: DEFAULT_ANSWER
+
+footer: |
+  Ha dozist kersz, ird meg az antimikrobialis szer nevet es a GFR-t.
+  Kateteres UTI gyanunall katetercsere utan, friss vizeletbol kuldj mintat.

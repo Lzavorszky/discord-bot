@@ -129,6 +129,12 @@ def validate_cases(cases: list[dict]) -> list[str]:
                     for k in ("organisms", "markers"):
                         if k in call and not isinstance(call[k], list):
                             problems.append(f"{where}: 'call.{k}' must be a list")
+                elif ctool == "select_pathway":
+                    # pathway calls key off a pathway_id (not a drug_id).
+                    if "pathway_id" not in call:
+                        problems.append(f"{where}: pathway call needs a 'pathway_id'")
+                    if "slots" in call and not isinstance(call["slots"], dict):
+                        problems.append(f"{where}: 'call.slots' must be a mapping")
                 else:
                     if "drug_id" not in call:
                         problems.append(f"{where}: call needs a 'drug_id'")
@@ -252,6 +258,15 @@ def _get_pcr_module():
     return ip
 
 
+def _get_pathway_module():
+    """Import the select_pathway tool lazily."""
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here / "tools"))
+    sys.path.insert(0, _PROTOCOLS_DIR)
+    import select_pathway as sp  # noqa: E402
+    return sp
+
+
 _ROUTER = None
 
 
@@ -297,6 +312,15 @@ def _router_crosscheck(case: dict, call: dict) -> list[str]:
         if res.protocol != call["panel_id"]:
             problems.append(f"router: input routed to panel {res.protocol!r}, "
                             f"expected {call['panel_id']!r}")
+    elif tool == "select_pathway":
+        if res.route != "pathway":
+            problems.append(f"router: input routed to {res.route!r}, expected "
+                            f"'pathway' (answer: {res.answer[:60]!r})")
+        if res.tool != "select_pathway":
+            problems.append(f"router: tool {res.tool!r}, expected 'select_pathway'")
+        if res.protocol != call["pathway_id"]:
+            problems.append(f"router: input routed to pathway {res.protocol!r}, "
+                            f"expected {call['pathway_id']!r}")
     return problems
 
 
@@ -308,6 +332,8 @@ def _evaluate_new_call(case: dict, call: dict, result: dict) -> dict:
     tool = call.get("tool")
     if tool in ("interpret_pcr", "list_panel"):
         return _evaluate_pcr_call(case, call, result)
+    if tool == "select_pathway":
+        return _evaluate_pathway_call(case, call, result)
     if tool != "get_dose":
         result["result"] = SKIP
         result["reasons"] = [f"call.tool {tool!r} not implemented in the slice yet"]
@@ -376,6 +402,41 @@ def _evaluate_pcr_call(case: dict, call: dict, result: dict) -> dict:
         reasons.append("expected a clarifying response, got an interpretation")
     if "clarifies" in expect and not expect.get("clarifies") and clar:
         reasons.append(f"unexpected clarifying response ({res.clarify_reason})")
+    _, text_reasons = check_text_expectations(answer, expect)
+    reasons += text_reasons
+    reasons += _router_crosscheck(case, call)
+    result["result"] = FAIL if reasons else PASS
+    result["reasons"] = reasons
+    return result
+
+
+def _evaluate_pathway_call(case: dict, call: dict, result: dict) -> dict:
+    """Run a pathway `call:` (select_pathway) and check the structured + text
+    expectations, plus the router input->call cross-check."""
+    expect = case.get("expect", {}) or {}
+    try:
+        sp = _get_pathway_module()
+        slots = call.get("slots") or {}
+        res = sp.select_pathway(call["pathway_id"], protocols_dir=_PROTOCOLS_DIR,
+                                **slots)
+        answer = sp.render_pathway(res)
+    except Exception as exc:  # noqa: BLE001
+        result["result"] = ERROR
+        result["reasons"] = [f"{type(exc).__name__}: {exc}"]
+        return result
+
+    result["answer"] = answer
+    reasons: list[str] = []
+    actual = {"route": res.route, "tool": res.tool, "protocol": res.pathway_id}
+    for key in ("route", "tool", "protocol"):
+        if key in expect and expect[key] != actual[key]:
+            reasons.append(f"{key}: expected {expect[key]!r}, got {actual[key]!r}")
+    # `clarifies` for a pathway maps to the default (ask-for-context) output.
+    if "clarifies" in expect:
+        if expect.get("clarifies") and not res.is_default:
+            reasons.append("expected the default/ask output, got a specific pathway")
+        if not expect.get("clarifies") and res.is_default:
+            reasons.append("unexpected default/ask output; expected a specific pathway")
     _, text_reasons = check_text_expectations(answer, expect)
     reasons += text_reasons
     reasons += _router_crosscheck(case, call)

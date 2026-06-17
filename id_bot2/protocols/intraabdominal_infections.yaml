@@ -1,0 +1,160 @@
+id: intraabdominal_infections
+kind: pathway
+canonical_name: intra-abdominal infections
+source_label: uploaded DOCX - HASURI INFEKCIOK
+status: draft
+version: 0.1
+answers_intents: [empiric_treatment, info]
+aliases:
+  - intraabdominal infection
+  - intra-abdominal infection
+  - abdominal infection
+  - complicated intraabdominal infection
+  - complex intraabdominal infection
+  - hasuri infekcio
+  - hasuri infekciok
+  - hasuri fertozes
+  - komplex hasuri fertozes
+  - nosocomial abdominal infection
+
+slots:
+  iai_context:
+    type: enum
+    values:
+      - cdiff
+      - sbp
+      - splenectomy_prophylaxis
+      - varix_bleeding_prophylaxis
+      - pancreatitis
+      - complex_nosocomial
+      - hospitalized_source_control
+      - dischargeable
+
+outputs:
+  DEFAULT_ANSWER:
+    items: []
+    text_hu: |
+      Hasuri infekciok gyors terkep:
+      - Hazabocsathato beteg, pl. diverticulosis: amoxicillin/klavulansav. Penicillin allergia / alternativa a forras szerint: cefixim + metronidazol.
+      - Hospitalizalando beteg, source kontrollal, pl. megoldott perforacio vagy ileus: ceftriaxone + metronidazol. Megjegyzes: szeptikus sokk eseten is.
+      - Komplex nosocomialis hasuri fertozes, pl. reoperaciot igenylo varratelegtelenseg: meropenem. Intraoperativ minta BioFire JI PCR alapjan szukseg szerint eszkalacio, nem deeszkalacio; PCR es konvencionalis tenyesztes alapjan celzott kezeles.
+      - Pancreatitis: prezentaciokor antibiotikum nem szukseges, csak szeptikus szovodmeny eseten.
+      - Varix verzes profilaxis: ceftriaxone.
+      - Spontan bakterialis peritonitis: ceftriaxone.
+      - Splenectomia profilaxis: fenoximetilpenicillin 2x1 ME.
+      - Clostridium difficile: kezelesi reszletekhez hasznald a C. difficile protokoll kezeles chunkjat.
+
+      Pontosabb valasztashoz kuldd a helyzetet: hazaengedheto, hospitalizalt/source kontroll, komplex nosocomialis, pancreatitis, varix verges, SBP, splenectomia vagy C. difficile.
+    text_en: |
+      Intra-abdominal infection quick map:
+      - Dischargeable patient, e.g. diverticulosis: amoxicillin/clavulanate. Source alternative / penicillin allergy column: cefixime + metronidazole.
+      - Hospitalized patient with source control, e.g. solved perforation or ileus: ceftriaxone + metronidazole. Source note: also in septic shock.
+      - Complex nosocomial intra-abdominal infection, e.g. anastomotic leak requiring reoperation: meropenem. Intraoperative BioFire JI PCR may support escalation if needed, not de-escalation; use PCR and conventional culture for targeted therapy.
+      - Pancreatitis: no antibiotic at presentation, only if septic complication is present.
+      - Variceal bleeding prophylaxis: ceftriaxone.
+      - Spontaneous bacterial peritonitis: ceftriaxone.
+      - Splenectomy prophylaxis: phenoxymethylpenicillin 2x1 MU.
+      - Clostridium difficile: for treatment details use the treatment chunk in the C. difficile protocol.
+
+      For exact selection send the context: dischargeable, hospitalized/source control, complex nosocomial, pancreatitis, variceal bleeding, SBP, splenectomy, or C. difficile.
+  DISCHARGEABLE:
+    items:
+      - amoxicillin/clavulanate
+      - cefixime
+      - metronidazole
+    text_hu: |
+      Hazabocsathato beteg, pl. diverticulosis: amoxicillin/klavulansav.
+      Penicillin allergia / alternativa a forras szerint: cefixim + metronidazol.
+      Ez a pathway nem ad reszletes dozist; hasznald a linkelt/missing dosing viselkedest.
+    text_en: |
+      Dischargeable patient, e.g. diverticulosis: amoxicillin/clavulanate.
+      Source alternative / penicillin allergy column: cefixime + metronidazole.
+      This pathway does not provide detailed dosing; use linked or missing dosing behavior.
+  HOSPITALIZED_SOURCE_CONTROL:
+    items:
+      - ceftriaxone
+      - metronidazole
+    text_hu: |
+      Hospitalizalando beteg source kontrollal, pl. megoldott perforacio vagy ileus: ceftriaxone + metronidazol.
+      Forras megjegyzes: szeptikus sokk eseten is.
+    text_en: |
+      Hospitalized patient with source control, e.g. solved perforation or ileus: ceftriaxone + metronidazole.
+      Source note: also in septic shock.
+  COMPLEX_NOSOCOMIAL:
+    items:
+      - meropenem
+      - BioFire JI PCR
+    text_hu: |
+      Komplex nosocomialis hasuri fertozes, pl. reoperaciot igenylo varratelegtelenseg: meropenem.
+      Intraoperativ minta BioFire JI PCR vizsgalata alapjan szukseg szerint eszkalacio, nem deeszkalacio.
+      PCR es konvencionalis tenyesztes alapjan celzott kezeles.
+    text_en: |
+      Complex nosocomial intra-abdominal infection, e.g. anastomotic leak requiring reoperation: meropenem.
+      Intraoperative BioFire JI PCR may support escalation if needed, not de-escalation.
+      Use PCR and conventional culture for targeted therapy.
+  PANCREATITIS:
+    items:
+      - antibiotics_not_required_at_presentation
+    text_hu: |
+      Pancreatitis: prezentaciokor antibiotikum nem szukseges.
+      Antibiotikum csak szeptikus szovodmeny eseten.
+    text_en: |
+      Pancreatitis: antibiotic is not needed at presentation.
+      Use antibiotics only if septic complication is present.
+  VARIX_BLEEDING_PROPHYLAXIS:
+    items:
+      - ceftriaxone
+    text_hu: |
+      Varix verges profilaxis: ceftriaxone.
+    text_en: |
+      Variceal bleeding prophylaxis: ceftriaxone.
+  SBP:
+    items:
+      - ceftriaxone
+      - sbp_protocol
+    text_hu: |
+      Spontan bakterialis peritonitis: ceftriaxone.
+      SBP diagnosztikai reszletekhez hasznald az SBP protokollt.
+    text_en: |
+      Spontaneous bacterial peritonitis: ceftriaxone.
+      For SBP diagnostic details use the SBP protocol.
+  SPLENECTOMY_PROPHYLAXIS:
+    items:
+      - phenoxymethylpenicillin
+    text_hu: |
+      Splenectomia profilaxis: fenoximetilpenicillin 2x1 ME.
+      Reszletes vagy alternativ dosing nincs ebben a pathway-ben.
+    text_en: |
+      Splenectomy prophylaxis: phenoxymethylpenicillin 2x1 MU.
+      Detailed or alternative dosing is not provided in this pathway.
+  CDIFF:
+    items:
+      - cdiff_protocol
+    text_hu: |
+      Clostridium difficile reszletekhez hasznald a C. difficile protokollt.
+      A hasuri tablazat C. difficile sorahoz a reszleteket a C. difficile protokoll kezeles chunkja adja.
+    text_en: |
+      For Clostridium difficile details use the C. difficile protocol.
+      The C. difficile row should hand off to the treatment chunk in the C. difficile protocol for details.
+
+select:
+  - if: "iai_context == 'cdiff'"
+    output: CDIFF
+  - if: "iai_context == 'sbp'"
+    output: SBP
+  - if: "iai_context == 'splenectomy_prophylaxis'"
+    output: SPLENECTOMY_PROPHYLAXIS
+  - if: "iai_context == 'varix_bleeding_prophylaxis'"
+    output: VARIX_BLEEDING_PROPHYLAXIS
+  - if: "iai_context == 'pancreatitis'"
+    output: PANCREATITIS
+  - if: "iai_context == 'complex_nosocomial'"
+    output: COMPLEX_NOSOCOMIAL
+  - if: "iai_context == 'hospitalized_source_control'"
+    output: HOSPITALIZED_SOURCE_CONTROL
+  - if: "iai_context == 'dischargeable'"
+    output: DISCHARGEABLE
+  - default: DEFAULT_ANSWER
+
+footer: |
+  Ellenorizd a helyi mikrobiologiai eredmenyekkel es source kontrollal; nem helyettesiti az ID konziliumot.
