@@ -125,10 +125,28 @@ def run_new(turns, *, router=None) -> list[ReplayRow]:
     return rows
 
 
+def _ensure_old_bot_ready(bot_core) -> None:
+    """The old bot's ask_ai reads module globals (rules, aliases, protocols,
+    drug-name set) that are only populated by main()'s startup sequence. Replaying
+    without this gives degraded/empty old answers — an invalid parity diff. Run the
+    same loaders once (best-effort; load_protocols builds embeddings, hence the key)."""
+    for fn, args in (("load_rule_files", ()),
+                     ("load_aliases", ("protocols/aliases.json",)),
+                     ("load_protocols", ()),
+                     ("_build_drug_name_set", ())):
+        f = getattr(bot_core, fn, None)
+        if callable(f):
+            try:
+                f(*args)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  [warn] old-bot init {fn}() failed: {type(exc).__name__}: {exc}")
+
+
 def add_old_answers(rows: list[ReplayRow]) -> None:
     """Run the OLD bot on each turn and record the answer + whether it differs.
     Requires the old bot importable and a live key (it calls the model)."""
     import bot_core  # noqa: E402  (root module)
+    _ensure_old_bot_ready(bot_core)
     for row in rows:
         try:
             old = bot_core.ask_ai(row.input, chat_id=-424242)
