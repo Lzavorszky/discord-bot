@@ -1,5 +1,7 @@
 # Ceftazidime — Clinical Hand-Check Sheet
 
+> **SIGNED OFF — owner L, 2026-06-17.** Doses/tiers/selection/admin confirmed against source; faithful migration. (Batch 3a, cephalosporins.)
+
 **Protocol ID:** `ceftazidime`
 **Source:** uploaded antibiotic renal dosing DOCX - ceftazidim
 **YAML version:** 0.1

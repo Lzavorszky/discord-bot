@@ -159,8 +159,8 @@ def _build_registry(protocols_dir) -> dict[str, _Entry]:
 
 def _norm(text: str) -> str:
     """Fold accents/case AND collapse separators (/, -, _) and runs of
-    whitespace to single spaces, so 'Imipenem-relebactam', 'imipenem/relebactam'
-    and 'imipenem relebactam' all compare equal."""
+    whitespace to single spaces, so 'Ceftazidime-avibactam', 'ceftazidime/avibactam'
+    and 'ceftazidime avibactam' all compare equal."""
     t = fold_accents(repair_mojibake(text or "")).lower()
     t = re.sub(r"[/_\-]+", " ", t)
     t = re.sub(r"\s+", " ", t).strip()
@@ -178,7 +178,7 @@ def _match_drugs(folded_msg: str, registry: dict[str, _Entry]) -> list[str]:
     For each drug, take its longest matching alias and the (start,end) span it
     occupies. Then drop any drug whose span is fully contained inside another
     drug's span — that is the less-specific component of a compound name
-    (e.g. 'imipenem' inside 'imipenem relebactam', 'ceftazidime' inside
+    (e.g. 'ceftazidime' inside
     'ceftazidime avibactam'), so the compound wins. Genuinely distinct drugs
     mentioned at different places keep their own spans and remain candidates
     (→ clarify)."""

@@ -1,5 +1,7 @@
 # Levofloxacin — Clinical Hand-Check Sheet
 
+> **SIGNED OFF — owner L, 2026-06-17.** Doses/tiers/selection confirmed against source; faithful migration. (Batch 3c.)
+
 **Protocol ID:** `levofloxacin`
 **Source:** uploaded antibiotic renal dosing PDF
 **YAML version:** 0.1

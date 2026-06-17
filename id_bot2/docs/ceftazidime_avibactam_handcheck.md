@@ -1,5 +1,7 @@
 # ceftazidime/avibactam — Clinical Hand-Check Sheet
 
+> **SIGNED OFF — owner L, 2026-06-17.** Doses/tiers/selection/admin confirmed against source; faithful migration. (Batch 3b, beta-lactam combos + penicillins.)
+
 **Protocol ID:** `ceftazidime_avibactam`
 **Source:** uploaded antibiotic renal dosing DOCX - ceftazidim/avibactam
 **YAML version:** 0.1

@@ -1,5 +1,7 @@
 # Cefepime — Clinical Hand-Check Sheet
 
+> **SIGNED OFF — owner L, 2026-06-17.** Doses/tiers/selection/admin confirmed against source; faithful migration. (Batch 3a, cephalosporins.)
+
 **Protocol ID:** `cefepime`
 **Source:** uploaded antibiotic renal dosing DOCX - cefepim
 **YAML version:** 0.1

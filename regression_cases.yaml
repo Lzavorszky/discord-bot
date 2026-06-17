@@ -955,55 +955,6 @@ cases:
     status: new
     note: "CRRT → 4 x 1 g (full dose)."
 
-  # ---- imipenem_cilastatin_relebactam ----
-  - id: imipenem_rel_slice_normal
-    input: "Imipenem-relebactam dose gfr 95"
-    lang: en
-    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { gfr: 95 } }
-    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["NORMAL", "4 x 1.25 g"], output_not: ["GFR_60_TO_90", "IHD"] }
-    status: new
-    note: "GFR ≥90 → NORMAL 4 x 1.25 g bolus."
-
-  - id: imipenem_rel_slice_gfr_60_90
-    input: "Imipenem-relebactam gfr 75"
-    lang: en
-    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { gfr: 75 } }
-    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["GFR_60_TO_90", "4 x 1 g"], output_not: ["NORMAL"] }
-    status: new
-    note: "GFR 60–90 → 4 x 1 g."
-
-  - id: imipenem_rel_slice_gfr_30_60
-    input: "Imipenem-relebactam gfr 45"
-    lang: en
-    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { gfr: 45 } }
-    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["GFR_30_TO_60", "4 x 0.75 g"], output_not: ["NORMAL"] }
-    status: new
-    note: "GFR 30–60 → 4 x 0.75 g."
-
-  - id: imipenem_rel_slice_gfr_15_30
-    input: "Imipenem-relebactam gfr 22"
-    lang: en
-    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { gfr: 22 } }
-    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["GFR_15_TO_30", "4 x 500 mg"], output_not: ["NORMAL"] }
-    status: new
-    note: "GFR 15–30 → 4 x 500 mg."
-
-  - id: imipenem_rel_slice_ihd
-    input: "Imipenem-relebactam IHD dose"
-    lang: en
-    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { ihd: true } }
-    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["IHD", "4 x 500 mg"], output_not: ["NORMAL"] }
-    status: new
-    note: "IHD → distinct IHD tier 4 x 500 mg."
-
-  - id: imipenem_rel_slice_crrt
-    input: "Imipenem-relebactam CRRT dose"
-    lang: en
-    call: { tool: get_dose, drug_id: imipenem_cilastatin_relebactam, slots: { crrt: true } }
-    expect: { route: drug_dose, tool: get_dose, protocol: imipenem_cilastatin_relebactam, output_has: ["CRRT", "4 x 1 g"] }
-    status: new
-    note: "CRRT → 4 x 1 g."
-
   # ---- ampsul ----
   - id: ampsul_slice_normal
     input: "Ampsul dose gfr 70"

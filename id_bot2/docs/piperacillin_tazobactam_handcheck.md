@@ -1,5 +1,7 @@
 # piperacillin/tazobactam — Clinical Hand-Check Sheet
 
+> **SIGNED OFF — owner L, 2026-06-17.** Doses/tiers/selection/admin confirmed against source; faithful migration. (Batch 3b, beta-lactam combos + penicillins.)
+
 **Protocol ID:** `piperacillin_tazobactam`
 **Source:** uploaded antibiotic renal dosing DOCX - tazocin
 **YAML version:** 0.1

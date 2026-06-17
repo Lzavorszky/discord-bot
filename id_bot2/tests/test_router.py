@@ -54,8 +54,9 @@ class TestRegistry(unittest.TestCase):
         cls.R = Router(protocols_dir=PROTOCOLS)
 
     def test_registry_loads_all_drug_dose_protocols(self):
-        # 30 migrated drug_dose protocols (29 antibiotics + vancomycin).
-        self.assertEqual(len(self.R.registry), 30)
+        # 29 migrated drug_dose protocols (28 antibiotics + vancomycin;
+        # imipenem/cilastatin/relebactam removed 2026-06-17 — not on formulary).
+        self.assertEqual(len(self.R.registry), 29)
         self.assertIn("meropenem", self.R.registry)
         self.assertIn("vancomycin", self.R.registry)
 
@@ -86,19 +87,17 @@ class TestAliasResolution(unittest.TestCase):
         self.assertEqual(self._drug("CEFTAZIDIM dose"), "ceftazidime")
 
     def test_separator_normalisation_hyphen_slash_space(self):
-        for form in ("imipenem-relebactam", "imipenem/relebactam", "imipenem relebactam"):
+        for form in ("ceftazidime-avibactam", "ceftazidime/avibactam", "ceftazidime avibactam"):
             self.assertEqual(self._drug(f"{form} gfr 40"),
-                             "imipenem_cilastatin_relebactam", form)
+                             "ceftazidime_avibactam", form)
 
     def test_compound_beats_component_via_containment(self):
-        # 'imipenem' (component) must NOT win over 'imipenem relebactam'.
-        self.assertEqual(self._drug("Imipenem-relebactam dose"),
-                         "imipenem_cilastatin_relebactam")
-        # 'ceftazidime' must NOT win over 'ceftazidime avibactam'.
+        # 'ceftazidime' (component) must NOT win over 'ceftazidime avibactam'.
         self.assertEqual(self._drug("Ceftazidime-avibactam IHD dose"),
                          "ceftazidime_avibactam")
         # but a bare component name still resolves to the component.
         self.assertEqual(self._drug("ceftazidime gfr 60"), "ceftazidime")
+        # plain imipenem/cilastatin resolves to itself (relebactam variant removed).
         self.assertEqual(self._drug("imipenem dose"), "imipenem_cilastatin")
 
     def test_brand_and_short_aliases(self):
