@@ -1,0 +1,277 @@
+# echo_ava.yaml — kind: calculator  (final migration phase — Plan D)
+# Migrated VERBATIM from protocols/echo_ava.txt (source v0.1) +
+# echo_ava.route_claims.json. Every FORMULA is transcribed character-for-character
+# from the source ## SELECTION_RULES. The engine evaluates these declared formulas
+# with the restricted arithmetic AST in calculate.py (no eval); it invents none.
+#
+# MULTI-METHOD: the source offers the VTI continuity equation (primary) and a
+# simplified velocity-ratio fallback, each with CSA supplied directly or derived
+# from LVOT diameter, and an optional BSA-indexed variant. The engine's method
+# selection is "first method whose `requires` are all present wins", so the
+# methods are ordered most-specific-first: indexed continuity > continuity >
+# velocity-ratio. This realises the source rule "Prefer the VTI continuity-equation
+# AVA when VTI measurements are available."
+#
+# UNIT AMBIGUITY: LVOT diameter / VTIs (mm or cm) and Vmax (m/s or cm/s) each carry
+# a required *_unit enum that drives a declared lookup -> multiply normalize step.
+# Unit absent/unknown -> the lookup misses -> verbatim `unsupported_value`
+# ("resend with units"), never a silent /10 or *100. (Source SAFETY_RULE: "If
+# units are ambiguous, ask for clarification rather than guessing.")
+#
+# Flagged engine decisions (see hand-check): (1) display rounding is not in source;
+# (2) clinical ranges are enforced only on unit-unambiguous slots (lvot_csa, bsa) —
+# a range cannot be soundly applied before the unit is known; (3) the source
+# SLOT_SCHEMA lists VTI unit as "cm" but the DEFAULT_ANSWER + SELECTION_RULES treat
+# VTIs as mm_or_cm and convert — we follow the rules (ask for a unit); (4) the
+# SAFETY_RULE "if both diameter-derived and directly supplied LVOT CSA disagree,
+# ask which to use" is NOT implemented — when LVOT CSA is supplied it is used
+# directly (CSA-direct method ordered ahead of the diameter method).
+# Clinical hand-check vs source: id_bot2/docs/echo_ava_handcheck.md (sign-off PENDING).
+id: echo_ava
+kind: calculator
+source_label: Echo AVA
+canonical_name: echo aortic valve area calculator
+status: draft
+version: 0.1
+
+# --- aliases: full set from source ## ALIASES (verbatim) ---
+aliases:
+  - ava calculator
+  - echo ava calculator
+  - aortic valve area calculator
+  - aortic valve area
+  - continuity equation calculator
+  - aortic stenosis valve area
+  - av area calculator
+  - lvot ava calculator
+  - aorta billentyu terulet
+  - ava kalkulator
+
+answers_intents: [info]
+
+# --- slots: source ## SLOT_SCHEMA. Ambiguous measurements carry a *_unit enum.
+slots:
+  lvot_diameter:
+    type: number
+    unit: mm_or_cm
+  lvot_diameter_unit:
+    type: enum
+    values: [mm, cm]
+  lvot_csa:
+    type: number
+    unit: cm2
+    min: 0.2
+    max: 10
+    on_out_of_range: ask_confirmation
+  lvot_vti:
+    type: number
+    unit: mm_or_cm
+  lvot_vti_unit:
+    type: enum
+    values: [mm, cm]
+  av_vti:
+    type: number
+    unit: mm_or_cm
+  av_vti_unit:
+    type: enum
+    values: [mm, cm]
+  bsa_m2:
+    type: number
+    unit: m2
+    min: 0.3
+    max: 3.5
+    on_out_of_range: ask_confirmation
+  lvot_vmax:
+    type: number
+    unit: m_per_s_or_cm_per_s
+  lvot_vmax_unit:
+    type: enum
+    values: [m_per_s, cm_per_s]
+  av_vmax:
+    type: number
+    unit: m_per_s_or_cm_per_s
+  av_vmax_unit:
+    type: enum
+    values: [m_per_s, cm_per_s]
+
+# --- methods, most-specific first. Continuity (VTI) preferred over velocity-ratio.
+methods:
+  # 1) BSA-indexed continuity, LVOT CSA supplied directly.
+  - id: ava_indexed_csa
+    requires: [lvot_vti, av_vti, lvot_csa, bsa_m2]
+    compute:
+      - {name: lvot_vti_factor, lookup: lvot_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_vti_cm, expr: "lvot_vti * lvot_vti_factor"}
+      - {name: av_vti_factor, lookup: av_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: av_vti_cm, expr: "av_vti * av_vti_factor"}
+      - {name: lvot_csa_cm2, expr: "lvot_csa"}
+      - {name: ava_cm2, expr: "lvot_csa_cm2 * lvot_vti_cm / av_vti_cm"}
+      - {name: dimensionless_index, expr: "lvot_vti_cm / av_vti_cm"}
+      - {name: indexed_ava_cm2_m2, expr: "ava_cm2 / bsa_m2"}
+    outputs: [lvot_csa_cm2, lvot_vti_cm, av_vti_cm, ava_cm2, dimensionless_index, bsa_m2, indexed_ava_cm2_m2]
+    template_en: |-
+      Echo AVA by continuity equation:
+      - LVOT CSA: {lvot_csa_cm2:.2f} cm2
+      - LVOT VTI: {lvot_vti_cm:.1f} cm
+      - AV VTI: {av_vti_cm:.1f} cm
+      - AVA: {ava_cm2:.2f} cm2
+      - Dimensionless index: {dimensionless_index:.2f}
+      - BSA: {bsa_m2:.2f} m2
+      - Indexed AVA: {indexed_ava_cm2_m2:.2f} cm2/m2
+
+  # 2) BSA-indexed continuity, LVOT CSA derived from diameter.
+  - id: ava_indexed_diameter
+    requires: [lvot_vti, av_vti, lvot_diameter, bsa_m2]
+    compute:
+      - {name: lvot_vti_factor, lookup: lvot_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_vti_cm, expr: "lvot_vti * lvot_vti_factor"}
+      - {name: av_vti_factor, lookup: av_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: av_vti_cm, expr: "av_vti * av_vti_factor"}
+      - {name: lvot_diam_factor, lookup: lvot_diameter_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_diameter_cm, expr: "lvot_diameter * lvot_diam_factor"}
+      - {name: lvot_csa_cm2, expr: "pi * (lvot_diameter_cm / 2) ** 2"}
+      - {name: ava_cm2, expr: "lvot_csa_cm2 * lvot_vti_cm / av_vti_cm"}
+      - {name: dimensionless_index, expr: "lvot_vti_cm / av_vti_cm"}
+      - {name: indexed_ava_cm2_m2, expr: "ava_cm2 / bsa_m2"}
+    outputs: [lvot_diameter_cm, lvot_csa_cm2, lvot_vti_cm, av_vti_cm, ava_cm2, dimensionless_index, bsa_m2, indexed_ava_cm2_m2]
+    template_en: |-
+      Echo AVA by continuity equation:
+      - LVOT diameter: {lvot_diameter_cm:.2f} cm
+      - LVOT CSA: {lvot_csa_cm2:.2f} cm2
+      - LVOT VTI: {lvot_vti_cm:.1f} cm
+      - AV VTI: {av_vti_cm:.1f} cm
+      - AVA: {ava_cm2:.2f} cm2
+      - Dimensionless index: {dimensionless_index:.2f}
+      - BSA: {bsa_m2:.2f} m2
+      - Indexed AVA: {indexed_ava_cm2_m2:.2f} cm2/m2
+
+  # 3) Continuity, LVOT CSA supplied directly (no BSA).
+  - id: ava_csa
+    requires: [lvot_vti, av_vti, lvot_csa]
+    compute:
+      - {name: lvot_vti_factor, lookup: lvot_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_vti_cm, expr: "lvot_vti * lvot_vti_factor"}
+      - {name: av_vti_factor, lookup: av_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: av_vti_cm, expr: "av_vti * av_vti_factor"}
+      - {name: lvot_csa_cm2, expr: "lvot_csa"}
+      - {name: ava_cm2, expr: "lvot_csa_cm2 * lvot_vti_cm / av_vti_cm"}
+      - {name: dimensionless_index, expr: "lvot_vti_cm / av_vti_cm"}
+    outputs: [lvot_csa_cm2, lvot_vti_cm, av_vti_cm, ava_cm2, dimensionless_index]
+    template_en: |-
+      Echo AVA by continuity equation:
+      - LVOT CSA: {lvot_csa_cm2:.2f} cm2
+      - LVOT VTI: {lvot_vti_cm:.1f} cm
+      - AV VTI: {av_vti_cm:.1f} cm
+      - AVA: {ava_cm2:.2f} cm2
+      - Dimensionless index: {dimensionless_index:.2f}
+
+  # 4) Continuity, LVOT CSA derived from diameter (no BSA).
+  - id: ava_diameter
+    requires: [lvot_vti, av_vti, lvot_diameter]
+    compute:
+      - {name: lvot_vti_factor, lookup: lvot_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_vti_cm, expr: "lvot_vti * lvot_vti_factor"}
+      - {name: av_vti_factor, lookup: av_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: av_vti_cm, expr: "av_vti * av_vti_factor"}
+      - {name: lvot_diam_factor, lookup: lvot_diameter_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_diameter_cm, expr: "lvot_diameter * lvot_diam_factor"}
+      - {name: lvot_csa_cm2, expr: "pi * (lvot_diameter_cm / 2) ** 2"}
+      - {name: ava_cm2, expr: "lvot_csa_cm2 * lvot_vti_cm / av_vti_cm"}
+      - {name: dimensionless_index, expr: "lvot_vti_cm / av_vti_cm"}
+    outputs: [lvot_diameter_cm, lvot_csa_cm2, lvot_vti_cm, av_vti_cm, ava_cm2, dimensionless_index]
+    template_en: |-
+      Echo AVA by continuity equation:
+      - LVOT diameter: {lvot_diameter_cm:.2f} cm
+      - LVOT CSA: {lvot_csa_cm2:.2f} cm2
+      - LVOT VTI: {lvot_vti_cm:.1f} cm
+      - AV VTI: {av_vti_cm:.1f} cm
+      - AVA: {ava_cm2:.2f} cm2
+      - Dimensionless index: {dimensionless_index:.2f}
+
+  # 5) Simplified velocity ratio, LVOT CSA supplied directly -> simplified AVA.
+  - id: velocity_ratio_csa
+    requires: [lvot_vmax, av_vmax, lvot_csa]
+    compute:
+      - {name: lvot_vmax_factor, lookup: lvot_vmax_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: lvot_vmax_cms, expr: "lvot_vmax * lvot_vmax_factor"}
+      - {name: av_vmax_factor, lookup: av_vmax_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: av_vmax_cms, expr: "av_vmax * av_vmax_factor"}
+      - {name: lvot_csa_cm2, expr: "lvot_csa"}
+      - {name: velocity_ratio, expr: "lvot_vmax_cms / av_vmax_cms"}
+      - {name: simplified_ava_cm2, expr: "lvot_csa_cm2 * lvot_vmax_cms / av_vmax_cms"}
+    outputs: [lvot_csa_cm2, velocity_ratio, simplified_ava_cm2]
+    template_en: |-
+      Echo AVA by simplified velocity method:
+      - Velocity ratio (LVOT Vmax / AV Vmax): {velocity_ratio:.2f}
+      - LVOT CSA: {lvot_csa_cm2:.2f} cm2
+      - Simplified AVA: {simplified_ava_cm2:.2f} cm2
+      Prefer the VTI continuity-equation AVA when LVOT VTI and AV VTI are available.
+
+  # 6) Simplified velocity ratio, LVOT CSA derived from diameter -> simplified AVA.
+  - id: velocity_ratio_diameter
+    requires: [lvot_vmax, av_vmax, lvot_diameter]
+    compute:
+      - {name: lvot_vmax_factor, lookup: lvot_vmax_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: lvot_vmax_cms, expr: "lvot_vmax * lvot_vmax_factor"}
+      - {name: av_vmax_factor, lookup: av_vmax_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: av_vmax_cms, expr: "av_vmax * av_vmax_factor"}
+      - {name: lvot_diam_factor, lookup: lvot_diameter_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_diameter_cm, expr: "lvot_diameter * lvot_diam_factor"}
+      - {name: lvot_csa_cm2, expr: "pi * (lvot_diameter_cm / 2) ** 2"}
+      - {name: velocity_ratio, expr: "lvot_vmax_cms / av_vmax_cms"}
+      - {name: simplified_ava_cm2, expr: "lvot_csa_cm2 * lvot_vmax_cms / av_vmax_cms"}
+    outputs: [lvot_diameter_cm, lvot_csa_cm2, velocity_ratio, simplified_ava_cm2]
+    template_en: |-
+      Echo AVA by simplified velocity method:
+      - Velocity ratio (LVOT Vmax / AV Vmax): {velocity_ratio:.2f}
+      - LVOT diameter: {lvot_diameter_cm:.2f} cm
+      - LVOT CSA: {lvot_csa_cm2:.2f} cm2
+      - Simplified AVA: {simplified_ava_cm2:.2f} cm2
+      Prefer the VTI continuity-equation AVA when LVOT VTI and AV VTI are available.
+
+  # 7) Velocity ratio only (no LVOT CSA available -> no simplified AVA).
+  - id: velocity_ratio
+    requires: [lvot_vmax, av_vmax]
+    compute:
+      - {name: lvot_vmax_factor, lookup: lvot_vmax_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: lvot_vmax_cms, expr: "lvot_vmax * lvot_vmax_factor"}
+      - {name: av_vmax_factor, lookup: av_vmax_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: av_vmax_cms, expr: "av_vmax * av_vmax_factor"}
+      - {name: velocity_ratio, expr: "lvot_vmax_cms / av_vmax_cms"}
+    outputs: [velocity_ratio]
+    template_en: |-
+      Echo AVA velocity ratio:
+      - Velocity ratio (LVOT Vmax / AV Vmax): {velocity_ratio:.2f}
+      Simplified AVA needs LVOT CSA (or LVOT diameter). Prefer the VTI continuity-equation
+      AVA when LVOT VTI and AV VTI are available.
+
+# Source ## DEFAULT_ANSWER (verbatim).
+default_answer: >-
+  Proposed primary AVA calculation: LVOT diameter plus LVOT VTI plus aortic valve
+  VTI. LVOT diameter may be in mm or cm; VTI values may be in mm or cm.
+
+# Source ## OUTPUT_TEMPLATES ### MISSING_INPUT (verbatim).
+missing_inputs: >-
+  Please provide LVOT VTI, AV VTI, and either LVOT diameter or LVOT CSA, with units.
+
+# Source ## SELECTED_OUTPUTS ### unsupported_units (rendered as the direct ask).
+unsupported_value: >-
+  Please resend diameters in mm or cm, VTIs in mm or cm, velocities in m/s or
+  cm/s, and BSA in m2.
+
+# Source ## INFO_BLOCKS + ## RESTRICTED_OUTPUTS + ## SAFETY_RULES (carried as notes).
+notes: >-
+  Calculator output only. Primary calculation is the VTI continuity equation
+  AVA = LVOT CSA * LVOT VTI / AV VTI, with dimensionless index = LVOT VTI / AV VTI
+  and optional indexing to BSA. The LVOT diameter is squared and is a major source
+  of measurement error; the equation assumes a circular LVOT, laminar LVOT flow,
+  aligned Doppler, and compatible measurement levels, and yields an effective valve
+  area, not anatomic planimetry. Does not provide aortic-stenosis diagnosis,
+  severity grading, intervention or valve-replacement recommendations, or
+  interpretation of discordant AVA/gradient/velocity/stroke-volume/EF. Ambiguous
+  units are asked for, never guessed.
+
+# Source ## DEFAULT_FOOTER (verbatim).
+footer: >-
+  Calculator output only; integrate with gradients, velocities, flow state, valve
+  morphology, and image quality for interpretation.

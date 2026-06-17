@@ -908,6 +908,81 @@ def _extract_calc_slots(folded_msg: str, specs: dict) -> dict:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Echo calculators need LABELLED measurement extraction: several measurements    #
+# share a unit (two "cm" values), so a single unit-anchored regex (the body_size #
+# / steroid path) would mis-assign them. Each measurement is found by its own    #
+# label, capturing the value AND, when the measurement is unit-ambiguous, the     #
+# explicit unit token (mm/cm or m/s/cm/s) that fills its *_unit enum slot. A      #
+# measurement given WITHOUT its unit leaves the *_unit slot absent, so the tool   #
+# returns its verbatim "resend with units" ask — never a guessed conversion.      #
+# (The LLM stage handles looser phrasings; this deterministic path serves clean,  #
+# explicitly-labelled inputs as a free/offline fast path.)                        #
+# --------------------------------------------------------------------------- #
+_LEN_UNIT_ALT = r"mm|cm"
+_VEL_UNIT_ALT = r"cm per s|m per s|cm s|m s"     # message already separator-folded
+_LEN_UNIT_MAP = {"mm": "mm", "cm": "cm"}
+_VEL_UNIT_MAP = {"cm s": "cm_per_s", "cm per s": "cm_per_s",
+                 "m s": "m_per_s", "m per s": "m_per_s"}
+
+# Per echo calc: (value_slot, unit_slot|None, [labels longest-first], unit_alt|None, unit_map|None)
+_ECHO_FIELDS = {
+    "echo_cardiac_output": [
+        ("lvot_diameter", "lvot_diameter_unit", ["lvot diameter", "lvot diam", "diameter"], _LEN_UNIT_ALT, _LEN_UNIT_MAP),
+        ("lvot_vti", "lvot_vti_unit", ["lvot vti", "vti"], _LEN_UNIT_ALT, _LEN_UNIT_MAP),
+        ("heart_rate_bpm", None, ["heart rate", "hr"], None, None),
+    ],
+    "echo_ava": [
+        ("lvot_csa", None, ["lvot csa", "csa"], None, None),
+        ("lvot_diameter", "lvot_diameter_unit", ["lvot diameter", "lvot diam"], _LEN_UNIT_ALT, _LEN_UNIT_MAP),
+        ("av_vti", "av_vti_unit", ["av vti", "aortic valve vti", "aortic vti"], _LEN_UNIT_ALT, _LEN_UNIT_MAP),
+        ("lvot_vti", "lvot_vti_unit", ["lvot vti"], _LEN_UNIT_ALT, _LEN_UNIT_MAP),
+        ("bsa_m2", None, ["bsa"], None, None),
+        ("av_vmax", "av_vmax_unit", ["av vmax", "aortic vmax", "aortic valve vmax"], _VEL_UNIT_ALT, _VEL_UNIT_MAP),
+        ("lvot_vmax", "lvot_vmax_unit", ["lvot vmax"], _VEL_UNIT_ALT, _VEL_UNIT_MAP),
+    ],
+    "echo_ero_rvol": [
+        ("pisa_radius", "pisa_radius_unit", ["pisa radius", "radius"], _LEN_UNIT_ALT, _LEN_UNIT_MAP),
+        ("aliasing_velocity", "aliasing_velocity_unit", ["aliasing velocity", "aliasing", "nyquist"], _VEL_UNIT_ALT, _VEL_UNIT_MAP),
+        ("peak_regurgitant_velocity", "peak_regurgitant_velocity_unit", ["peak regurgitant velocity", "peak reg velocity", "peak velocity"], _VEL_UNIT_ALT, _VEL_UNIT_MAP),
+        ("regurgitant_vti", "regurgitant_vti_unit", ["regurgitant vti", "reg vti", "jet vti", "vti"], _LEN_UNIT_ALT, _LEN_UNIT_MAP),
+        ("flow_convergence_angle_degrees", None, ["angle"], None, None),
+        ("eroa_cm2", None, ["eroa", "ero"], None, None),
+        ("regurgitant_volume_ml", None, ["regurgitant volume", "rvol"], None, None),
+        ("regurgitant_valve_stroke_volume_ml", None, ["regurgitant valve stroke volume", "regurgitant stroke volume"], None, None),
+        ("competent_valve_stroke_volume_ml", None, ["competent valve stroke volume", "competent stroke volume"], None, None),
+        ("forward_stroke_volume_ml", None, ["forward stroke volume"], None, None),
+        ("lv_edv", None, ["lv edv", "edv"], None, None),
+        ("lv_esv", None, ["lv esv", "esv"], None, None),
+    ],
+}
+
+
+def _extract_echo_slots(folded_msg: str, fields: list) -> dict:
+    """Labelled value (+ unit) extraction for an echo calculator. Each field is
+    found by its own label so two same-unit measurements never collide; the unit
+    token, when present, fills the *_unit enum slot. Anything not found is simply
+    absent (the tool then asks). Never guesses a value or a unit."""
+    out: dict = {}
+    for value_slot, unit_slot, labels, unit_alt, unit_map in fields:
+        if value_slot in out:
+            continue
+        for lab in labels:                       # specific labels first
+            if unit_alt:
+                pat = (re.escape(lab) + r"[^0-9]{0,12}(?P<v>\d+(?:[.,]\d+)?)"
+                       r"\s*(?P<u>" + unit_alt + r")?(?!\w)")
+            else:
+                pat = re.escape(lab) + r"[^0-9]{0,12}(?P<v>\d+(?:[.,]\d+)?)"
+            m = re.search(pat, folded_msg)
+            if not m:
+                continue
+            out[value_slot] = _num(m.group("v"))
+            if unit_slot and unit_map and m.groupdict().get("u"):
+                out[unit_slot] = unit_map[m.group("u")]
+            break
+    return out
+
+
 def resolve_calculator(message: str, calcs: dict):
     """Deterministic calculator stage. Returns:
         * a CalcCall          — exactly one calculator named
@@ -921,7 +996,10 @@ def resolve_calculator(message: str, calcs: dict):
     if len(matched) > 1:
         return matched
     cid = matched[0]
-    slots = _extract_calc_slots(folded, calcs[cid].specs)
+    if cid in _ECHO_FIELDS:
+        slots = _extract_echo_slots(folded, _ECHO_FIELDS[cid])
+    else:
+        slots = _extract_calc_slots(folded, calcs[cid].specs)
     return CalcCall(tool="calculate", calc_id=cid, slots=slots, via="deterministic")
 
 
@@ -950,10 +1028,15 @@ def _get_calc_tools(calcs: dict) -> list:
     tool = Tool(
         name="calculate",
         description=("Run an explicit-formula clinical calculator (body size: "
-                     "BMI/BSA/IBW/adjusted weight; steroid dose equivalence). Set "
+                     "BMI/BSA/IBW/adjusted weight; steroid dose equivalence; echo: "
+                     "LVOT stroke volume/cardiac output, aortic valve area by "
+                     "continuity, EROA/regurgitant volume by PISA/volumetric). Set "
                      "only the inputs the user stated (e.g. height_cm, "
-                     "actual_weight_kg, or steroid_agent + steroid_dose_mg); never "
-                     "invent values. The tool computes from its declared formulas."),
+                     "actual_weight_kg, or steroid_agent + steroid_dose_mg, or echo "
+                     "measurements WITH their unit slot e.g. lvot_diameter + "
+                     "lvot_diameter_unit); never invent a value or a unit. The tool "
+                     "computes from its declared formulas and asks for anything "
+                     "missing or unit-ambiguous."),
         parameters={"type": "object", "properties": props,
                     "required": ["calculator_id"]},
     )
@@ -1247,7 +1330,10 @@ class Router:
         return RouterResult(
             route="calculator", tool="calculate", protocol=res.calculator_id,
             answer=grounded, grounded_answer=grounded,
-            needs_clarification=bool(res.needs_input or res.needs_confirmation),
+            # Any non-compute outcome (default / needs_input /
+            # needs_confirmation / unsupported_value e.g. "resend with units")
+            # is the calculator asking the user for something.
+            needs_clarification=(res.mode != "compute"),
             via=call.via, slots=dict(call.slots), calc=res)
 
     def _phrase(self, result: "RouterResult", grounded: str, kind: str,

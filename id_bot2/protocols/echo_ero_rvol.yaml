@@ -1,0 +1,359 @@
+# echo_ero_rvol.yaml — kind: calculator  (final migration phase — Plan D)
+# Migrated VERBATIM from protocols/echo_ero_rvol.txt (source v0.1) +
+# echo_ero_rvol.route_claims.json. Every FORMULA is transcribed
+# character-for-character from the source ## SELECTION_RULES. The engine evaluates
+# these declared formulas with the restricted arithmetic AST in calculate.py (no
+# eval); it invents none.
+#
+# MULTI-METHOD (4 calculation paths, source ## SELECTION_RULES):
+#   - PISA: with or without flow-convergence-angle correction; EROA always, plus
+#     RVol when regurgitant jet VTI is supplied.
+#   - Direct conversions: EROA + VTI -> RVol; RVol + VTI -> EROA.
+#   - Volumetric: regurgitant-valve SV minus competent-valve SV -> RVol + RF (+EROA).
+#   - LV-volume: (EDV - ESV) minus forward SV -> RVol (+EROA).
+# Methods are ordered most-specific-first so the engine's "first satisfiable
+# method wins" picks the richest applicable path.
+#
+# UNIT AMBIGUITY: radius / VTI (mm or cm) and velocities (m/s or cm/s) each carry a
+# required *_unit enum driving a declared lookup -> multiply normalize step. Unit
+# absent/unknown -> verbatim `unsupported_value` ("resend with units"), never a
+# silent conversion. (Source SAFETY_RULE: "If units are ambiguous, ask.")
+#
+# Flagged engine decisions (see hand-check):
+#  (1) Display rounding is not in source.
+#  (2) Clinical ranges enforced only on unit-unambiguous slots.
+#  (3) The source SLOT_SCHEMA does not enumerate the two volumetric stroke-volume
+#      inputs nor the forward stroke volume by name, although the SELECTION_RULES
+#      formulas reference them; we declare them as explicit mL slots
+#      (regurgitant_valve_stroke_volume_ml, competent_valve_stroke_volume_ml,
+#      forward_stroke_volume_ml). The single annulus_diameter/annulus_vti/
+#      stroke_volume slots from the source are omitted because one annulus pair
+#      cannot yield the two distinct stroke volumes the subtraction needs.
+#  (4) "RV" in this protocol means regurgitant volume, never right ventricle
+#      (carried in notes, per source SAFETY_RULE / RESTRICTED_OUTPUTS).
+# Clinical hand-check vs source: id_bot2/docs/echo_ero_rvol_handcheck.md (sign-off PENDING).
+id: echo_ero_rvol
+kind: calculator
+source_label: Echo EROA/RVol
+canonical_name: echo EROA and regurgitant volume calculator
+status: draft
+version: 0.1
+
+# --- aliases: full set from source ## ALIASES (verbatim) ---
+aliases:
+  - ero calculator
+  - eroa calculator
+  - rvol calculator
+  - regurgitant volume calculator
+  - regurgitation calculator
+  - pisa calculator
+  - echo ero calculator
+  - echo eroa calculator
+  - echo rvol calculator
+  - mitral regurgitation calculator
+  - aortic regurgitation calculator
+  - mr eroa
+  - ar eroa
+  - ero rv calculator
+  - ero rvol calculator
+  - regurgitacios volumen kalkulator
+
+answers_intents: [info]
+
+# --- slots: source ## SLOT_SCHEMA (+ the explicit mL stroke-volume slots the
+# volumetric / LV formulas reference, see flagged decision 3). Ambiguous
+# measurements carry a *_unit enum.
+slots:
+  pisa_radius:
+    type: number
+    unit: mm_or_cm
+  pisa_radius_unit:
+    type: enum
+    values: [mm, cm]
+  aliasing_velocity:
+    type: number
+    unit: cm_per_s_or_m_per_s
+  aliasing_velocity_unit:
+    type: enum
+    values: [m_per_s, cm_per_s]
+  peak_regurgitant_velocity:
+    type: number
+    unit: cm_per_s_or_m_per_s
+  peak_regurgitant_velocity_unit:
+    type: enum
+    values: [m_per_s, cm_per_s]
+  regurgitant_vti:
+    type: number
+    unit: mm_or_cm
+  regurgitant_vti_unit:
+    type: enum
+    values: [mm, cm]
+  flow_convergence_angle_degrees:
+    type: number
+    unit: degrees
+    min: 30
+    max: 360
+    on_out_of_range: ask_confirmation
+  eroa_cm2:
+    type: number
+    unit: cm2
+    min: 0.01
+    max: 2
+    on_out_of_range: ask_confirmation
+  regurgitant_volume_ml:
+    type: number
+    unit: ml
+    min: 0
+    max: 300
+    on_out_of_range: ask_confirmation
+  regurgitant_valve_stroke_volume_ml:
+    type: number
+    unit: ml
+    min: 1
+    max: 300
+    on_out_of_range: ask_confirmation
+  competent_valve_stroke_volume_ml:
+    type: number
+    unit: ml
+    min: 1
+    max: 300
+    on_out_of_range: ask_confirmation
+  lv_edv:
+    type: number
+    unit: ml
+    min: 1
+    max: 500
+    on_out_of_range: ask_confirmation
+  lv_esv:
+    type: number
+    unit: ml
+    min: 0
+    max: 500
+    on_out_of_range: ask_confirmation
+  forward_stroke_volume_ml:
+    type: number
+    unit: ml
+    min: 1
+    max: 300
+    on_out_of_range: ask_confirmation
+
+# --- methods, most-specific first.
+methods:
+  # 1) PISA with angle correction + RVol (VTI supplied).
+  - id: pisa_angle_vti
+    requires: [pisa_radius, aliasing_velocity, peak_regurgitant_velocity, flow_convergence_angle_degrees, regurgitant_vti]
+    compute:
+      - {name: pisa_radius_factor, lookup: pisa_radius_unit, table: {mm: 0.1, cm: 1}}
+      - {name: pisa_radius_cm, expr: "pisa_radius * pisa_radius_factor"}
+      - {name: aliasing_factor, lookup: aliasing_velocity_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: aliasing_velocity_cms, expr: "aliasing_velocity * aliasing_factor"}
+      - {name: peak_factor, lookup: peak_regurgitant_velocity_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: peak_regurgitant_velocity_cms, expr: "peak_regurgitant_velocity * peak_factor"}
+      - {name: vti_factor, lookup: regurgitant_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: regurgitant_vti_cm, expr: "regurgitant_vti * vti_factor"}
+      - {name: pisa_area_cm2, expr: "2 * pi * pisa_radius_cm ** 2"}
+      - {name: corrected_pisa_area_cm2, expr: "pisa_area_cm2 * (flow_convergence_angle_degrees / 180)"}
+      - {name: regurgitant_flow_ml_s, expr: "corrected_pisa_area_cm2 * aliasing_velocity_cms"}
+      - {name: eroa_cm2_calc, expr: "regurgitant_flow_ml_s / peak_regurgitant_velocity_cms"}
+      - {name: rvol_ml, expr: "eroa_cm2_calc * regurgitant_vti_cm"}
+    outputs: [pisa_area_cm2, corrected_pisa_area_cm2, regurgitant_flow_ml_s, eroa_cm2_calc, rvol_ml]
+    template_en: |-
+      Echo EROA/RVol by PISA (angle-corrected):
+      - PISA area: {pisa_area_cm2:.2f} cm2
+      - Angle-corrected PISA area: {corrected_pisa_area_cm2:.2f} cm2
+      - Regurgitant flow: {regurgitant_flow_ml_s:.1f} mL/s
+      - EROA: {eroa_cm2_calc:.2f} cm2
+      - Regurgitant volume: {rvol_ml:.1f} mL
+
+  # 2) PISA hemispheric (no angle) + RVol (VTI supplied).
+  - id: pisa_vti
+    requires: [pisa_radius, aliasing_velocity, peak_regurgitant_velocity, regurgitant_vti]
+    compute:
+      - {name: pisa_radius_factor, lookup: pisa_radius_unit, table: {mm: 0.1, cm: 1}}
+      - {name: pisa_radius_cm, expr: "pisa_radius * pisa_radius_factor"}
+      - {name: aliasing_factor, lookup: aliasing_velocity_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: aliasing_velocity_cms, expr: "aliasing_velocity * aliasing_factor"}
+      - {name: peak_factor, lookup: peak_regurgitant_velocity_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: peak_regurgitant_velocity_cms, expr: "peak_regurgitant_velocity * peak_factor"}
+      - {name: vti_factor, lookup: regurgitant_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: regurgitant_vti_cm, expr: "regurgitant_vti * vti_factor"}
+      - {name: pisa_area_cm2, expr: "2 * pi * pisa_radius_cm ** 2"}
+      - {name: regurgitant_flow_ml_s, expr: "pisa_area_cm2 * aliasing_velocity_cms"}
+      - {name: eroa_cm2_calc, expr: "regurgitant_flow_ml_s / peak_regurgitant_velocity_cms"}
+      - {name: rvol_ml, expr: "eroa_cm2_calc * regurgitant_vti_cm"}
+    outputs: [pisa_area_cm2, regurgitant_flow_ml_s, eroa_cm2_calc, rvol_ml]
+    template_en: |-
+      Echo EROA/RVol by PISA:
+      - PISA area: {pisa_area_cm2:.2f} cm2
+      - Regurgitant flow: {regurgitant_flow_ml_s:.1f} mL/s
+      - EROA: {eroa_cm2_calc:.2f} cm2
+      - Regurgitant volume: {rvol_ml:.1f} mL
+
+  # 3) PISA with angle correction, EROA only (no VTI).
+  - id: pisa_angle
+    requires: [pisa_radius, aliasing_velocity, peak_regurgitant_velocity, flow_convergence_angle_degrees]
+    compute:
+      - {name: pisa_radius_factor, lookup: pisa_radius_unit, table: {mm: 0.1, cm: 1}}
+      - {name: pisa_radius_cm, expr: "pisa_radius * pisa_radius_factor"}
+      - {name: aliasing_factor, lookup: aliasing_velocity_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: aliasing_velocity_cms, expr: "aliasing_velocity * aliasing_factor"}
+      - {name: peak_factor, lookup: peak_regurgitant_velocity_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: peak_regurgitant_velocity_cms, expr: "peak_regurgitant_velocity * peak_factor"}
+      - {name: pisa_area_cm2, expr: "2 * pi * pisa_radius_cm ** 2"}
+      - {name: corrected_pisa_area_cm2, expr: "pisa_area_cm2 * (flow_convergence_angle_degrees / 180)"}
+      - {name: regurgitant_flow_ml_s, expr: "corrected_pisa_area_cm2 * aliasing_velocity_cms"}
+      - {name: eroa_cm2_calc, expr: "regurgitant_flow_ml_s / peak_regurgitant_velocity_cms"}
+    outputs: [pisa_area_cm2, corrected_pisa_area_cm2, regurgitant_flow_ml_s, eroa_cm2_calc]
+    template_en: |-
+      Echo EROA by PISA (angle-corrected):
+      - PISA area: {pisa_area_cm2:.2f} cm2
+      - Angle-corrected PISA area: {corrected_pisa_area_cm2:.2f} cm2
+      - Regurgitant flow: {regurgitant_flow_ml_s:.1f} mL/s
+      - EROA: {eroa_cm2_calc:.2f} cm2
+      Regurgitant volume needs the regurgitant jet VTI.
+
+  # 4) PISA hemispheric (no angle), EROA only (no VTI).
+  - id: pisa
+    requires: [pisa_radius, aliasing_velocity, peak_regurgitant_velocity]
+    compute:
+      - {name: pisa_radius_factor, lookup: pisa_radius_unit, table: {mm: 0.1, cm: 1}}
+      - {name: pisa_radius_cm, expr: "pisa_radius * pisa_radius_factor"}
+      - {name: aliasing_factor, lookup: aliasing_velocity_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: aliasing_velocity_cms, expr: "aliasing_velocity * aliasing_factor"}
+      - {name: peak_factor, lookup: peak_regurgitant_velocity_unit, table: {m_per_s: 100, cm_per_s: 1}}
+      - {name: peak_regurgitant_velocity_cms, expr: "peak_regurgitant_velocity * peak_factor"}
+      - {name: pisa_area_cm2, expr: "2 * pi * pisa_radius_cm ** 2"}
+      - {name: regurgitant_flow_ml_s, expr: "pisa_area_cm2 * aliasing_velocity_cms"}
+      - {name: eroa_cm2_calc, expr: "regurgitant_flow_ml_s / peak_regurgitant_velocity_cms"}
+    outputs: [pisa_area_cm2, regurgitant_flow_ml_s, eroa_cm2_calc]
+    template_en: |-
+      Echo EROA by PISA:
+      - PISA area: {pisa_area_cm2:.2f} cm2
+      - Regurgitant flow: {regurgitant_flow_ml_s:.1f} mL/s
+      - EROA: {eroa_cm2_calc:.2f} cm2
+      Regurgitant volume needs the regurgitant jet VTI.
+
+  # 5) Direct: RVol from EROA and regurgitant VTI.
+  - id: direct_rvol
+    requires: [eroa_cm2, regurgitant_vti]
+    compute:
+      - {name: vti_factor, lookup: regurgitant_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: regurgitant_vti_cm, expr: "regurgitant_vti * vti_factor"}
+      - {name: rvol_ml, expr: "eroa_cm2 * regurgitant_vti_cm"}
+    outputs: [rvol_ml]
+    template_en: |-
+      Echo regurgitant volume (direct from EROA):
+      - EROA: {eroa_cm2:g} cm2
+      - Regurgitant jet VTI: {regurgitant_vti_cm:.1f} cm
+      - Regurgitant volume: {rvol_ml:.1f} mL
+
+  # 6) Direct: EROA from RVol and regurgitant VTI.
+  - id: direct_eroa
+    requires: [regurgitant_volume_ml, regurgitant_vti]
+    compute:
+      - {name: vti_factor, lookup: regurgitant_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: regurgitant_vti_cm, expr: "regurgitant_vti * vti_factor"}
+      - {name: eroa_cm2_calc, expr: "regurgitant_volume_ml / regurgitant_vti_cm"}
+    outputs: [eroa_cm2_calc]
+    template_en: |-
+      Echo EROA (direct from regurgitant volume):
+      - Regurgitant volume: {regurgitant_volume_ml:g} mL
+      - Regurgitant jet VTI: {regurgitant_vti_cm:.1f} cm
+      - EROA: {eroa_cm2_calc:.2f} cm2
+
+  # 7) Volumetric, with regurgitant VTI -> RVol + RF + EROA.
+  - id: volumetric_eroa
+    requires: [regurgitant_valve_stroke_volume_ml, competent_valve_stroke_volume_ml, regurgitant_vti]
+    compute:
+      - {name: vti_factor, lookup: regurgitant_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: regurgitant_vti_cm, expr: "regurgitant_vti * vti_factor"}
+      - {name: rvol_ml, expr: "regurgitant_valve_stroke_volume_ml - competent_valve_stroke_volume_ml"}
+      - {name: regurgitant_fraction_percent, expr: "100 * rvol_ml / regurgitant_valve_stroke_volume_ml"}
+      - {name: eroa_cm2_calc, expr: "rvol_ml / regurgitant_vti_cm"}
+    outputs: [rvol_ml, regurgitant_fraction_percent, eroa_cm2_calc]
+    template_en: |-
+      Echo regurgitant volume by volumetric method:
+      - Regurgitant-valve stroke volume: {regurgitant_valve_stroke_volume_ml:g} mL
+      - Competent-valve stroke volume: {competent_valve_stroke_volume_ml:g} mL
+      - Regurgitant volume: {rvol_ml:.1f} mL
+      - Regurgitant fraction: {regurgitant_fraction_percent:.0f} %
+      - EROA: {eroa_cm2_calc:.2f} cm2
+
+  # 8) Volumetric, RVol + RF only (no VTI).
+  - id: volumetric
+    requires: [regurgitant_valve_stroke_volume_ml, competent_valve_stroke_volume_ml]
+    compute:
+      - {name: rvol_ml, expr: "regurgitant_valve_stroke_volume_ml - competent_valve_stroke_volume_ml"}
+      - {name: regurgitant_fraction_percent, expr: "100 * rvol_ml / regurgitant_valve_stroke_volume_ml"}
+    outputs: [rvol_ml, regurgitant_fraction_percent]
+    template_en: |-
+      Echo regurgitant volume by volumetric method:
+      - Regurgitant-valve stroke volume: {regurgitant_valve_stroke_volume_ml:g} mL
+      - Competent-valve stroke volume: {competent_valve_stroke_volume_ml:g} mL
+      - Regurgitant volume: {rvol_ml:.1f} mL
+      - Regurgitant fraction: {regurgitant_fraction_percent:.0f} %
+
+  # 9) LV-volume, with regurgitant VTI -> RVol + EROA.
+  - id: lv_eroa
+    requires: [lv_edv, lv_esv, forward_stroke_volume_ml, regurgitant_vti]
+    compute:
+      - {name: vti_factor, lookup: regurgitant_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: regurgitant_vti_cm, expr: "regurgitant_vti * vti_factor"}
+      - {name: lv_stroke_volume_ml, expr: "lv_edv - lv_esv"}
+      - {name: rvol_ml, expr: "lv_stroke_volume_ml - forward_stroke_volume_ml"}
+      - {name: eroa_cm2_calc, expr: "rvol_ml / regurgitant_vti_cm"}
+    outputs: [lv_stroke_volume_ml, rvol_ml, eroa_cm2_calc]
+    template_en: |-
+      Echo regurgitant volume by LV-volume method:
+      - LV stroke volume (EDV - ESV): {lv_stroke_volume_ml:.1f} mL
+      - Forward stroke volume: {forward_stroke_volume_ml:g} mL
+      - Regurgitant volume: {rvol_ml:.1f} mL
+      - EROA: {eroa_cm2_calc:.2f} cm2
+
+  # 10) LV-volume, RVol only (no VTI).
+  - id: lv
+    requires: [lv_edv, lv_esv, forward_stroke_volume_ml]
+    compute:
+      - {name: lv_stroke_volume_ml, expr: "lv_edv - lv_esv"}
+      - {name: rvol_ml, expr: "lv_stroke_volume_ml - forward_stroke_volume_ml"}
+    outputs: [lv_stroke_volume_ml, rvol_ml]
+    template_en: |-
+      Echo regurgitant volume by LV-volume method:
+      - LV stroke volume (EDV - ESV): {lv_stroke_volume_ml:.1f} mL
+      - Forward stroke volume: {forward_stroke_volume_ml:g} mL
+      - Regurgitant volume: {rvol_ml:.1f} mL
+
+# Source ## DEFAULT_ANSWER (verbatim).
+default_answer: >-
+  Proposed protocol: use PISA when radius, aliasing velocity, peak regurgitant
+  velocity, and regurgitant jet VTI are available. Use volumetric calculation when
+  regurgitant-valve and competent-valve stroke volumes are available.
+
+# Source ## OUTPUT_TEMPLATES ### MISSING_INPUT (verbatim).
+missing_inputs: >-
+  Please provide a complete set for one method: PISA inputs, direct EROA/RVol
+  conversion inputs, or volumetric stroke-volume inputs.
+
+# Source ## SELECTED_OUTPUTS ### unsupported_units (rendered as the direct ask).
+unsupported_value: >-
+  Please resend radius/diameter/VTI in mm or cm, velocities in m/s or cm/s, and
+  volumes in mL.
+
+# Source ## INFO_BLOCKS + ## RESTRICTED_OUTPUTS + ## SAFETY_RULES (carried as notes).
+notes: >-
+  Calculator output only. In this protocol "RV" means regurgitant volume, never
+  right ventricle. Three+ calculation paths: PISA (radius, aliasing velocity, peak
+  regurgitant velocity, regurgitant jet VTI), direct EROA<->RVol conversion via
+  regurgitant VTI, and volumetric subtraction of competent-valve from
+  regurgitant-valve stroke volume (LV-volume variant uses EDV-ESV minus forward
+  stroke volume). PISA assumes an appropriate flow-convergence shape and
+  simultaneous timing; volumetric subtraction compounds measurement error;
+  multiple/eccentric jets, nonhemispheric PISA, shunts, and more than one
+  significant regurgitant valve can invalidate simple calculations. Does not
+  provide regurgitation grading, surgery/intervention/follow-up recommendations.
+  Ambiguous units are asked for, never guessed.
+
+# Source ## DEFAULT_FOOTER (verbatim).
+footer: >-
+  Calculator output only; integrate with full valve assessment and echo image
+  quality before interpretation.

@@ -859,7 +859,7 @@ class TestCalculatorRouting(unittest.TestCase):
     def test_calc_tool_has_closed_enum(self):
         tool = next(t for t in self.router.tools() if t.name == "calculate")
         enum = tool.parameters["properties"]["calculator_id"]["enum"]
-        self.assertEqual(set(enum), {"body_size_calculators", "steroid_equivalence"})
+        self.assertTrue({"body_size_calculators", "steroid_equivalence"} <= set(enum))
         # steroid_agent surfaced as a closed enum too
         self.assertIn("steroid_agent", tool.parameters["properties"])
         self.assertIn("dexamethasone",
@@ -958,3 +958,125 @@ class TestCalculatorRouting(unittest.TestCase):
         res = self.router.route("how do i compute body metrics", provider=prov)
         self.assertEqual(res.route, "unsupported")
 
+
+
+class TestEchoCalculatorRouting(unittest.TestCase):
+    """The echo trio (final calculator migration): named-calculator routing +
+    LABELLED measurement/unit extraction. The deterministic stage must (a) route
+    the right echo calculator, (b) pull each labelled measurement WITH its unit so
+    two same-unit values never collide, and (c) leave a unit-less measurement's
+    *_unit slot absent so the tool asks rather than guessing a conversion."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.router = Router(protocols_dir=PROTOCOLS)
+
+    # registry / tool schema ------------------------------------------------
+    def test_registry_has_three_echo_calcs(self):
+        for cid in ("echo_cardiac_output", "echo_ava", "echo_ero_rvol"):
+            self.assertIn(cid, self.router.calcs)
+
+    def test_calc_tool_enum_includes_echo(self):
+        tool = next(t for t in self.router.tools() if t.name == "calculate")
+        enum = set(tool.parameters["properties"]["calculator_id"]["enum"])
+        self.assertTrue({"echo_cardiac_output", "echo_ava", "echo_ero_rvol"} <= enum)
+        # a unit enum slot is surfaced as a closed enum to the model
+        props = tool.parameters["properties"]
+        self.assertEqual(set(props["lvot_diameter_unit"]["enum"]), {"mm", "cm"})
+        self.assertEqual(set(props["aliasing_velocity_unit"]["enum"]),
+                         {"m_per_s", "cm_per_s"})
+
+    # deterministic extraction ---------------------------------------------
+    def test_cardiac_output_extracts_two_cm_values_distinctly(self):
+        call = resolve_calculator(
+            "echo cardiac output calculator lvot diameter 2.0 cm lvot vti 20 cm hr 70",
+            self.router.calcs)
+        self.assertIsInstance(call, CalcCall)
+        self.assertEqual(call.calc_id, "echo_cardiac_output")
+        self.assertEqual(call.slots["lvot_diameter"], 2)
+        self.assertEqual(call.slots["lvot_diameter_unit"], "cm")
+        self.assertEqual(call.slots["lvot_vti"], 20)
+        self.assertEqual(call.slots["lvot_vti_unit"], "cm")
+        self.assertEqual(call.slots["heart_rate_bpm"], 70)
+
+    def test_ava_extracts_csa_and_bsa(self):
+        call = resolve_calculator(
+            "ava calculator lvot csa 3.0 lvot vti 18 cm av vti 90 cm bsa 2.0",
+            self.router.calcs)
+        self.assertEqual(call.calc_id, "echo_ava")
+        self.assertEqual(call.slots["lvot_csa"], 3)
+        self.assertEqual(call.slots["lvot_vti"], 18)
+        self.assertEqual(call.slots["av_vti"], 90)
+        self.assertEqual(call.slots["bsa_m2"], 2)
+
+    def test_ero_extracts_velocity_units(self):
+        call = resolve_calculator(
+            "pisa calculator pisa radius 1.0 cm aliasing velocity 40 cm/s "
+            "peak regurgitant velocity 500 cm/s regurgitant vti 100 cm",
+            self.router.calcs)
+        self.assertEqual(call.calc_id, "echo_ero_rvol")
+        self.assertEqual(call.slots["aliasing_velocity"], 40)
+        self.assertEqual(call.slots["aliasing_velocity_unit"], "cm_per_s")
+        self.assertEqual(call.slots["peak_regurgitant_velocity_unit"], "cm_per_s")
+        self.assertEqual(call.slots["pisa_radius_unit"], "cm")
+
+    def test_unitless_measurement_leaves_unit_slot_absent(self):
+        call = resolve_calculator(
+            "echo cardiac output calculator lvot diameter 2.0 lvot vti 20 hr 70",
+            self.router.calcs)
+        self.assertEqual(call.slots.get("lvot_diameter"), 2)
+        self.assertNotIn("lvot_diameter_unit", call.slots)
+
+    # end-to-end route ------------------------------------------------------
+    def test_route_cardiac_output_computes(self):
+        res = self.router.route(
+            "echo cardiac output calculator lvot diameter 2.0 cm lvot vti 20 cm hr 70")
+        self.assertEqual(res.route, "calculator")
+        self.assertEqual(res.tool, "calculate")
+        self.assertEqual(res.protocol, "echo_cardiac_output")
+        self.assertIn("Cardiac output: 4.40 L/min", res.answer)
+        self.assertFalse(res.needs_clarification)
+
+    def test_route_ava_continuity_computes(self):
+        res = self.router.route(
+            "aortic valve area calculator lvot diameter 2.0 cm lvot vti 20 cm av vti 100 cm")
+        self.assertEqual(res.protocol, "echo_ava")
+        self.assertIn("AVA: 0.63 cm2", res.answer)
+
+    def test_route_ero_direct_computes(self):
+        res = self.router.route("eroa calculator eroa 0.5 jet vti 100 cm")
+        self.assertEqual(res.protocol, "echo_ero_rvol")
+        self.assertIn("Regurgitant volume: 50.0 mL", res.answer)
+
+    def test_route_missing_unit_asks_to_resend(self):
+        res = self.router.route(
+            "echo cardiac output calculator lvot diameter 2.0 lvot vti 20 hr 70")
+        self.assertEqual(res.route, "calculator")
+        self.assertTrue(res.needs_clarification)
+        self.assertIn("mm or cm", res.answer)
+
+    def test_route_echo_no_input_is_default(self):
+        res = self.router.route("aortic valve area calculator")
+        self.assertEqual(res.route, "calculator")
+        self.assertEqual(res.protocol, "echo_ava")
+        self.assertFalse(res.answer.startswith("Echo AVA by continuity"))
+
+    def test_drug_query_not_captured_by_echo(self):
+        res = self.router.route("meropenem gfr 40")
+        self.assertEqual(res.route, "drug_dose")
+        self.assertEqual(res.protocol, "meropenem")
+
+    # LLM path --------------------------------------------------------------
+    def test_llm_dispatch_echo(self):
+        prov = ScriptedProvider(ToolCall(
+            name="calculate",
+            arguments={"calculator_id": "echo_cardiac_output",
+                       "lvot_diameter": 2.0, "lvot_diameter_unit": "cm",
+                       "lvot_vti": 20, "lvot_vti_unit": "cm",
+                       "heart_rate_bpm": 70}))
+        # input with no deterministic alias so the LLM stage runs
+        res = self.router.route("work out the forward output 2 by 20 at 70",
+                                provider=prov)
+        self.assertEqual(res.route, "calculator")
+        self.assertEqual(res.protocol, "echo_cardiac_output")
+        self.assertIn("Cardiac output", res.answer)

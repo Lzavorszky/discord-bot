@@ -1621,3 +1621,101 @@ cases:
     expect: { route: calculator, tool: calculate, protocol: steroid_equivalence, clarifies: true, output_has: ["steroid and dose in mg"] }
     status: new
     note: "Required-slot gate: dose missing -> verbatim missing-input ask."
+
+  # --- echo trio (final calculator migration): multi-method + unit ambiguity ---
+  # output_has values are HAND-COMPUTED from the source formulas (re-derivable).
+  - id: echo_co_compute
+    input: "echo cardiac output calculator lvot diameter 2.0 cm lvot vti 20 cm hr 70"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_cardiac_output, slots: { lvot_diameter: 2.0, lvot_diameter_unit: cm, lvot_vti: 20, lvot_vti_unit: cm, heart_rate_bpm: 70 } }
+    expect: { route: calculator, tool: calculate, protocol: echo_cardiac_output, clarifies: false, output_has: ["LVOT CSA: 3.14 cm2", "Stroke volume: 62.8 mL", "Cardiac output: 4.40 L/min"] }
+    status: new
+    note: "Hand: CSA=pi*(1)^2=3.14; SV=3.14*20=62.8 mL; CO=62.8*70/1000=4.40 L/min."
+
+  - id: echo_co_sv_only_no_hr
+    input: "echo cardiac output calculator lvot diameter 2.0 cm lvot vti 20 cm"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_cardiac_output, slots: { lvot_diameter: 2.0, lvot_diameter_unit: cm, lvot_vti: 20, lvot_vti_unit: cm } }
+    expect: { route: calculator, tool: calculate, protocol: echo_cardiac_output, clarifies: false, output_has: ["Stroke volume: 62.8 mL"], output_not: ["Cardiac output"] }
+    status: new
+    note: "No HR -> stroke-volume method only (source: cardiac output only when HR supplied)."
+
+  - id: echo_co_missing_unit_asks
+    input: "echo cardiac output calculator lvot diameter 2.0 lvot vti 20 hr 70"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_cardiac_output, slots: { lvot_diameter: 2.0, lvot_vti: 20, heart_rate_bpm: 70 } }
+    expect: { route: calculator, tool: calculate, protocol: echo_cardiac_output, clarifies: true, output_has: ["mm or cm"] }
+    status: new
+    note: "Unit ambiguity: measurements present but NO unit -> verbatim resend-with-units ask, never a silent /10."
+
+  - id: echo_ava_continuity
+    input: "aortic valve area calculator lvot diameter 2.0 cm lvot vti 20 cm av vti 100 cm"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_ava, slots: { lvot_diameter: 2.0, lvot_diameter_unit: cm, lvot_vti: 20, lvot_vti_unit: cm, av_vti: 100, av_vti_unit: cm } }
+    expect: { route: calculator, tool: calculate, protocol: echo_ava, clarifies: false, output_has: ["AVA: 0.63 cm2", "Dimensionless index: 0.20"] }
+    status: new
+    note: "Hand: CSA=pi=3.14; AVA=3.14*20/100=0.628; DI=20/100=0.20."
+
+  - id: echo_ava_indexed_csa_direct
+    input: "ava calculator lvot csa 3.0 lvot vti 20 cm av vti 100 cm bsa 2.0"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_ava, slots: { lvot_csa: 3.0, lvot_vti: 20, lvot_vti_unit: cm, av_vti: 100, av_vti_unit: cm, bsa_m2: 2.0 } }
+    expect: { route: calculator, tool: calculate, protocol: echo_ava, clarifies: false, output_has: ["AVA: 0.60 cm2", "Indexed AVA: 0.30 cm2/m2"] }
+    status: new
+    note: "CSA supplied directly + BSA -> indexed continuity. Hand: AVA=3.0*20/100=0.60; indexed=0.60/2.0=0.30."
+
+  - id: echo_ava_velocity_ratio
+    input: "ava calculator lvot vmax 1.0 m/s av vmax 4.0 m/s lvot csa 3.0"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_ava, slots: { lvot_vmax: 1.0, lvot_vmax_unit: m_per_s, av_vmax: 4.0, av_vmax_unit: m_per_s, lvot_csa: 3.0 } }
+    expect: { route: calculator, tool: calculate, protocol: echo_ava, clarifies: false, output_has: ["Velocity ratio (LVOT Vmax / AV Vmax): 0.25", "Simplified AVA: 0.75 cm2"] }
+    status: new
+    note: "VTIs absent -> simplified velocity method. Hand: ratio=1/4=0.25; simplified AVA=3.0*0.25=0.75."
+
+  - id: echo_pisa_eroa_rvol
+    input: "pisa calculator pisa radius 1.0 cm aliasing velocity 40 cm/s peak regurgitant velocity 500 cm/s regurgitant vti 100 cm"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_ero_rvol, slots: { pisa_radius: 1.0, pisa_radius_unit: cm, aliasing_velocity: 40, aliasing_velocity_unit: cm_per_s, peak_regurgitant_velocity: 500, peak_regurgitant_velocity_unit: cm_per_s, regurgitant_vti: 100, regurgitant_vti_unit: cm } }
+    expect: { route: calculator, tool: calculate, protocol: echo_ero_rvol, clarifies: false, output_has: ["PISA area: 6.28 cm2", "EROA: 0.50 cm2", "Regurgitant volume: 50.3 mL"] }
+    status: new
+    note: "Hand: PISA=2*pi*1^2=6.28; flow=6.28*40=251.3; EROA=251.3/500=0.503; RVol=0.503*100=50.3."
+
+  - id: echo_direct_rvol_from_eroa
+    input: "eroa calculator eroa 0.5 jet vti 100 cm"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_ero_rvol, slots: { eroa_cm2: 0.5, regurgitant_vti: 100, regurgitant_vti_unit: cm } }
+    expect: { route: calculator, tool: calculate, protocol: echo_ero_rvol, clarifies: false, output_has: ["Regurgitant volume: 50.0 mL"] }
+    status: new
+    note: "Direct conversion: RVol=EROA*VTI=0.5*100=50 mL."
+
+  - id: echo_volumetric_rvol
+    input: "regurgitant volume calculator regurgitant valve stroke volume 100 competent valve stroke volume 60 regurgitant vti 100 cm"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_ero_rvol, slots: { regurgitant_valve_stroke_volume_ml: 100, competent_valve_stroke_volume_ml: 60, regurgitant_vti: 100, regurgitant_vti_unit: cm } }
+    expect: { route: calculator, tool: calculate, protocol: echo_ero_rvol, clarifies: false, output_has: ["Regurgitant volume: 40.0 mL", "Regurgitant fraction: 40 %", "EROA: 0.40 cm2"] }
+    status: new
+    note: "Volumetric: RVol=100-60=40; RF=100*40/100=40%; EROA=40/100=0.40."
+
+  - id: echo_lv_volume_rvol
+    input: "rvol calculator lv edv 120 lv esv 50 forward stroke volume 40"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_ero_rvol, slots: { lv_edv: 120, lv_esv: 50, forward_stroke_volume_ml: 40 } }
+    expect: { route: calculator, tool: calculate, protocol: echo_ero_rvol, clarifies: false, output_has: ["LV stroke volume (EDV - ESV): 70.0 mL", "Regurgitant volume: 30.0 mL"] }
+    status: new
+    note: "LV-volume: LV SV=120-50=70; RVol=70-40=30 mL."
+
+  - id: echo_ero_missing_velocity_unit_asks
+    input: "pisa calculator pisa radius 1.0 cm aliasing velocity 40 peak regurgitant velocity 500 cm/s"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_ero_rvol, slots: { pisa_radius: 1.0, pisa_radius_unit: cm, aliasing_velocity: 40, peak_regurgitant_velocity: 500, peak_regurgitant_velocity_unit: cm_per_s } }
+    expect: { route: calculator, tool: calculate, protocol: echo_ero_rvol, clarifies: true, output_has: ["m/s or cm/s"] }
+    status: new
+    note: "Aliasing velocity has no unit -> verbatim resend-with-units ask, never a silent *100."
+
+  - id: echo_co_no_input_default
+    input: "echo cardiac output calculator"
+    lang: en
+    call: { tool: calculate, calculator_id: echo_cardiac_output, slots: {} }
+    expect: { route: calculator, tool: calculate, protocol: echo_cardiac_output, clarifies: true, output_has: ["LVOT VTI and LVOT diameter"] }
+    status: new
+    note: "No input -> verbatim DEFAULT_ANSWER."

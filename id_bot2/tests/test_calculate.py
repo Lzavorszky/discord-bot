@@ -303,3 +303,235 @@ def test_non_numeric_for_numeric_slot_is_treated_absent():
     r = C.calculate("body_size_calculators", protocols_dir=PDIR,
                     height_cm=170, actual_weight_kg="heavy")
     assert r.mode == "needs_input"
+
+
+# --------------------------------------------------------------------------- #
+# 4. The echo trio (final calculator migration) — multi-method selection +     #
+#    unit-ambiguity ASK. Hand-computed reference values in the comments.        #
+#    Unit normalisation is a declared lookup -> multiply step (mm->*0.1,        #
+#    m/s->*100); a missing/unknown unit -> verbatim unsupported_value ("resend  #
+#    with units"), NEVER a silent conversion.                                   #
+# --------------------------------------------------------------------------- #
+
+# ---- echo_cardiac_output --------------------------------------------------- #
+def test_echo_co_hand_values():
+    # diam 2.0 cm -> CSA = pi*(1)^2 = 3.14159 cm2; SV = 3.14159*20 = 62.83 mL;
+    # CO = 62.83*70/1000 = 4.398 L/min.
+    r = C.calculate("echo_cardiac_output", protocols_dir=PDIR,
+                    lvot_diameter=2.0, lvot_diameter_unit="cm",
+                    lvot_vti=20, lvot_vti_unit="cm", heart_rate_bpm=70)
+    assert r.mode == "compute" and r.method_id == "calculated_co"
+    v = r.values
+    assert v["lvot_csa_cm2"] == pytest.approx(math.pi)
+    assert v["stroke_volume_ml"] == pytest.approx(math.pi * 20)
+    assert v["cardiac_output_l_min"] == pytest.approx(math.pi * 20 * 70 / 1000)
+    assert "Cardiac output: 4.40 L/min" in r.text
+
+
+def test_echo_co_mm_equals_cm():
+    # 20 mm == 2.0 cm and 200 mm == 20 cm -> identical CO.
+    cm = C.calculate("echo_cardiac_output", protocols_dir=PDIR,
+                     lvot_diameter=2.0, lvot_diameter_unit="cm",
+                     lvot_vti=20, lvot_vti_unit="cm", heart_rate_bpm=70)
+    mm = C.calculate("echo_cardiac_output", protocols_dir=PDIR,
+                     lvot_diameter=20, lvot_diameter_unit="mm",
+                     lvot_vti=200, lvot_vti_unit="mm", heart_rate_bpm=70)
+    assert mm.values["cardiac_output_l_min"] == pytest.approx(
+        cm.values["cardiac_output_l_min"])
+
+
+def test_echo_co_sv_only_when_no_hr():
+    r = C.calculate("echo_cardiac_output", protocols_dir=PDIR,
+                    lvot_diameter=2.0, lvot_diameter_unit="cm",
+                    lvot_vti=20, lvot_vti_unit="cm")
+    assert r.method_id == "calculated_sv"
+    assert "cardiac_output_l_min" not in r.values
+    assert r.values["stroke_volume_ml"] == pytest.approx(math.pi * 20)
+
+
+def test_echo_co_missing_unit_asks_to_resend():
+    # Measurements present but NO unit -> verbatim unsupported_value, never /10.
+    r = C.calculate("echo_cardiac_output", protocols_dir=PDIR,
+                    lvot_diameter=2.0, lvot_vti=20, heart_rate_bpm=70)
+    assert r.mode == "unsupported_value"
+    assert "mm or cm" in r.text
+
+
+def test_echo_co_no_input_default():
+    r = C.calculate("echo_cardiac_output", protocols_dir=PDIR)
+    assert r.mode == "default"
+    assert "LVOT VTI and LVOT diameter" in r.text
+
+
+def test_echo_co_partial_asks():
+    r = C.calculate("echo_cardiac_output", protocols_dir=PDIR,
+                    lvot_diameter=2.0, lvot_diameter_unit="cm")
+    assert r.mode == "needs_input"
+
+
+def test_echo_co_hr_out_of_range_confirms():
+    r = C.calculate("echo_cardiac_output", protocols_dir=PDIR,
+                    lvot_diameter=2.0, lvot_diameter_unit="cm",
+                    lvot_vti=20, lvot_vti_unit="cm", heart_rate_bpm=400)
+    assert r.mode == "needs_confirmation"
+
+
+# ---- echo_ava -------------------------------------------------------------- #
+def test_echo_ava_diameter_hand_values():
+    # CSA = pi*(1)^2 = 3.14159; AVA = 3.14159*20/100 = 0.6283; DI = 0.2.
+    r = C.calculate("echo_ava", protocols_dir=PDIR,
+                    lvot_diameter=2.0, lvot_diameter_unit="cm",
+                    lvot_vti=20, lvot_vti_unit="cm", av_vti=100, av_vti_unit="cm")
+    assert r.method_id == "ava_diameter"
+    v = r.values
+    assert v["ava_cm2"] == pytest.approx(math.pi * 20 / 100)
+    assert v["dimensionless_index"] == pytest.approx(0.2)
+    assert "AVA: 0.63 cm2" in r.text
+
+
+def test_echo_ava_csa_direct_preferred_over_diameter():
+    # CSA supplied directly -> ava_csa method (no diameter needed). AVA=3*18/90=0.6.
+    r = C.calculate("echo_ava", protocols_dir=PDIR,
+                    lvot_csa=3.0, lvot_vti=18, lvot_vti_unit="cm",
+                    av_vti=90, av_vti_unit="cm")
+    assert r.method_id == "ava_csa"
+    assert r.values["ava_cm2"] == pytest.approx(0.6)
+
+
+def test_echo_ava_indexed_when_bsa_supplied():
+    # Indexed AVA = AVA / BSA = 0.6283 / 2.0 = 0.3142.
+    r = C.calculate("echo_ava", protocols_dir=PDIR,
+                    lvot_diameter=2.0, lvot_diameter_unit="cm",
+                    lvot_vti=20, lvot_vti_unit="cm", av_vti=100, av_vti_unit="cm",
+                    bsa_m2=2.0)
+    assert r.method_id == "ava_indexed_diameter"
+    assert r.values["indexed_ava_cm2_m2"] == pytest.approx(math.pi * 20 / 100 / 2.0)
+    assert "Indexed AVA" in r.text
+
+
+def test_echo_ava_velocity_ratio_simplified():
+    # vmax 1 m/s and 4 m/s -> ratio 0.25; simplified AVA = 3.0*0.25 = 0.75.
+    r = C.calculate("echo_ava", protocols_dir=PDIR,
+                    lvot_vmax=1.0, lvot_vmax_unit="m_per_s",
+                    av_vmax=4.0, av_vmax_unit="m_per_s", lvot_csa=3.0)
+    assert r.method_id == "velocity_ratio_csa"
+    assert r.values["velocity_ratio"] == pytest.approx(0.25)
+    assert r.values["simplified_ava_cm2"] == pytest.approx(0.75)
+    assert "continuity-equation" in r.text.lower()
+
+
+def test_echo_ava_velocity_ratio_only():
+    r = C.calculate("echo_ava", protocols_dir=PDIR,
+                    lvot_vmax=100, lvot_vmax_unit="cm_per_s",
+                    av_vmax=400, av_vmax_unit="cm_per_s")
+    assert r.method_id == "velocity_ratio"
+    assert r.values["velocity_ratio"] == pytest.approx(0.25)
+
+
+def test_echo_ava_prefers_vti_over_velocity_when_both_present():
+    # Both VTIs and Vmaxes present -> the VTI continuity method wins (listed first).
+    r = C.calculate("echo_ava", protocols_dir=PDIR,
+                    lvot_diameter=2.0, lvot_diameter_unit="cm",
+                    lvot_vti=20, lvot_vti_unit="cm", av_vti=100, av_vti_unit="cm",
+                    lvot_vmax=1.0, lvot_vmax_unit="m_per_s",
+                    av_vmax=4.0, av_vmax_unit="m_per_s")
+    assert r.method_id == "ava_diameter"
+
+
+def test_echo_ava_missing_unit_asks():
+    r = C.calculate("echo_ava", protocols_dir=PDIR,
+                    lvot_diameter=2.0, lvot_vti=20, lvot_vti_unit="cm",
+                    av_vti=100, av_vti_unit="cm")
+    assert r.mode == "unsupported_value"
+
+
+def test_echo_ava_csa_out_of_range_confirms():
+    r = C.calculate("echo_ava", protocols_dir=PDIR,
+                    lvot_csa=50, lvot_vti=18, lvot_vti_unit="cm",
+                    av_vti=90, av_vti_unit="cm")
+    assert r.mode == "needs_confirmation"
+
+
+# ---- echo_ero_rvol --------------------------------------------------------- #
+def test_echo_ero_pisa_hand_values():
+    # PISA area = 2*pi*1^2 = 6.2832; flow = 6.2832*40 = 251.33;
+    # EROA = 251.33/500 = 0.5027; RVol = 0.5027*100 = 50.27.
+    r = C.calculate("echo_ero_rvol", protocols_dir=PDIR,
+                    pisa_radius=1.0, pisa_radius_unit="cm",
+                    aliasing_velocity=40, aliasing_velocity_unit="cm_per_s",
+                    peak_regurgitant_velocity=500, peak_regurgitant_velocity_unit="cm_per_s",
+                    regurgitant_vti=100, regurgitant_vti_unit="cm")
+    assert r.method_id == "pisa_vti"
+    v = r.values
+    assert v["pisa_area_cm2"] == pytest.approx(2 * math.pi)
+    assert v["regurgitant_flow_ml_s"] == pytest.approx(2 * math.pi * 40)
+    assert v["eroa_cm2_calc"] == pytest.approx(2 * math.pi * 40 / 500)
+    assert v["rvol_ml"] == pytest.approx(2 * math.pi * 40 / 500 * 100)
+
+
+def test_echo_ero_angle_correction_halves_at_90deg():
+    # 90 deg correction multiplies the area by 90/180 = 0.5.
+    full = C.calculate("echo_ero_rvol", protocols_dir=PDIR,
+                       pisa_radius=1.0, pisa_radius_unit="cm",
+                       aliasing_velocity=40, aliasing_velocity_unit="cm_per_s",
+                       peak_regurgitant_velocity=500, peak_regurgitant_velocity_unit="cm_per_s")
+    half = C.calculate("echo_ero_rvol", protocols_dir=PDIR,
+                       pisa_radius=1.0, pisa_radius_unit="cm",
+                       aliasing_velocity=40, aliasing_velocity_unit="cm_per_s",
+                       peak_regurgitant_velocity=500, peak_regurgitant_velocity_unit="cm_per_s",
+                       flow_convergence_angle_degrees=90)
+    assert half.method_id == "pisa_angle"
+    assert half.values["eroa_cm2_calc"] == pytest.approx(
+        full.values["eroa_cm2_calc"] * 0.5)
+
+
+def test_echo_ero_direct_rvol_and_eroa():
+    rv = C.calculate("echo_ero_rvol", protocols_dir=PDIR,
+                     eroa_cm2=0.5, regurgitant_vti=100, regurgitant_vti_unit="cm")
+    assert rv.method_id == "direct_rvol"
+    assert rv.values["rvol_ml"] == pytest.approx(50)
+    er = C.calculate("echo_ero_rvol", protocols_dir=PDIR,
+                     regurgitant_volume_ml=60, regurgitant_vti=120, regurgitant_vti_unit="cm")
+    assert er.method_id == "direct_eroa"
+    assert er.values["eroa_cm2_calc"] == pytest.approx(0.5)
+
+
+def test_echo_ero_volumetric():
+    # RVol = 100-60 = 40; RF = 100*40/100 = 40%; EROA = 40/100 = 0.4.
+    r = C.calculate("echo_ero_rvol", protocols_dir=PDIR,
+                    regurgitant_valve_stroke_volume_ml=100,
+                    competent_valve_stroke_volume_ml=60,
+                    regurgitant_vti=100, regurgitant_vti_unit="cm")
+    assert r.method_id == "volumetric_eroa"
+    assert r.values["rvol_ml"] == pytest.approx(40)
+    assert r.values["regurgitant_fraction_percent"] == pytest.approx(40)
+    assert r.values["eroa_cm2_calc"] == pytest.approx(0.4)
+
+
+def test_echo_ero_lv_volume():
+    # LV SV = 120-50 = 70; RVol = 70-40 = 30.
+    r = C.calculate("echo_ero_rvol", protocols_dir=PDIR,
+                    lv_edv=120, lv_esv=50, forward_stroke_volume_ml=40)
+    assert r.method_id == "lv"
+    assert r.values["lv_stroke_volume_ml"] == pytest.approx(70)
+    assert r.values["rvol_ml"] == pytest.approx(30)
+
+
+def test_echo_ero_missing_velocity_unit_asks():
+    r = C.calculate("echo_ero_rvol", protocols_dir=PDIR,
+                    pisa_radius=1.0, pisa_radius_unit="cm",
+                    aliasing_velocity=40,
+                    peak_regurgitant_velocity=500, peak_regurgitant_velocity_unit="cm_per_s")
+    assert r.mode == "unsupported_value"
+
+
+def test_echo_ero_no_input_default():
+    r = C.calculate("echo_ero_rvol", protocols_dir=PDIR)
+    assert r.mode == "default"
+    assert "PISA" in r.text
+
+
+def test_echo_ero_footer_present():
+    r = C.calculate("echo_ero_rvol", protocols_dir=PDIR,
+                    eroa_cm2=0.5, regurgitant_vti=100, regurgitant_vti_unit="cm")
+    assert "full valve assessment" in C.render_calc(r)

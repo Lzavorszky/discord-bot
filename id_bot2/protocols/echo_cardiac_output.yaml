@@ -1,0 +1,142 @@
+# echo_cardiac_output.yaml — kind: calculator  (final migration phase — Plan D)
+# Migrated VERBATIM from protocols/echo_cardiac_output.txt (source v0.1) +
+# echo_cardiac_output.route_claims.json. Every FORMULA is transcribed
+# character-for-character from the source ## SELECTION_RULES "Calculation rules".
+# This is a COMPUTING protocol: the engine evaluates these declared formulas with
+# the restricted arithmetic AST in calculate.py (no eval); it invents no formula.
+#
+# UNIT AMBIGUITY (the new pattern this chunk introduces): LVOT diameter and LVOT
+# VTI may be supplied in mm OR cm. The source SAFETY_RULE is "if the unit is
+# ambiguous, ask for clarification rather than guessing." We model that WITHOUT
+# any engine change: each ambiguous measurement gets a required *_unit enum slot
+# whose value drives a declared lookup -> multiply normalize step (mm -> *0.1,
+# cm -> *1). If the unit is absent/unknown the lookup misses and the tool returns
+# the verbatim `unsupported_value` ("resend with units") — never a silent /10.
+#
+# Display rounding (CSA/CO 2 dp, VTI/SV 1 dp) is an engine presentation choice,
+# NOT in the source — flagged in the hand-check. Clinical ranges are enforced
+# only on the unit-UNAMBIGUOUS slot (heart_rate); a clinical range cannot be
+# soundly applied to a value before its unit is known (10 may be 10 mm = 1 cm,
+# in range, or 10 cm, out of range) — flagged in the hand-check.
+# Clinical hand-check vs source: id_bot2/docs/echo_cardiac_output_handcheck.md (sign-off PENDING).
+id: echo_cardiac_output
+kind: calculator
+source_label: Echo cardiac output
+canonical_name: echo cardiac output calculator
+status: draft
+version: 0.1
+
+# --- aliases: full set from source ## ALIASES (verbatim) ---
+aliases:
+  - echo cardiac output calculator
+  - cardiac output calculator
+  - echo co calculator
+  - lvot stroke volume calculator
+  - stroke volume calculator
+  - sv calculator
+  - lvot vti calculator
+  - lvot vti co
+  - lvot diameter vti
+  - echocardiography cardiac output
+  - echo percterfogat
+  - sziv percterfogat kalkulator
+
+answers_intents: [info]
+
+# --- slots: source ## SLOT_SCHEMA. The two measurements are mm_or_cm ambiguous,
+# so each carries a required *_unit enum (the disambiguator). heart_rate is bpm
+# (unambiguous) and keeps its verbatim clinical range + ask_confirmation policy.
+slots:
+  lvot_diameter:
+    type: number
+    unit: mm_or_cm
+  lvot_diameter_unit:
+    type: enum
+    values: [mm, cm]
+  lvot_vti:
+    type: number
+    unit: mm_or_cm
+  lvot_vti_unit:
+    type: enum
+    values: [mm, cm]
+  heart_rate_bpm:
+    type: number
+    unit: bpm
+    min: 1
+    max: 250
+    on_out_of_range: ask_confirmation
+
+# --- methods (first whose `requires` are all present wins). CO needs HR; SV does
+# not — so calculated_co is listed first and is chosen when HR is supplied.
+# Unit slots are NOT in `requires`: the method is selected on the measurements,
+# then the normalize lookup asks (unsupported_value) if a unit is missing.
+methods:
+  - id: calculated_co
+    requires: [lvot_diameter, lvot_vti, heart_rate_bpm]
+    compute:
+      # Convert mm to cm by dividing by 10 (source: "Convert mm to cm by dividing by 10").
+      - {name: lvot_diam_factor, lookup: lvot_diameter_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_diameter_cm, expr: "lvot_diameter * lvot_diam_factor"}
+      - {name: lvot_vti_factor, lookup: lvot_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_vti_cm, expr: "lvot_vti * lvot_vti_factor"}
+      # LVOT_CSA_cm2 = pi * (LVOT_diameter_cm / 2)^2
+      - {name: lvot_csa_cm2, expr: "pi * (lvot_diameter_cm / 2) ** 2"}
+      # Stroke_volume_ml = LVOT_CSA_cm2 * LVOT_VTI_cm
+      - {name: stroke_volume_ml, expr: "lvot_csa_cm2 * lvot_vti_cm"}
+      # Cardiac_output_L_min = Stroke_volume_ml * heart_rate_bpm / 1000
+      - {name: cardiac_output_l_min, expr: "stroke_volume_ml * heart_rate_bpm / 1000"}
+    outputs: [lvot_diameter_cm, lvot_csa_cm2, lvot_vti_cm, stroke_volume_ml, heart_rate_bpm, cardiac_output_l_min]
+    template_en: |-
+      Echo LVOT cardiac output:
+      - LVOT diameter: {lvot_diameter_cm:.2f} cm
+      - LVOT CSA: {lvot_csa_cm2:.2f} cm2
+      - LVOT VTI: {lvot_vti_cm:.1f} cm
+      - Stroke volume: {stroke_volume_ml:.1f} mL
+      - Heart rate: {heart_rate_bpm:g} bpm
+      - Cardiac output: {cardiac_output_l_min:.2f} L/min
+
+  - id: calculated_sv
+    requires: [lvot_diameter, lvot_vti]
+    compute:
+      - {name: lvot_diam_factor, lookup: lvot_diameter_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_diameter_cm, expr: "lvot_diameter * lvot_diam_factor"}
+      - {name: lvot_vti_factor, lookup: lvot_vti_unit, table: {mm: 0.1, cm: 1}}
+      - {name: lvot_vti_cm, expr: "lvot_vti * lvot_vti_factor"}
+      - {name: lvot_csa_cm2, expr: "pi * (lvot_diameter_cm / 2) ** 2"}
+      - {name: stroke_volume_ml, expr: "lvot_csa_cm2 * lvot_vti_cm"}
+    outputs: [lvot_diameter_cm, lvot_csa_cm2, lvot_vti_cm, stroke_volume_ml]
+    template_en: |-
+      Echo LVOT stroke volume:
+      - LVOT diameter: {lvot_diameter_cm:.2f} cm
+      - LVOT CSA: {lvot_csa_cm2:.2f} cm2
+      - LVOT VTI: {lvot_vti_cm:.1f} cm
+      - Stroke volume: {stroke_volume_ml:.1f} mL
+
+# Source ## DEFAULT_ANSWER (verbatim).
+default_answer: >-
+  Provide LVOT VTI and LVOT diameter. If heart rate is also supplied, this
+  calculator returns cardiac output.
+
+# Source ## OUTPUT_TEMPLATES ### MISSING_INPUT (verbatim).
+missing_inputs: >-
+  Please provide LVOT diameter and LVOT VTI, with units mm or cm. Add HR if you
+  want cardiac output.
+
+# Source ## SELECTED_OUTPUTS ### unsupported_units (rendered as the direct ask).
+unsupported_value: >-
+  Please resend LVOT diameter and LVOT VTI in mm or cm, and heart rate in bpm if
+  cardiac output is requested.
+
+# Source ## INFO_BLOCKS + ## RESTRICTED_OUTPUTS + ## SAFETY_RULES (carried as
+# notes; the tool computes only the declared formulas, never interpretation).
+notes: >-
+  Calculator output only. Stroke volume by pulsed-wave Doppler is cross-sectional
+  area times VTI; LVOT area is estimated from LVOT diameter using the circular
+  area formula; cardiac output is stroke volume times heart rate. LVOT diameter
+  error is squared in the formula. Does not provide low/high cardiac output
+  treatment, shock classification, valve-disease grading, fluid-responsiveness
+  advice, or indexed cardiac output unless BSA is explicitly supplied and asked
+  for. Inputs LVOT diameter and LVOT VTI are mm_or_cm and require an explicit
+  unit; if the unit is ambiguous the calculator asks rather than guessing.
+
+# Source ## DEFAULT_FOOTER is empty for this protocol — no footer.
