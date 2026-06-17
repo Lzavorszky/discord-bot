@@ -295,6 +295,13 @@ PROTOCOL_JSON_SCHEMA = {
                 },
             },
         },
+        # name of the section returned when the message names no specific topic
+        # (the single-block guides — dantrolene, periop steroids — are shown whole).
+        "default_section": {"type": "string"},
+        # verbatim text returned when a named section is NOT in this protocol
+        # (falls back to default_answer when absent).
+        "no_match_answer": {"type": "string"},
+        "no_match_answer_hu": {"type": "string"},
         # calculator (the only computing kind — explicit declared formulas)
         "methods": {
             "type": "array",
@@ -369,7 +376,8 @@ KIND_FIELDS = {
                   "marker_without_pathogen", "marker_without_pathogen_hu",
                   "conflict_answer"},
     "pathway": {"slots", "outputs", "select", "doses"},
-    "prose": {"sections"},
+    "prose": {"sections", "default_section", "default_answer", "default_answer_hu",
+              "no_match_answer", "no_match_answer_hu"},
     "table_lookup": {"slots", "requires", "indication_rules", "renal_rules",
                      "never",
                      "tables", "prophylaxis_tables", "info_blocks",

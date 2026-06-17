@@ -1719,3 +1719,65 @@ cases:
     expect: { route: calculator, tool: calculate, protocol: echo_cardiac_output, clarifies: true, output_has: ["LVOT VTI and LVOT diameter"] }
     status: new
     note: "No input -> verbatim DEFAULT_ANSWER."
+
+  # ---------------------------------------------------------------------------
+  # Prose (answer_from_section) — the verbatim-prose trio (LAST migration).
+  # Each case carries an explicit `call:` (answer_from_section + prose_id + the
+  # optional section the router derives from `input`) AND its `input` is routed
+  # through the deterministic router (cross-check: same route/tool/protocol).
+  # The tool SELECTS one verbatim section; it never composes or computes.
+  # ---------------------------------------------------------------------------
+  - id: periop_aspirin_complete_entry
+    input: "aspirin before surgery"
+    lang: en
+    call: { tool: answer_from_section, prose_id: periop_gyogyszerek, section: aspirin }
+    expect: { route: prose, tool: answer_from_section, protocol: periop_gyogyszerek, clarifies: false, output_has: ["Usually no need to omit", "high bleeding risk", "TURP"] }
+    status: new
+    note: "Antithrombotic entry returned COMPLETE (both timing rows), per source ANSWER_POLICY."
+
+  - id: periop_dabigatran_renal_split
+    input: "dabigatran perioperative gfr 40"
+    lang: en
+    call: { tool: answer_from_section, prose_id: periop_gyogyszerek, section: dabigatran }
+    expect: { route: prose, tool: answer_from_section, protocol: periop_gyogyszerek, clarifies: false, output_has: ["omit 1 day if GFR >=50", "omit 4 days if GFR <50", "Epidural catheter: forbidden"] }
+    status: new
+    note: "Renal-dependent timing returned whole; router does NOT compute or pick by gfr."
+
+  - id: periop_warfarin_entry
+    input: "warfarin perioperative management"
+    lang: en
+    call: { tool: answer_from_section, prose_id: periop_gyogyszerek, section: warfarin }
+    expect: { route: prose, tool: answer_from_section, protocol: periop_gyogyszerek, clarifies: false, output_has: ["INR <1.5", "Bridging is intentionally omitted"] }
+    status: new
+    note: "Bridging deliberately omitted per source; entry returned verbatim."
+
+  - id: periop_metformin_entry
+    input: "metformin on surgery day"
+    lang: en
+    call: { tool: answer_from_section, prose_id: periop_gyogyszerek, section: metformin }
+    expect: { route: prose, tool: answer_from_section, protocol: periop_gyogyszerek, clarifies: false, output_has: ["lactic acidosis", "GFR <60"] }
+    status: new
+
+  - id: periop_no_drug_asks
+    input: "perioperative medications"
+    lang: en
+    call: { tool: answer_from_section, prose_id: periop_gyogyszerek }
+    expect: { route: prose, tool: answer_from_section, protocol: periop_gyogyszerek, clarifies: true, output_has: ["Which medication or medication class"] }
+    status: new
+    note: "No drug named -> verbatim DEFAULT_QUESTION ask, never a guessed entry."
+
+  - id: periop_steroids_table
+    input: "perioperative steroid stress dose"
+    lang: en
+    call: { tool: answer_from_section, prose_id: periop_steroids }
+    expect: { route: prose, tool: answer_from_section, protocol: periop_steroids, clarifies: false, output_has: ["methylprednisone < 8 mg", "hydrocortisone", "PPPD"] }
+    status: new
+    note: "Single-block guide: complete source table returned; no surgery-type question first."
+
+  - id: dantrolene_full_guideline
+    input: "dantrolene malignant hyperthermia"
+    lang: en
+    call: { tool: answer_from_section, prose_id: dantrolene_mh }
+    expect: { route: prose, tool: answer_from_section, protocol: dantrolene_mh, clarifies: false, output_has: ["Dantrium", "Agilus", "2,5 mg/ttkg", "NEM HŰTHETŐ"] }
+    status: new
+    note: "Source FORBIDS computing new ampoule counts; full HU guideline returned verbatim."

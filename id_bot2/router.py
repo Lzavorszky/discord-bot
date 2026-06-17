@@ -61,6 +61,7 @@ import interpret_pcr as _ip                       # noqa: E402
 import select_pathway as _sp                     # noqa: E402
 import get_table_dose as _td                     # noqa: E402
 import calculate as _ca                           # noqa: E402
+import answer_from_section as _afs               # noqa: E402
 from llm.tools import Tool, ToolCall              # noqa: E402
 from verifier import verify_grounding             # noqa: E402
 
@@ -124,6 +125,7 @@ class RouterResult:
     pathway: object = None           # the PathwayResult, when route == "pathway"
     table: object = None             # the TableDoseResult, when route == "table_lookup"
     calc: object = None              # the CalcResult, when route == "calculator"
+    prose: object = None             # the ProseResult, when route == "prose"
     organisms: list = field(default_factory=list)  # detected organisms (pcr)
     markers: list = field(default_factory=list)    # detected markers (pcr)
     phrased: bool = False            # True if the phrasing model rewrote the answer
@@ -1050,6 +1052,151 @@ _BOOL_SLOT_NAMES = set(_BOOL_SLOTS)
 _NUM_SLOT_NAMES = set(_NUMERIC_SLOTS)
 
 
+# --------------------------------------------------------------------------- #
+# prose registry + resolver (Plan D, final migration). A `prose` protocol is an
+# info-only, section-addressable reference (the perioperative medication guide,
+# the perioperative steroid guide, the dantrolene / malignant-hyperthermia
+# sheet). It is resolved AFTER the drug stage (a real antibiotic dose request
+# never matches a prose alias), so prose is the catch for perioperative /
+# malignant-hyperthermia questions about non-dose drugs. Matching is two-level:
+# first a NAMED prose protocol (its folded aliases), then — within it — the
+# section the message points at (each section's drug/class aliases). >1 section
+# matched (a drug the source cross-lists, e.g. selexipag) -> clarify; 0 sections
+# matched -> the tool returns the verbatim default/ask text. answer_from_section
+# only SELECTS one verbatim section, exactly like every other tool.
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class _ProseEntry:
+    prose_id: str
+    aliases: tuple            # folded protocol aliases, longest first
+    sections: tuple           # tuple of (section_name, folded section aliases longest-first)
+
+
+@dataclass(frozen=True)
+class ProseCall:
+    """A deterministic (or LLM) prose routing decision."""
+    tool: str                 # answer_from_section
+    prose_id: str
+    section: Optional[str] = None
+    candidates: tuple = ()    # >1 section matched -> clarify among these
+    via: str = "deterministic"
+
+
+def _build_prose_registry(protocols_dir) -> dict:
+    records = load_protocol_dir(protocols_dir)
+    reg: dict = {}
+    for _path, rec in records:
+        if rec.get("kind") != "prose":
+            continue
+        pid = rec["id"]
+        aliases = set(rec.get("aliases") or [])
+        aliases.add(pid)
+        aliases.add(rec.get("canonical_name") or "")
+        aliases.add(rec.get("source_label") or "")
+        folded = tuple(sorted(
+            {_norm(a) for a in aliases if a and a.strip()}, key=len, reverse=True))
+        secs = []
+        for sname, sspec in (rec.get("sections") or {}).items():
+            sal = set((sspec.get("aliases") if isinstance(sspec, dict) else None) or [])
+            sal.add(sname.replace("_", " "))
+            sfolded = tuple(sorted(
+                {_norm(a) for a in sal if a and a.strip()}, key=len, reverse=True))
+            secs.append((sname, sfolded))
+        reg[pid] = _ProseEntry(prose_id=pid, aliases=folded, sections=tuple(secs))
+    return reg
+
+
+def _match_prose(folded_msg: str, prose: dict) -> list:
+    spans = []
+    for pid, entry in prose.items():
+        for alias in entry.aliases:        # longest alias first
+            m = re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", folded_msg)
+            if m:
+                spans.append((m.start(), m.end(), pid))
+                break
+    kept = _span_dedup(spans)
+    out, seen = [], set()
+    for _s, _e, pid in kept:
+        if pid not in seen:
+            seen.add(pid)
+            out.append(pid)
+    return out
+
+
+def _match_sections(folded_msg: str, entry: "_ProseEntry") -> list:
+    """Return the section names whose aliases appear in the message (longest
+    alias per section; spans containment-deduped so a compound name beats a
+    component). >1 means the message named a drug the source cross-lists."""
+    spans = []
+    for sname, sals in entry.sections:
+        for alias in sals:                 # longest alias first
+            m = re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", folded_msg)
+            if m:
+                spans.append((m.start(), m.end(), sname))
+                break
+    kept = _span_dedup(spans)
+    out, seen = [], set()
+    for _s, _e, sname in kept:
+        if sname not in seen:
+            seen.add(sname)
+            out.append(sname)
+    return out
+
+
+def resolve_prose(message: str, prose: dict):
+    """Deterministic prose stage. Returns:
+        * a ProseCall          - exactly one prose protocol named (section may be
+                                 None -> tool returns the verbatim default/ask;
+                                 or carries `candidates` when >1 section matched)
+        * a list[str]          - >1 prose protocol named (ambiguous; prose ids)
+        * None                 - no prose alias present (let later stages run)
+    """
+    folded = _norm(message)
+    matched = _match_prose(folded, prose)
+    if not matched:
+        return None
+    if len(matched) > 1:
+        return matched
+    pid = matched[0]
+    sections = _match_sections(folded, prose[pid])
+    if len(sections) > 1:
+        return ProseCall(tool="answer_from_section", prose_id=pid,
+                         candidates=tuple(sections), via="deterministic")
+    section = sections[0] if sections else None
+    return ProseCall(tool="answer_from_section", prose_id=pid, section=section,
+                     via="deterministic")
+
+
+def _get_prose_tools(prose: dict) -> list:
+    """The answer_from_section tool exposed to the LLM: prose_id constrained to
+    the loaded prose protocols (closed enum) plus an optional free-text `section`
+    (the drug/class/topic the question is about). The tool ignores an unknown
+    section (returns the verbatim ask), so a bad section name is never invented."""
+    if not prose:
+        return []
+    props = {
+        "prose_id": {"type": "string", "enum": sorted(prose.keys()),
+                     "description": "Which info-only guide the question is about "
+                                    "(perioperative medications, perioperative "
+                                    "steroids, dantrolene / malignant hyperthermia)."},
+        "section": {"type": "string",
+                    "description": "The specific medication / drug class / topic "
+                                   "named, if any (e.g. 'aspirin', 'warfarin'). "
+                                   "Omit when the user named no specific topic."},
+    }
+    tool = Tool(
+        name="answer_from_section",
+        description=("Return the verbatim entry from an info-only perioperative / "
+                     "malignant-hyperthermia guide. Set `section` only to the "
+                     "medication/class/topic the user actually named; never invent "
+                     "one. This selects existing text, it does NOT dose drugs or "
+                     "compute anything."),
+        parameters={"type": "object", "properties": props,
+                    "required": ["prose_id"]},
+    )
+    return [tool]
+
+
 def _get_dose_tool(registry: dict[str, _Entry]) -> Tool:
     """The get_dose tool schema exposed to the LLM: drug_id constrained to the
     loaded protocols (closed enum), plus every known slot as an optional arg."""
@@ -1141,11 +1288,14 @@ class Router:
         # calculator protocols (final migration phase): parallel registry + tool.
         self.calcs = _build_calc_registry(self.protocols_dir)
         self._calc_tools = _get_calc_tools(self.calcs)
+        # prose protocols (final migration): parallel registry + tool.
+        self.prose = _build_prose_registry(self.protocols_dir)
+        self._prose_tools = _get_prose_tools(self.prose)
 
     # public ---------------------------------------------------------------
     def tools(self) -> list[Tool]:
         return [self._tool, *self._pcr_tools, *self._pathway_tools,
-                *self._table_tools, *self._calc_tools]
+                *self._table_tools, *self._calc_tools, *self._prose_tools]
 
     def route(self, message: str, *, provider=None, phrasing_provider=None) -> RouterResult:
         phraser = phrasing_provider or self.phrasing_provider
@@ -1213,6 +1363,30 @@ class Router:
                 candidates=resolved, via="deterministic",
                 answer=("Which antibiotic do you mean: "
                         + ", ".join(resolved) + "?"))
+
+        # 2b) deterministic PROSE stage — an info-only, section-addressable
+        #     guide (perioperative medications / steroids, dantrolene / malignant
+        #     hyperthermia). Resolved AFTER the drug stage: a real antibiotic dose
+        #     request never matches a prose alias, so a prose match here is a
+        #     perioperative / MH question about a non-dose drug. >1 guide named ->
+        #     clarify; >1 section (a cross-listed drug) -> clarify; else select
+        #     the verbatim section (or the verbatim default/ask when none named).
+        pr = resolve_prose(message, self.prose)
+        if isinstance(pr, ProseCall):
+            if pr.candidates:                    # >1 section matched -> clarify
+                return RouterResult(
+                    route="clarify", tool="ask_clarification",
+                    needs_clarification=True, candidates=list(pr.candidates),
+                    via="deterministic",
+                    answer=("That medication appears in more than one entry "
+                            "here. Which do you mean: "
+                            + ", ".join(pr.candidates) + "?"))
+            return self._run_prose_call(pr)
+        if isinstance(pr, list):                 # >1 guide named -> clarify
+            return RouterResult(
+                route="clarify", tool="ask_clarification", needs_clarification=True,
+                candidates=pr, via="deterministic",
+                answer=("Which guide do you mean: " + ", ".join(pr) + "?"))
 
         # 3) LLM stage (only if a provider is available)
         prov = provider or self.provider
@@ -1336,6 +1510,21 @@ class Router:
             needs_clarification=(res.mode != "compute"),
             via=call.via, slots=dict(call.slots), calc=res)
 
+    def _run_prose_call(self, call: "ProseCall") -> RouterResult:
+        if call.prose_id not in self.prose:
+            return RouterResult(route="unsupported", tool="none",
+                                answer=f"No uploaded guide for {call.prose_id!r}.")
+        res = _afs.answer_from_section(call.prose_id, section=call.section,
+                                       protocols_dir=str(self.protocols_dir))
+        grounded = _afs.render_prose(res)
+        # A prose protocol always returns SOME verbatim text (a selected section,
+        # the whole-guide default_section, or the verbatim default/ask), so this
+        # is never a silent answer. needs_input is True only for the ask.
+        return RouterResult(
+            route="prose", tool="answer_from_section", protocol=res.prose_id,
+            answer=grounded, grounded_answer=grounded,
+            needs_clarification=res.needs_input, via=call.via, prose=res)
+
     def _phrase(self, result: "RouterResult", grounded: str, kind: str,
                 provider) -> None:
         """Rewrite `grounded` into natural prose, then verify it is grounded.
@@ -1429,6 +1618,21 @@ class Router:
                 slots = {k: v for k, v in args.items() if k in allowed}
                 return self._run_table_call(TableCall(
                     tool="get_table_dose", table_id=table_id, slots=slots, via="llm"))
+            # answer_from_section (prose; periop meds / steroids / dantrolene).
+            if out.name == "answer_from_section":
+                tool = next((t for t in self._prose_tools if t.name == out.name), None)
+                if tool is None or tool.validate_arguments(out.arguments):
+                    return None
+                args = dict(out.arguments)
+                prose_id = args.get("prose_id")
+                if prose_id not in self.prose:
+                    return None
+                section = args.get("section")
+                if section is not None and not isinstance(section, str):
+                    return None
+                return self._run_prose_call(ProseCall(
+                    tool="answer_from_section", prose_id=prose_id,
+                    section=section, via="llm"))
             problems = self._tool.validate_arguments(out.arguments)
             if out.name != "get_dose" or problems:
                 return None

@@ -3,8 +3,8 @@ kind: prose
 source_label: periop
 status: draft
 aliases: [periop_fixture]
+default_section: antithrombotic
 sections:
   antithrombotic:
     aliases: [ASA_fixture, "aspirin fix"]
     text_hu: "ASA folytatas..."
-    text_en: "Continue ASA..."

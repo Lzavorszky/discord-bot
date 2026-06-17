@@ -1,0 +1,94 @@
+id: dantrolene_mh
+kind: prose
+canonical_name: dantrolene
+source_label: MALIGNUS HYPERTHERMIA DANTROLEN PDF
+version: 0.1
+status: draft
+# Migrated VERBATIM from protocols/dantrolene_mh.txt (v0.1).
+# This is an info-only, single-block guide: ANY dantrolene / Dantrium / Agilus /
+# malignant-hyperthermia request returns the whole guideline. The source SAFETY_RULE
+# explicitly FORBIDS computing new ampoule counts or Agilus volumes beyond the
+# 60/80/100 kg examples printed below — so this is a verbatim `prose` block, NOT a
+# calculator. A supplied body weight does NOT change the answer.
+aliases:
+  - dantrolene
+  - dantrolen
+  - dantrolén
+  - dantrium
+  - agilus
+  - malignant hyperthermia
+  - malignant hyperthermia dantrolene
+  - malignus hyperthermia dantrolene
+  - malignus hyperthermia dantrolen
+  - malignus hyperthermia dantrolén
+  - malignus hyperthermia
+  - malignus hipertermia
+  - malignus hypertermia
+  - MH dantrolene
+  - MH dantrolen
+  - MH dantrolén
+default_section: guideline
+sections:
+  guideline:
+    aliases:
+      - dantrolene
+      - dantrolen
+      - dantrium
+      - agilus
+      - malignant hyperthermia
+      - malignus hyperthermia
+      - dozis
+      - dózis
+      - ampulla
+      - oldat
+      - oldat elkészítése
+      - fenntartó dózis
+      - eltarthatóság
+    text_hu: |
+      MALIGNUS HYPERTHERMIA MERÜLT FEL
+
+      FIGYELD, MELYIK KISZERELÉS VAN A KEZEDBEN!
+
+      Dantrium
+      - Egy doboz tartalma: 12 ampulla / doboz (össz: 240 mg / doboz)
+      - Egy ampulla tartalma: 20 mg / amp
+      - Kezdő adag: 2,5 mg/ttkg
+      - Kezdő adag példák:
+        - 60 kg: 8 ampulla
+        - 80 kg: 10 ampulla
+        - 100 kg: 12 ampulla
+
+      Agilus
+      - Egy doboz tartalma: 6 ampulla / doboz (össz: 720 mg / doboz)
+      - Egy ampulla tartalma: 120 mg (!) / amp
+      - Kezdő adag: 2,5 mg/ttkg
+      - Kezdő adag példák:
+        - 60 kg: 25 ml
+        - 80 kg: 32 ml
+        - 100 kg: 40 ml
+
+      Oldat elkészítése
+
+      Dantrium:
+      - Egy ampullát 60 ml injekcióhoz való vízzel addig rázni, amíg a por feloldódik.
+      - Feloldás után az oldatot a mellékelt szűrőeszközzel le kell szűrni a felszíváskor.
+
+      Agilus:
+      - Egy ampullát 20 ml injekcióhoz való vízzel addig rázni, amíg a por feloldódik.
+      - Feloldás után narancssárga színűnek és részecskéktől mentesnek kell lennie.
+
+      Fenntartó dózis
+      - A legtöbb esetben 24 óra alatt adott 10 mg/ttkg összdózis elegendő.
+      - A gyógyszert 10 percenként 2,5 mg/ttkg dózisban kell újra beadni mindaddig, amíg a malignus hyperthermia jelei enyhülnek.
+
+      A kész oldat eltarthatósága
+
+      Dantrium:
+      - 6 óra
+      - NEM HŰTHETŐ!
+      - FÉNYTŐL VÉDENI KELL!
+
+      Agilus:
+      - 24 óra
+      - NEM HŰTHETŐ!
+      - FÉNYTŐL VÉDENI KELL!

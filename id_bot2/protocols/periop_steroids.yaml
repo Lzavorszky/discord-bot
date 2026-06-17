@@ -1,0 +1,61 @@
+id: periop_steroids
+kind: prose
+canonical_name: perioperative steroid guide
+source_label: Perioperative steroid guide
+version: 0.2
+status: draft
+# Migrated VERBATIM from protocols/periop_steroids.txt (v0.2).
+# Info-only, single-block guide: any perioperative chronic-steroid / stress-dose
+# question returns the complete source table (steroid_guide_full INFO_BLOCK). The
+# source SAFETY_RULE: do not ask for surgery type first, do not extrapolate beyond
+# the listed surgery categories, and steroid equivalence/conversion belongs to the
+# separate steroid_equivalence calculator (see footer).
+aliases:
+  - perioperative steroid guide
+  - perioperative steroids
+  - perioperative steroid
+  - perioperative steroid stress dose
+  - perioperative stress dose steroid
+  - stress dose steroid surgery
+  - steroid stress dose surgery
+  - chronic steroid surgery
+  - steroid before surgery
+  - steroid on surgery day
+  - methylprednisone before surgery
+  - methylprednisolone before surgery
+  - hydrocortisone surgery
+  - perioperativ szteroid
+  - perioperativ szteroidok
+  - mutet elotti szteroid
+  - mutet napi szteroid
+  - stressz dozisu szteroid
+  - szteroid stressz dozisa
+  - kronikus szteroid mutet
+  - methylprednison mutet
+  - hydrocortison mutet
+default_section: steroid_guide
+footer: "Curious about steroid equivalency? Ask: dexamethasone 6mg equivalent?"
+sections:
+  steroid_guide:
+    aliases:
+      - perioperative steroid
+      - stress dose steroid
+      - steroid stress dose
+      - hydrocortisone perioperative
+      - methylprednisone perioperative
+      - chronic steroid
+    text_en: |
+      Chronic steroid use - perioperative action:
+
+      | Regular steroid use | Action |
+      |---|---|
+      | methylprednisone < 8 mg | Continue the usual dose; no additional steroid is needed. |
+      | methylprednisone >= 8 mg for at least 3 months | Usual dose plus hydrocortisone supplementation. |
+
+      Hydrocortisone supplementation by surgery size:
+
+      | Surgery size | Example from source | Hydrocortisone supplementation |
+      |---|---|---|
+      | small surgery | inguinal hernia | 1 x 25 mg hydrocortisone at the start of the operation |
+      | medium surgery | laparoscopic cholecystectomy | 1 x 25 mg hydrocortisone + 4 x 25 mg for 24 hours |
+      | major surgery | PPPD | 1 x 25 mg hydrocortisone + 4 x 25 mg for 48 hours |

@@ -301,6 +301,21 @@ def _check_prose(rec: dict, problems: list[str]) -> None:
             problems.append(f"{where}: needs 'text' or 'text_hu'/'text_en'")
         if "aliases" in sspec and not _is_list_of_str(sspec["aliases"]):
             problems.append(f"{where}: 'aliases' must be a list of strings")
+    # default_section, when present, must name a real section (so a request with
+    # no specific topic resolves to a defined verbatim block, never a hole).
+    ds = rec.get("default_section")
+    if ds is not None:
+        if not _is_str(ds):
+            problems.append("'default_section' must be a string")
+        elif ds not in sections:
+            problems.append(
+                f"'default_section' {ds!r} is not a defined section")
+    # A multi-section prose protocol with no default_section must offer a
+    # default_answer (the verbatim "which topic?" ask) so it is never silent.
+    if not ds and not rec.get("default_answer"):
+        problems.append(
+            "prose protocol needs a 'default_section' or a 'default_answer' "
+            "(otherwise a topic-less request has no verbatim reply)")
 
 
 _TABLE_TYPES = ("dosing_table", "fixed_dose", "prophylaxis", "renal_warning")

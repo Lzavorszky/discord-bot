@@ -147,6 +147,12 @@ def validate_cases(cases: list[dict]) -> list[str]:
                         problems.append(f"{where}: calculator call needs a 'calculator_id'")
                     if "slots" in call and not isinstance(call["slots"], dict):
                         problems.append(f"{where}: 'call.slots' must be a mapping")
+                elif ctool == "answer_from_section":
+                    # prose calls key off a prose_id (optional free-text section).
+                    if "prose_id" not in call:
+                        problems.append(f"{where}: prose call needs a 'prose_id'")
+                    if "section" in call and not isinstance(call["section"], str):
+                        problems.append(f"{where}: 'call.section' must be a string")
                 else:
                     if "drug_id" not in call:
                         problems.append(f"{where}: call needs a 'drug_id'")
@@ -297,6 +303,15 @@ def _get_calc_module():
     return ca
 
 
+def _get_prose_module():
+    """Import the answer_from_section tool lazily."""
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here / "tools"))
+    sys.path.insert(0, _PROTOCOLS_DIR)
+    import answer_from_section as afs  # noqa: E402
+    return afs
+
+
 _ROUTER = None
 
 
@@ -369,6 +384,15 @@ def _router_crosscheck(case: dict, call: dict) -> list[str]:
         if res.protocol != call["calculator_id"]:
             problems.append(f"router: input routed to calculator {res.protocol!r}, "
                             f"expected {call['calculator_id']!r}")
+    elif tool == "answer_from_section":
+        if res.route != "prose":
+            problems.append(f"router: input routed to {res.route!r}, expected "
+                            f"'prose' (answer: {res.answer[:60]!r})")
+        if res.tool != "answer_from_section":
+            problems.append(f"router: tool {res.tool!r}, expected 'answer_from_section'")
+        if res.protocol != call["prose_id"]:
+            problems.append(f"router: input routed to prose {res.protocol!r}, "
+                            f"expected {call['prose_id']!r}")
     return problems
 
 
@@ -386,6 +410,8 @@ def _evaluate_new_call(case: dict, call: dict, result: dict) -> dict:
         return _evaluate_table_call(case, call, result)
     if tool == "calculate":
         return _evaluate_calculator_call(case, call, result)
+    if tool == "answer_from_section":
+        return _evaluate_prose_call(case, call, result)
     if tool != "get_dose":
         result["result"] = SKIP
         result["reasons"] = [f"call.tool {tool!r} not implemented in the slice yet"]
@@ -492,6 +518,40 @@ def _evaluate_calculator_call(case: dict, call: dict, result: dict) -> dict:
             reasons.append("expected a clarifying/ask response, got a computed answer")
         if not expect.get("clarifies") and clar:
             reasons.append(f"unexpected non-compute response (mode={res.mode})")
+    _, text_reasons = check_text_expectations(answer, expect)
+    reasons += text_reasons
+    reasons += _router_crosscheck(case, call)
+    result["result"] = FAIL if reasons else PASS
+    result["reasons"] = reasons
+    return result
+
+
+def _evaluate_prose_call(case: dict, call: dict, result: dict) -> dict:
+    """Run a prose `call:` (answer_from_section) and check the structured + text
+    expectations, plus the router input->call cross-check. The tool SELECTS one
+    verbatim section; `clarifies` maps to the topic-less ask (needs_input)."""
+    expect = case.get("expect", {}) or {}
+    try:
+        afs = _get_prose_module()
+        res = afs.answer_from_section(call["prose_id"], section=call.get("section"),
+                                      protocols_dir=_PROTOCOLS_DIR)
+        answer = afs.render_prose(res)
+    except Exception as exc:  # noqa: BLE001
+        result["result"] = ERROR
+        result["reasons"] = [f"{type(exc).__name__}: {exc}"]
+        return result
+
+    result["answer"] = answer
+    reasons: list[str] = []
+    actual = {"route": res.route, "tool": res.tool, "protocol": res.prose_id}
+    for key in ("route", "tool", "protocol"):
+        if key in expect and expect[key] != actual[key]:
+            reasons.append(f"{key}: expected {expect[key]!r}, got {actual[key]!r}")
+    if "clarifies" in expect:
+        if expect.get("clarifies") and not res.needs_input:
+            reasons.append("expected a clarifying/ask response, got a section")
+        if not expect.get("clarifies") and res.needs_input:
+            reasons.append("unexpected ask (needs_input) response")
     _, text_reasons = check_text_expectations(answer, expect)
     reasons += text_reasons
     reasons += _router_crosscheck(case, call)

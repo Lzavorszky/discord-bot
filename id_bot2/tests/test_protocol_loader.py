@@ -132,7 +132,39 @@ def test_valid_pathway():
 def test_valid_prose():
     rec = {
         "id": "periop", "kind": "prose",
+        "default_section": "antithrombotic",
         "sections": {"antithrombotic": {"text_en": "Continue ASA"}},
+    }
+    assert loader.validate_record(rec) == []
+
+
+def test_reject_prose_without_default_section_or_answer():
+    # A topic-less request must have a verbatim reply: either a default_section
+    # (whole-guide block) or a default_answer ("which topic?" ask).
+    p = loader.validate_record({
+        "id": "x", "kind": "prose",
+        "sections": {"s": {"text": "x"}}})
+    assert any("default_section" in m and "default_answer" in m for m in p)
+
+
+def test_reject_prose_bad_default_section():
+    p = loader.validate_record({
+        "id": "x", "kind": "prose",
+        "default_section": "ghost",
+        "sections": {"s": {"text": "x"}}})
+    assert any("default_section" in m and "ghost" in m for m in p)
+
+
+def test_valid_prose_multi_section_with_default_answer():
+    rec = {
+        "id": "periop_meds", "kind": "prose",
+        "default_answer": "Which medication are you asking about?",
+        "sections": {
+            "aspirin": {"text_en": "Usually no need to omit.",
+                        "aliases": ["aspirin", "asa"]},
+            "warfarin": {"text_en": "Omit until INR <1.5.",
+                         "aliases": ["warfarin"]},
+        },
     }
     assert loader.validate_record(rec) == []
 

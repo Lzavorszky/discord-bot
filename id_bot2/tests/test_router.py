@@ -22,6 +22,7 @@ from router import (   # noqa: E402
     PathwayCall, resolve_pathway,
     TableCall, resolve_table,
     CalcCall, resolve_calculator,
+    ProseCall, resolve_prose,
     SAFETY_RULES, ROUTER_SYSTEM, PHRASING_SYSTEM,
 )
 from llm.tools import Tool, ToolCall                                 # noqa: E402
@@ -1080,3 +1081,135 @@ class TestEchoCalculatorRouting(unittest.TestCase):
         self.assertEqual(res.route, "calculator")
         self.assertEqual(res.protocol, "echo_cardiac_output")
         self.assertIn("Cardiac output", res.answer)
+
+
+class TestProseRouting(unittest.TestCase):
+    """The prose stage (answer_from_section): periop meds / steroids / dantrolene.
+    Resolved AFTER the drug stage; selects ONE verbatim section, never composes."""
+    @classmethod
+    def setUpClass(cls):
+        cls.R = Router(protocols_dir=PROTOCOLS)
+
+    # registry + tool schema -----------------------------------------------
+    def test_registry_loads_three_prose_protocols(self):
+        self.assertEqual(
+            set(self.R.prose),
+            {"periop_gyogyszerek", "periop_steroids", "dantrolene_mh"})
+
+    def test_prose_tool_is_closed_enum(self):
+        tool = next(t for t in self.R.tools() if t.name == "answer_from_section")
+        enum = tool.parameters["properties"]["prose_id"]["enum"]
+        self.assertEqual(set(enum), set(self.R.prose))
+        self.assertEqual(tool.parameters["required"], ["prose_id"])
+
+    # deterministic resolution ---------------------------------------------
+    def test_resolve_periop_med_aspirin(self):
+        call = resolve_prose("aspirin before surgery", self.R.prose)
+        self.assertIsInstance(call, ProseCall)
+        self.assertEqual(call.prose_id, "periop_gyogyszerek")
+        self.assertEqual(call.section, "aspirin")
+
+    def test_resolve_periop_med_warfarin(self):
+        call = resolve_prose("warfarin perioperative", self.R.prose)
+        self.assertEqual(call.section, "warfarin")
+
+    def test_resolve_no_drug_named_section_none(self):
+        call = resolve_prose("perioperative medications", self.R.prose)
+        self.assertIsInstance(call, ProseCall)
+        self.assertEqual(call.prose_id, "periop_gyogyszerek")
+        self.assertIsNone(call.section)
+
+    def test_resolve_steroid_guide(self):
+        call = resolve_prose("perioperative steroid stress dose", self.R.prose)
+        self.assertEqual(call.prose_id, "periop_steroids")
+
+    def test_resolve_dantrolene_by_mh(self):
+        call = resolve_prose("malignant hyperthermia", self.R.prose)
+        self.assertEqual(call.prose_id, "dantrolene_mh")
+
+    def test_cross_listed_drug_is_ambiguous_section(self):
+        # selexipag appears in both the respiratory and antiplatelet entries.
+        call = resolve_prose("selexipag perioperative", self.R.prose)
+        self.assertIsInstance(call, ProseCall)
+        self.assertEqual(len(call.candidates), 2)
+        self.assertIn("selexipag_respiratory", call.candidates)
+
+    def test_prazosin_cross_listed_ambiguous(self):
+        call = resolve_prose("prazosin before surgery", self.R.prose)
+        self.assertEqual(len(call.candidates), 2)
+
+    def test_no_periop_context_no_prose(self):
+        # A bare drug with no perioperative context must NOT match a prose guide.
+        self.assertIsNone(resolve_prose("aspirin dose", self.R.prose))
+
+    # end-to-end route() ----------------------------------------------------
+    def test_route_aspirin_returns_complete_entry(self):
+        res = self.R.route("aspirin before surgery")
+        self.assertEqual(res.route, "prose")
+        self.assertEqual(res.tool, "answer_from_section")
+        self.assertEqual(res.protocol, "periop_gyogyszerek")
+        self.assertFalse(res.needs_clarification)
+        # the antithrombotic entry comes back complete (both timing rows)
+        self.assertIn("no need to omit", res.answer.lower())
+        self.assertIn("high bleeding risk", res.answer.lower())
+
+    def test_route_dabigatran_has_renal_split(self):
+        res = self.R.route("dabigatran perioperative gfr 40")
+        self.assertEqual(res.route, "prose")
+        self.assertIn("GFR", res.answer)
+        self.assertIn("Epidural catheter: forbidden", res.answer)
+
+    def test_route_topicless_asks(self):
+        res = self.R.route("perioperative medications")
+        self.assertEqual(res.route, "prose")
+        self.assertTrue(res.needs_clarification)
+        self.assertIn("medication", res.answer.lower())
+
+    def test_route_steroid_table_verbatim(self):
+        res = self.R.route("perioperative steroids")
+        self.assertEqual(res.route, "prose")
+        self.assertEqual(res.protocol, "periop_steroids")
+        self.assertIn("hydrocortisone", res.answer.lower())
+
+    def test_route_dantrolene_verbatim_and_not_a_calculator(self):
+        res = self.R.route("dantrolene")
+        self.assertEqual(res.route, "prose")
+        self.assertIn("Dantrium", res.answer)
+        self.assertIn("Agilus", res.answer)
+        self.assertFalse(res.needs_clarification)
+
+    def test_cross_listed_route_clarifies(self):
+        res = self.R.route("selexipag perioperative")
+        self.assertEqual(res.route, "clarify")
+        self.assertEqual(res.tool, "ask_clarification")
+        self.assertTrue(res.needs_clarification)
+
+    def test_drug_precedence_preserved(self):
+        # a real antibiotic dose request still wins (drug stage before prose)
+        res = self.R.route("meropenem gfr 40")
+        self.assertEqual(res.route, "drug_dose")
+        self.assertEqual(res.protocol, "meropenem")
+
+    def test_bare_drug_no_periop_unsupported(self):
+        res = self.R.route("aspirin 500 mg dose")
+        self.assertEqual(res.route, "unsupported")
+        self.assertEqual(res.tool, "none")
+
+    # LLM path --------------------------------------------------------------
+    def test_llm_dispatch_prose(self):
+        prov = ScriptedProvider(ToolCall(
+            name="answer_from_section",
+            arguments={"prose_id": "periop_gyogyszerek", "section": "warfarin"}))
+        res = self.R.route("what about that blood thinner round the operation",
+                           provider=prov)
+        self.assertEqual(res.route, "prose")
+        self.assertEqual(res.protocol, "periop_gyogyszerek")
+        self.assertIn("INR <1.5", res.answer)
+
+    def test_llm_unknown_prose_id_falls_through(self):
+        prov = ScriptedProvider(ToolCall(
+            name="answer_from_section",
+            arguments={"prose_id": "not_a_guide", "section": "x"}))
+        res = self.R.route("zzz nonsense topic", provider=prov)
+        self.assertEqual(res.route, "unsupported")
+
