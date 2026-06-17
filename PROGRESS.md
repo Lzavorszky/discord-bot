@@ -4,12 +4,20 @@
 
 ---
 
+## ⚠ Standing reminders (surface to owner L EVERY session until cleared)
+
+- **CLINICAL SIGN-OFFS PENDING — remind the owner each session, but DO NOT block on it.** The hand-check sheets for the 28 antibiotics + vancomycin (`id_bot2/docs/*_handcheck.md`) still need owner L's clinical sign-off. This gates **go-live (cutover, Phase 6) only — NOT the refactor.** So: at the start of every session, tell L these are still outstanding and offer to walk through a batch; then carry on with the planned chunk regardless. Tick drugs off below as they're signed, and **delete this whole reminder once all are signed.**
+  - Signed: **meropenem ✓** (2026-06-16).
+  - Pending: the 28 antibiotics + **vancomycin** (29 sheets total).
+
+---
+
 ## How we run this build
 
 - **One coherent chunk per session.** Each ends green (`./check.sh`) and committed. A session running out mid-chunk is fine — this file is the bookmark.
 - **Branch, never main.** All work on `rebuild-d`. The live bot on `main` is untouched until cutover (Phase 6).
 - **Per-session ritual:**
-  1. Read this file.
+  1. Read this file (incl. the **⚠ Standing reminders** above — surface them to the owner before starting).
   2. `git checkout rebuild-d && ./check.sh`  → confirm prior phases still green.
   3. Do the session's chunk.
   4. `./check.sh` → must be green.
@@ -92,6 +100,15 @@ After this: the rest of the drug_dose kind (~20 antibiotic files under `protocol
 > a live run only confirms them. The user runs the bot on Railway (key not available locally), so we
 > are NOT recording a live number now. If wanted before Phase 3: paste a key into a Cowork session and
 > run `python id_bot2/run_harness.py regression_cases.yaml --live` there (≈ a few cents).
+
+---
+
+## Final phase — do LAST (after the router and everything else)
+
+These are intentionally deferred to the very end of the rebuild; come back to them only once the router and the rest of Phase 4+ are done:
+
+- **tmpsmx** — `selection_mode: table_lookup` (a 2-D `{indication_tier}_{renal_category}` key + required-slot gating that asks when indication/weight/renal are missing + weight-band dosing). This is a genuinely new engine mode, not a config migration, and it carries the original **F3/F4** misrouting bug fixes (returned PROPHYLAXIS instead of the high-dose path). Source: `protocols/antibiotics/tmpsmx.txt`. Until done, the router routes tmpsmx to a fallback / the old bot.
+- **Calculator protocols** (`body_size_calculators`, the echo_* / steroid_equivalence helpers, etc.) — migrate last; lower priority than the router.
 
 ---
 
