@@ -72,6 +72,12 @@ PHRASING_MODEL  = os.getenv("ID_BOT2_PHRASING_MODEL",  "gpt-5.5-mini")  # phrase
 VERIFIER_MODEL  = os.getenv("ID_BOT2_VERIFIER_MODEL",  "gpt-5.5-mini")  # grounding checks (Phase 4)
 ROUTER_PROVIDER = os.getenv("ID_BOT2_ROUTER_PROVIDER", "openai")    # provider key for the LLMProvider factory (Phase 1)
 
+# Cutover flag (Phase 6): when true, bot_core.ask_ai routes user messages through
+# the new id_bot2 pipeline (router -> tool -> phrase -> verify) instead of the old
+# _ask_ai_impl. Default OFF — flipping this (env USE_ID_BOT2=1) IS the cutover; the
+# old pipeline stays importable as instant rollback.
+USE_ID_BOT2 = os.getenv("USE_ID_BOT2", "0").strip().lower() in ("1", "true", "yes", "on")
+
 # ---------------------------------------------------------------------------
 # Misc
 # ---------------------------------------------------------------------------

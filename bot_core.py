@@ -3896,9 +3896,28 @@ def _ask_ai_impl(question, chat_id):
     return answer
 
 
+def _id_bot2_enabled():
+    """Cutover flag check (Phase 6). True -> route via the new id_bot2 pipeline."""
+    try:
+        import config as _cfg
+        return bool(getattr(_cfg, "USE_ID_BOT2", False))
+    except Exception:
+        return False
+
+
+def _answer_via_id_bot2(question, chat_id):
+    """Delegate to the new id_bot2 pipeline through its Channel adapter. Kept as a
+    thin seam so the cutover is a single flag; the old pipeline (_ask_ai_impl) is
+    untouched and remains the rollback path."""
+    from id_bot2 import channel as _idch
+    return _idch.answer_for(question, chat_id)
+
+
 def ask_ai(question, chat_id):
     t_start = time.monotonic()
     try:
+        if _id_bot2_enabled():
+            return _answer_via_id_bot2(question, chat_id)
         return _ask_ai_impl(question, chat_id)
     except Exception as exc:
         _log_safe_runtime_failure(t_start, chat_id, question, exc, "ask_ai")
