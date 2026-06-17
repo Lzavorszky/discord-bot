@@ -4,15 +4,20 @@
 
 ---
 
-## ✅ Clinical sign-offs — COMPLETE (2026-06-17)
+## ✅ Clinical sign-offs — ALL COMPLETE (2026-06-17, owner L)
 
-**All 29 drug_dose hand-checks are signed off by owner L** (`id_bot2/docs/*_handcheck.md`):
-meropenem (2026-06-16) + the other 28 on 2026-06-17. No longer a go-live blocker.
-imipenem/cilastatin/relebactam was **removed** (not on formulary), so the set is 29 protocols.
+**Every protocol hand-check is signed off by owner L** (`id_bot2/docs/*_handcheck.md`):
+- 29 drug_dose (meropenem 2026-06-16 + the other 28 on 2026-06-17).
+- 2 pcr_panel (BioFire pneumonia + joint infection).
+- 6 pathway (CAP, UTI, SBP, cdiff, endocarditis, intra-abdominal).
+- 1 table_lookup (tmpsmx, incl. the F3/F4 deviation).
+- 5 calculator (body_size_calculators, steroid_equivalence, echo_cardiac_output, echo_ava, echo_ero_rvol).
+- 3 prose (dantrolene_mh, periop_steroids, periop_gyogyszerek — incl. the cross-listed-drug clarify behaviour).
 
-Remaining go-live (Phase 6) tidy-ups — NOT sign-off, do before cutover:
-- **meropenem** `footer` is still the placeholder `"Think TDM! replace later"` — replace with real guidance.
-- (vancomycin footer source typo "Ae you"→"Are you" already corrected 2026-06-17.)
+Owner has confirmed they are **not returning for further clinical review** (2026-06-17). **No clinical sign-off blocks cutover.**
+
+**meropenem `footer`: KEEP AS-IS** — owner decided 2026-06-17 to retain the current `"Think TDM! replace later"` footer. This is **no longer a go-live tidy-up/blocker**.
+(vancomycin footer source typo "Ae you"→"Are you" already corrected 2026-06-17.)
 ---
 
 ## How we run this build
@@ -140,7 +145,7 @@ Remaining go-live (Phase 6) tidy-ups — NOT sign-off, do before cutover:
 
 > **The CALCULATOR ENGINE is DONE (this session) — the new `calculator` kind is built, two calculators migrated, router-wired, and harness-tested with hand-computed values.** Clinical sign-offs now **PENDING** (owner L): the new **body_size_calculators** + **steroid_equivalence** hand-checks (`id_bot2/docs/*_handcheck.md`, esp. their flagged display-rounding + both-sex-reporting decisions) + the still-open tmpsmx + 2 BioFire panel + 6 pathway hand-checks. None blocks the next chunk, but all are required before cutover.
 >
-> **MIGRATION COMPLETE — next is Phase 6 cutover prep (no more protocols to migrate).** Every source protocol is migrated across all kinds (drug_dose, pcr_panel, pathway, table_lookup, calculator, prose). Remaining before cutover: (1) replace the meropenem `footer` placeholder ("Think TDM! replace later") with real guidance; (2) collect OUTSTANDING owner clinical sign-offs (prose trio + echo trio + body_size/steroid + tmpsmx + 2 BioFire panels + 6 pathways — none block code work but ALL required before flipping Telegram to id_bot2); (3) old-bot parity replay / shadow run; (4) cutover with `main` kept as rollback.
+> **MIGRATION COMPLETE + ALL CLINICAL SIGN-OFFS DONE (owner L, 2026-06-17). Next is Phase 6 cutover.** Every source protocol is migrated across all kinds (drug_dose, pcr_panel, pathway, table_lookup, calculator, prose); every hand-check is signed off; the meropenem footer is kept as-is (owner decision, no longer a blocker). Remaining = Phase 5 then Phase 6: (1) **replay-diff / parity** — run real logged turns through the new pipeline and triage any diff vs the old bot as better/equal/regression, adding each as a harness case (needs a live OpenAI key, which lives on Railway — so this runs in a Cowork session with a key pasted in, or on Railway in a staging deploy); (2) **flip `telegram_app` entry point to `id_bot2`** on a branch, keep the old module importable as one-release rollback; (3) **monitor live** for an agreed window with the `/debug` trace on; (4) **decommission** — delete the old `routing.py` cascade / `protocol_parser.py` old schema / sidecars once one routing path remains.
 >
 > **Prior next chunk (DONE this session) — the verbatim-prose trio.**
 >
