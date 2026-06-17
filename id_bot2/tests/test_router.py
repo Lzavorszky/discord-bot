@@ -263,6 +263,100 @@ class TestLLMPath(unittest.TestCase):
         res = self.R.route("cryptic", provider=prov)
         self.assertEqual(res.slots, {"gfr": 60})
 
+class TestPhrasingVerifierLoop(unittest.TestCase):
+    """The router -> get_dose -> phrase -> verify loop (roadmap 4.1).
+
+    A phrasing provider's `chat` rewrites the verbatim tool text; the grounding
+    verifier (hard-block for drug_dose) then either passes it through or, on any
+    ungrounded number/unit/drug, falls back to the verbatim text. All offline:
+    the phraser is scripted, never a real model."""
+
+    def setUp(self):
+        self.R = Router(protocols_dir=PROTOCOLS)
+
+    def test_no_phraser_keeps_verbatim(self):
+        """Default (check.sh) path: no phrasing provider -> verbatim render_dose."""
+        res = self.R.route("meropenem gfr 40")
+        self.assertFalse(res.phrased)
+        self.assertFalse(res.phrasing_blocked)
+        self.assertEqual(res.answer, res.grounded_answer)
+        self.assertTrue(res.answer.startswith("[meropenem]"))
+
+    def test_faithful_phrasing_survives(self):
+        faithful = _Phraser(lambda g: "Meropenem dosing:\n" + g)  # echoes all numbers
+        res = self.R.route("meropenem gfr 40", phrasing_provider=faithful)
+        self.assertTrue(res.phrased)
+        self.assertFalse(res.phrasing_blocked)
+        self.assertTrue(res.answer.startswith("Meropenem dosing:"))
+        self.assertIn("4 g/day", res.answer)
+
+    def test_hallucinated_number_is_blocked(self):
+        bad = _Phraser(lambda g: "Meropenem: give 6 g/day at 8.3 mL/h.")
+        res = self.R.route("meropenem gfr 40", phrasing_provider=bad)
+        self.assertFalse(res.phrased)
+        self.assertTrue(res.phrasing_blocked)
+        self.assertEqual(res.answer, res.grounded_answer)   # verbatim fallback
+        self.assertNotIn("6 g/day", res.answer)
+
+    def test_wrong_drug_phrasing_is_blocked(self):
+        bad = _Phraser(lambda g: "Use vancomycin 4 g/day.")
+        res = self.R.route("meropenem gfr 40", phrasing_provider=bad)
+        self.assertTrue(res.phrasing_blocked)
+        self.assertEqual(res.answer, res.grounded_answer)
+
+    def test_phrasing_failure_falls_back_to_verbatim(self):
+        res = self.R.route("meropenem gfr 40", phrasing_provider=_ExplodingPhraser())
+        self.assertFalse(res.phrased)
+        self.assertFalse(res.phrasing_blocked)        # not a block — a safe fallback
+        self.assertEqual(res.answer, res.grounded_answer)
+
+    def test_empty_phrasing_keeps_verbatim(self):
+        res = self.R.route("meropenem gfr 40", phrasing_provider=_Phraser(lambda g: "  "))
+        self.assertEqual(res.answer, res.grounded_answer)
+
+    def test_out_of_range_is_never_phrased(self):
+        # A needs-confirmation result must not be run through the phrasing model.
+        faithful = _Phraser(lambda g: "ANYTHING")
+        res = self.R.route("meropenem gfr 999", phrasing_provider=faithful)
+        self.assertTrue(res.needs_clarification)
+        self.assertFalse(res.phrased)
+        self.assertIn("confirm", res.answer.lower())
+
+    def test_phrasing_via_llm_route(self):
+        # The phrasing step also runs when the drug was resolved by the LLM router.
+        prov = ScriptedProvider(ToolCall(name="get_dose",
+                                         arguments={"drug_id": "meropenem", "gfr": 40}))
+        faithful = _Phraser(lambda g: "Dosing:\n" + g)
+        res = self.R.route("cryptic", provider=prov, phrasing_provider=faithful)
+        self.assertEqual(res.via, "llm")
+        self.assertTrue(res.phrased)
+
+    def test_init_level_phraser_used_by_default(self):
+        R = Router(protocols_dir=PROTOCOLS,
+                   phrasing_provider=_Phraser(lambda g: "X:\n" + g))
+        res = R.route("meropenem gfr 40")
+        self.assertTrue(res.phrased)
+
+
+class _Phraser:
+    """Scripted phrasing provider: chat(messages) -> fn(grounded_text)."""
+    def __init__(self, fn):
+        self.fn = fn
+
+    def chat(self, messages, **kw):
+        return self.fn(messages[-1]["content"])
+
+    def call_with_tools(self, *a, **k):  # pragma: no cover - unused
+        return ""
+
+
+class _ExplodingPhraser:
+    def chat(self, messages, **kw):
+        raise RuntimeError("phrasing model down")
+
+    def call_with_tools(self, *a, **k):  # pragma: no cover
+        return ""
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

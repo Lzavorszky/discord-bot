@@ -125,6 +125,21 @@ def validate_cases(cases: list[dict]) -> list[str]:
                     problems.append(f"{where}: call needs a 'drug_id'")
                 if "slots" in call and not isinstance(call["slots"], dict):
                     problems.append(f"{where}: 'call.slots' must be a mapping")
+        # Optional `phrase:` — exercise the router's phrasing+grounding-verifier
+        # loop offline with a *scripted* phraser (no real model). Keys:
+        #   candidate: the text the scripted phrasing model returns
+        #   verdict:   "survives" (faithful → kept) | "blocked" (ungrounded → verbatim)
+        phrase = c.get("phrase")
+        if phrase is not None:
+            if not isinstance(phrase, dict):
+                problems.append(f"{where}: 'phrase' must be a mapping")
+            else:
+                if not isinstance(phrase.get("candidate"), str) or not phrase["candidate"].strip():
+                    problems.append(f"{where}: phrase needs a non-empty 'candidate' string")
+                if phrase.get("verdict") not in {"survives", "blocked"}:
+                    problems.append(f"{where}: phrase.verdict must be 'survives' or 'blocked'")
+                if c.get("call") is None:
+                    problems.append(f"{where}: 'phrase' requires a 'call:' (the dose to phrase)")
     return problems
 
 
@@ -290,9 +305,58 @@ def _evaluate_new_call(case: dict, call: dict, result: dict) -> dict:
     # Router cross-check: the deterministic router must derive this same
     # drug/tool from the raw `input` (not just the pre-baked `call:`).
     reasons += _router_crosscheck(case, call)
+    # Phrasing + grounding-verifier loop (roadmap 4.1b): with a scripted phraser,
+    # confirm a faithful paraphrase survives and an ungrounded one is blocked
+    # (falls back to the verbatim tool text). Offline — no real model.
+    reasons += _phrase_crosscheck(case, call)
     result["result"] = FAIL if reasons else PASS
     result["reasons"] = reasons
     return result
+
+
+class _ScriptedPhraser:
+    """A fixed phrasing-model stand-in for the harness: chat() returns `text`."""
+    def __init__(self, text):
+        self._text = text
+
+    def chat(self, messages, **kw):
+        return self._text
+
+    def call_with_tools(self, *a, **k):  # pragma: no cover - unused
+        return ""
+
+
+def _phrase_crosscheck(case: dict, call: dict) -> list[str]:
+    """If the case declares a `phrase:` block, route its `input` through the
+    router with a scripted phraser and assert the verifier verdict."""
+    phrase = case.get("phrase")
+    if not phrase or call.get("tool") != "get_dose":
+        return []
+    candidate = phrase["candidate"]
+    want = phrase["verdict"]
+    try:
+        res = _get_router().route(case["input"],
+                                  phrasing_provider=_ScriptedPhraser(candidate))
+    except Exception as exc:  # noqa: BLE001
+        return [f"phrase: router raised {type(exc).__name__}: {exc}"]
+    if want == "blocked":
+        problems = []
+        if not res.phrasing_blocked:
+            problems.append("phrase: expected the verifier to BLOCK the "
+                            "ungrounded phrasing, but it passed")
+        if res.answer != res.grounded_answer:
+            problems.append("phrase: blocked answer should fall back to the "
+                            "verbatim tool text")
+        return problems
+    # want == "survives"
+    problems = []
+    if res.phrasing_blocked:
+        problems.append("phrase: faithful paraphrase was wrongly blocked by the verifier")
+    if not res.phrased:
+        problems.append("phrase: expected the paraphrase to be used, but it was not")
+    if candidate.strip() not in res.answer:
+        problems.append("phrase: surviving answer should contain the candidate text")
+    return problems
 
 
 def _old_bot_answer_fn():

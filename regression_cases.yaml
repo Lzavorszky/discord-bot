@@ -1187,3 +1187,28 @@ cases:
     expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["GFR_GE_50_ONLY", "IHD_ONLY", "TDM_LEVEL_GE_30"] }
     status: new
     note: "No input -> full table (all 24 tiers)."
+
+  # ---- Phase 5 (roadmap 4.1b): grounding verifier + phrasing loop ----
+  # Both route "meropenem gfr 40" -> NORMAL tier, then run a SCRIPTED phraser
+  # (no real model) through the router's phrase->verify loop.
+  - id: meropenem_phrasing_faithful_survives
+    input: "meropenem gfr 40"
+    lang: en
+    call: { tool: get_dose, drug_id: meropenem, slots: { gfr: 40 } }
+    phrase:
+      candidate: "Meropenem: 1 g loading once at the start, then 4 g/day when GFR is 20 or above, given as 1 g/50 mL at 8.3 mL/h. Think TDM!"
+      verdict: survives
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["4 g/day", "8.3 mL/h"] }
+    status: new
+    note: "A numerically faithful paraphrase must pass the verifier unchanged."
+
+  - id: meropenem_phrasing_hallucinated_blocked
+    input: "meropenem gfr 40"
+    lang: en
+    call: { tool: get_dose, drug_id: meropenem, slots: { gfr: 40 } }
+    phrase:
+      candidate: "Meropenem 6 g/day at 8.3 mL/h."
+      verdict: blocked
+    expect: { route: drug_dose, tool: get_dose, protocol: meropenem, output_has: ["4 g/day"], output_not: ["6 g/day"] }
+    status: new
+    note: "An invented 6 g/day dose must be blocked; answer falls back to verbatim tool text."

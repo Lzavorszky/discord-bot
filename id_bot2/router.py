@@ -58,6 +58,7 @@ from textnorm import repair_mojibake, fold_accents  # noqa: E402
 from loader import load_protocol_dir              # noqa: E402
 import get_dose as _gd                            # noqa: E402
 from llm.tools import Tool, ToolCall              # noqa: E402
+from verifier import verify_grounding             # noqa: E402
 
 DEFAULT_PROTOCOLS_DIR = _HERE / "protocols"
 
@@ -115,6 +116,9 @@ class RouterResult:
     slots: dict = field(default_factory=dict)
     candidates: list = field(default_factory=list)  # for route == "clarify"
     dose: object = None              # the DoseResult, when route == "drug_dose"
+    phrased: bool = False            # True if the phrasing model rewrote the answer
+    phrasing_blocked: bool = False   # True if the verifier rejected the phrasing
+    grounded_answer: str = ""        # the verbatim tool text the answer was verified against
 
     def to_dict(self) -> dict:
         return {
@@ -123,6 +127,8 @@ class RouterResult:
             "via": self.via, "slots": dict(self.slots),
             "candidates": list(self.candidates),
             "dose": self.dose.to_dict() if self.dose is not None else None,
+            "phrased": self.phrased,
+            "phrasing_blocked": self.phrasing_blocked,
         }
 
 
@@ -275,21 +281,32 @@ def _get_dose_tool(registry: dict[str, _Entry]) -> Tool:
 
 
 class Router:
-    def __init__(self, protocols_dir=None, provider=None):
+    def __init__(self, protocols_dir=None, provider=None, phrasing_provider=None):
         self.protocols_dir = Path(protocols_dir) if protocols_dir else DEFAULT_PROTOCOLS_DIR
         self.registry = _build_registry(self.protocols_dir)
         self.provider = provider
+        # The phrasing model (PHRASING_MODEL) that rewrites verbatim tool text
+        # into natural prose. Defaults to the routing provider, but is a separate
+        # seam so a cheaper model can phrase. When None, answers stay verbatim
+        # (render_dose) — this is the offline/free default check.sh relies on.
+        self.phrasing_provider = phrasing_provider
+        # Full drug-alias vocabulary, handed to the grounding verifier so a
+        # phrasing that names a *different* antibiotic than the tool output is
+        # caught (not just hallucinated numbers).
+        self.known_drugs = tuple(sorted(
+            {a for e in self.registry.values() for a in e.aliases}))
         self._tool = _get_dose_tool(self.registry)
 
     # public ---------------------------------------------------------------
     def tools(self) -> list[Tool]:
         return [self._tool]
 
-    def route(self, message: str, *, provider=None) -> RouterResult:
+    def route(self, message: str, *, provider=None, phrasing_provider=None) -> RouterResult:
+        phraser = phrasing_provider or self.phrasing_provider
         # 1) deterministic stage
         resolved = resolve_call(message, self.registry)
         if isinstance(resolved, RoutedCall):
-            return self._run_call(resolved)
+            return self._run_call(resolved, phrasing_provider=phraser)
         if isinstance(resolved, list):           # ambiguous → clarify, never pick
             return RouterResult(
                 route="clarify", tool="ask_clarification", needs_clarification=True,
@@ -300,7 +317,7 @@ class Router:
         # 2) LLM stage (only if a provider is available)
         prov = provider or self.provider
         if prov is not None:
-            llm = self._route_via_llm(message, prov)
+            llm = self._route_via_llm(message, prov, phrasing_provider=phraser)
             if llm is not None:
                 return llm
 
@@ -312,7 +329,7 @@ class Router:
                     "protocol set — name one (e.g. 'meropenem gfr 40')."))
 
     # internal -------------------------------------------------------------
-    def _run_call(self, call: RoutedCall) -> RouterResult:
+    def _run_call(self, call: RoutedCall, *, phrasing_provider=None) -> RouterResult:
         if call.tool != "get_dose":
             return RouterResult(route="unsupported", tool="none",
                                 answer=f"Tool {call.tool!r} is not available yet.")
@@ -322,14 +339,49 @@ class Router:
                 answer=f"No uploaded protocol for {call.drug_id!r}.")
         res = _gd.get_dose(call.drug_id, protocols_dir=str(self.protocols_dir),
                            **call.slots)
-        return RouterResult(
+        grounded = _gd.render_dose(res)
+        result = RouterResult(
             route="drug_dose", tool="get_dose", protocol=res.drug_id,
-            answer=_gd.render_dose(res),
+            answer=grounded, grounded_answer=grounded,
             needs_clarification=res.needs_confirmation,
             via=call.via, slots=dict(call.slots), dose=res,
         )
+        # Phrasing step, behind the grounding verifier (roadmap 4.1). Only runs
+        # when a phrasing model is supplied AND we have a real dose to phrase
+        # (never phrase an out-of-range "needs confirmation" prompt). The verifier
+        # is hard-block for drug_dose: an ungrounded number/unit/drug → keep the
+        # verbatim tool text. Any phrasing failure also falls back to verbatim.
+        if phrasing_provider is not None and not res.needs_confirmation:
+            self._phrase(result, grounded, "drug_dose", phrasing_provider)
+        return result
 
-    def _route_via_llm(self, message: str, provider) -> Optional[RouterResult]:
+    def _phrase(self, result: "RouterResult", grounded: str, kind: str,
+                provider) -> None:
+        """Rewrite `grounded` into natural prose, then verify it is grounded.
+        Mutates `result.answer` in place; on block or failure leaves the
+        verbatim text. Never raises."""
+        try:
+            candidate = provider.chat([
+                {"role": "system", "content": _PHRASING_SYSTEM},
+                {"role": "user", "content": grounded},
+            ])
+        except Exception:  # provider/network failure → keep verbatim, stay safe
+            return
+        if not candidate or not candidate.strip():
+            return
+        # Drug-name vocabulary for the verifier = every OTHER drug's aliases. We
+        # exclude the answered drug's own aliases so a faithful paraphrase that
+        # says e.g. "meropenem dosing" (a same-drug alias) is not falsely
+        # blocked, while a switch to a *different* antibiotic still is.
+        self_aliases = set(self.registry[result.protocol].aliases) if result.protocol in self.registry else set()
+        other_drugs = tuple(a for a in self.known_drugs if a not in self_aliases)
+        verdict = verify_grounding(candidate, grounded, kind,
+                                   known_drugs=other_drugs)
+        result.answer = verdict.text
+        result.phrased = not verdict.blocked
+        result.phrasing_blocked = verdict.blocked
+
+    def _route_via_llm(self, message: str, provider, *, phrasing_provider=None) -> Optional[RouterResult]:
         messages = [
             {"role": "system", "content": _ROUTER_SYSTEM},
             {"role": "user", "content": message},
@@ -350,7 +402,8 @@ class Router:
             declared = set(self.registry[drug_id].slots)
             slots = {k: v for k, v in args.items() if k in declared}
             return self._run_call(RoutedCall(tool="get_dose", drug_id=drug_id,
-                                             slots=slots, via="llm"))
+                                             slots=slots, via="llm"),
+                                  phrasing_provider=phrasing_provider)
         # the model answered with prose instead of a tool — not allowed (no
         # ungrounded free-text dosing); let the caller emit "unsupported".
         return None
@@ -364,6 +417,17 @@ _ROUTER_SYSTEM = (
     "shock, low albumin, body weight, vancomycin level, MIC). Never invent slot "
     "values. If the message is not about an antibiotic dose in the set, do not "
     "call any tool."
+)
+
+
+_PHRASING_SYSTEM = (
+    "You rephrase an antibiotic dosing answer for a clinician into clear, "
+    "concise prose (match the user's language: English or Hungarian). "
+    "STRICT RULES: use ONLY the doses, numbers, units, drug names and conditions "
+    "given in the message. Do NOT add, change, round, convert, or infer any dose, "
+    "number, unit, frequency, or drug. Do not introduce clinical facts that are "
+    "not in the message. Keep every numeric value and unit exactly as written. "
+    "If the message is already clear, you may return it almost unchanged."
 )
 
 
