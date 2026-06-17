@@ -1,0 +1,202 @@
+# vancomycin.yaml - kind: drug_dose
+# Migrated VERBATIM from protocols/antibiotics/vancomycin.txt + vancomycin.route_claims.json.
+# 24 SELECTED_OUTPUTS tiers; select ladder encodes source SELECTION_RULES priority (TDM level 300 >
+# IHD+TBW 220 > CRRT+TBW 210 > GFR+TBW 200-180 > IHD/CRRT/GFR-only 120-80 > TBW-only 60 > GFR<10 50 > default).
+# Each tier dose composes source loading_dose + maintenance_dose; TDM tiers carry the verbatim action.
+# NO computation: all doses are fixed gram amounts selected by level/renal/weight bands.
+# Hand-check vs source: id_bot2/docs/vancomycin_handcheck.md
+id: vancomycin
+kind: drug_dose
+source_label: vancomycin
+canonical_name: vancomycin
+status: draft
+version: '0.1'
+aliases:
+- vancomycin
+- vanco
+- vancomycin dose
+- vancomycin dosing
+- vancomycin TDM
+answers_intents:
+- dose
+refuses_intents:
+- coverage_question
+- targeted_treatment
+slots:
+  body_weight_kg:
+    type: number
+    unit: kg
+    min: 1
+    max: 300
+    on_out_of_range: ask_confirmation
+  gfr:
+    type: number
+    unit: mL/min
+    min: 0
+    max: 250
+    on_out_of_range: ask_confirmation
+  vancomycin_level:
+    type: number
+    unit: mg/L
+    min: 0
+    max: 150
+    on_out_of_range: ask_confirmation
+  mic:
+    type: number
+    unit: mg/L
+    min: 0
+    max: 32
+    on_out_of_range: ask_confirmation
+  crrt:
+    type: bool
+  ihd:
+    type: bool
+tiers:
+  TBW_LT_65_ONLY:
+    dose: 'loading 1.5 g, then: send GFR/CRRT/IHD for continuous infusion starting dose'
+    when: TBW <65 kg
+    admin: loading dose, then continuous infusion
+  TBW_GE_65_ONLY:
+    dose: 'loading 2 g, then: send GFR/CRRT/IHD for continuous infusion starting dose'
+    when: TBW >=65 kg
+    admin: loading dose, then continuous infusion
+  GFR_GE_50_ONLY:
+    dose: 'loading TBW <65 kg: 1.5 g / TBW >=65 kg: 2 g, then 2 g/24h'
+    when: GFR >=50
+    admin: loading dose, then continuous infusion
+  GFR_20_TO_49_ONLY:
+    dose: 'loading TBW <65 kg: 1.5 g / TBW >=65 kg: 2 g, then 1.5 g/24h'
+    when: GFR 20-49
+    admin: loading dose, then continuous infusion
+  GFR_10_TO_19_ONLY:
+    dose: 'loading TBW <65 kg: 1.5 g / TBW >=65 kg: 2 g, then 1 g/24h'
+    when: GFR 10-19
+    admin: loading dose, then continuous infusion
+  GFR_LT_10_UNSPECIFIED:
+    dose: 'loading TBW <65 kg: 1.5 g / TBW >=65 kg: 2 g; maintenance not specified in this protocol for GFR <10 without IHD/CRRT'
+    when: GFR <10 without IHD/CRRT
+    admin: loading dose, then seek individualized review for maintenance dosing
+  CRRT_ONLY:
+    dose: 'loading TBW <65 kg: 1.5 g / TBW >=65 kg: 2 g, then 2 g/24h'
+    when: CRRT
+    admin: loading dose, then continuous infusion
+  IHD_ONLY:
+    dose: 'loading TBW <65 kg: 1.5 g / TBW >=65 kg: 2 g, then 500 mg bolus after HD'
+    when: IHD
+    admin: loading dose; maintenance per HD timing
+  GFR_GE_50_TBW_LT_65:
+    dose: loading 1.5 g, then 2 g/24h
+    when: TBW <65 kg + GFR >=50
+    admin: loading dose, then continuous infusion
+  GFR_GE_50_TBW_GE_65:
+    dose: loading 2 g, then 2 g/24h
+    when: TBW >=65 kg + GFR >=50
+    admin: loading dose, then continuous infusion
+  GFR_20_TO_49_TBW_LT_65:
+    dose: loading 1.5 g, then 1.5 g/24h
+    when: TBW <65 kg + GFR 20-49
+    admin: loading dose, then continuous infusion
+  GFR_20_TO_49_TBW_GE_65:
+    dose: loading 2 g, then 1.5 g/24h
+    when: TBW >=65 kg + GFR 20-49
+    admin: loading dose, then continuous infusion
+  GFR_10_TO_19_TBW_LT_65:
+    dose: loading 1.5 g, then 1 g/24h
+    when: TBW <65 kg + GFR 10-19
+    admin: loading dose, then continuous infusion
+  GFR_10_TO_19_TBW_GE_65:
+    dose: loading 2 g, then 1 g/24h
+    when: TBW >=65 kg + GFR 10-19
+    admin: loading dose, then continuous infusion
+  CRRT_TBW_LT_65:
+    dose: loading 1.5 g, then 2 g/24h
+    when: TBW <65 kg + CRRT
+    admin: loading dose, then continuous infusion
+  CRRT_TBW_GE_65:
+    dose: loading 2 g, then 2 g/24h
+    when: TBW >=65 kg + CRRT
+    admin: loading dose, then continuous infusion
+  IHD_TBW_LT_65:
+    dose: loading 1.5 g, then 500 mg bolus after HD
+    when: TBW <65 kg + IHD
+    admin: loading dose; maintenance per HD timing
+  IHD_TBW_GE_65:
+    dose: loading 2 g, then 500 mg bolus after HD
+    when: TBW >=65 kg + IHD
+    admin: loading dose; maintenance per HD timing
+  TDM_LEVEL_LT_10:
+    dose: Check sampling and administration.
+    when: vancomycin level <10 ug/L
+  TDM_LEVEL_10_UNSPECIFIED:
+    dose: The source adjustment table does not specify exactly 10 ug/L. Verify the value and use clinical/TDM review.
+    when: vancomycin level 10 ug/L
+  TDM_LEVEL_11_TO_20:
+    dose: Increase by 500 mg/24h.
+    when: vancomycin level 11-20 ug/L
+  TDM_LEVEL_21_TO_25:
+    dose: No change.
+    when: vancomycin level 21-25 ug/L
+  TDM_LEVEL_26_TO_29:
+    dose: Decrease by 500 mg/24h.
+    when: vancomycin level 26-29 ug/L
+  TDM_LEVEL_GE_30:
+    dose: Decrease by 1000 mg/24h.
+    when: vancomycin level >=30 ug/L
+select:
+- if: vancomycin_level < 10
+  tier: TDM_LEVEL_LT_10
+- if: vancomycin_level >= 11 and vancomycin_level <= 20
+  tier: TDM_LEVEL_11_TO_20
+- if: vancomycin_level >= 21 and vancomycin_level <= 25
+  tier: TDM_LEVEL_21_TO_25
+- if: vancomycin_level >= 26 and vancomycin_level < 30
+  tier: TDM_LEVEL_26_TO_29
+- if: vancomycin_level >= 30
+  tier: TDM_LEVEL_GE_30
+- if: vancomycin_level >= 10 and vancomycin_level <= 10
+  tier: TDM_LEVEL_10_UNSPECIFIED
+- if: ihd and body_weight_kg < 65
+  tier: IHD_TBW_LT_65
+- if: ihd and body_weight_kg >= 65
+  tier: IHD_TBW_GE_65
+- if: crrt and body_weight_kg < 65
+  tier: CRRT_TBW_LT_65
+- if: crrt and body_weight_kg >= 65
+  tier: CRRT_TBW_GE_65
+- if: gfr >= 50 and body_weight_kg < 65
+  tier: GFR_GE_50_TBW_LT_65
+- if: gfr >= 50 and body_weight_kg >= 65
+  tier: GFR_GE_50_TBW_GE_65
+- if: gfr >= 20 and gfr < 50 and body_weight_kg < 65
+  tier: GFR_20_TO_49_TBW_LT_65
+- if: gfr >= 20 and gfr < 50 and body_weight_kg >= 65
+  tier: GFR_20_TO_49_TBW_GE_65
+- if: gfr >= 10 and gfr < 20 and body_weight_kg < 65
+  tier: GFR_10_TO_19_TBW_LT_65
+- if: gfr >= 10 and gfr < 20 and body_weight_kg >= 65
+  tier: GFR_10_TO_19_TBW_GE_65
+- if: ihd
+  tier: IHD_ONLY
+- if: crrt
+  tier: CRRT_ONLY
+- if: gfr >= 50
+  tier: GFR_GE_50_ONLY
+- if: gfr >= 20 and gfr < 50
+  tier: GFR_20_TO_49_ONLY
+- if: gfr >= 10 and gfr < 20
+  tier: GFR_10_TO_19_ONLY
+- if: body_weight_kg < 65
+  tier: TBW_LT_65_ONLY
+- if: body_weight_kg >= 65
+  tier: TBW_GE_65_ONLY
+- if: gfr < 10
+  tier: GFR_LT_10_UNSPECIFIED
+- default: DEFAULT_ANSWER
+never:
+- vancomycin dosing outside the listed tiers
+- a dosing recommendation for MIC >1.0 mg/L
+- an alternative antimicrobial choice from this protocol
+- a TDM adjustment outside the listed vancomycin level ranges
+- toxicity management not present in this protocol
+notes: 'Loading dose is based on total body weight and is not affected by renal function; the continuous-infusion starting dose is based on renal function / RRT. Target concentration 20-25 ug/mL; check vancomycin level daily. MIC >1.0 mg/L: vancomycin cannot be dosed safely and effectively from this protocol - choose an alternative agent (not named here). First-dose selection and TDM adjustment are separate deterministic pathways: if a level is supplied, the TDM adjustment is returned, not a first-dose tier.'
+footer: 'Ae you sure you need vancomycin? Does this pt has MRSA? If not think twice. If administering for other Staphylococci (e.g. hominis) check if it is not contamination first. Use only if the pathogen''s vancomycin MIC is 1mg/L or less. Needs daily monitoring, target level: 20-25 ug/ml'

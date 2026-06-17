@@ -303,9 +303,12 @@ def get_dose(
         inputs=inputs,
     )
 
-    # 1) Out-of-range numeric slot → ask, never guess.
-    for sname, sval in (("gfr", gfr),):
-        reason = _range_problem(slots, sname, sval)
+    # 1) Out-of-range numeric slot → ask, never guess. Checks EVERY declared
+    #    numeric slot that was actually provided (unprovided slots are None in
+    #    ctx and skipped) — e.g. an implausible vancomycin_level asks rather than
+    #    silently selecting a TDM band.
+    for sname in slots:
+        reason = _range_problem(slots, sname, ctx.get(sname))
         if reason:
             return DoseResult(needs_confirmation=True,
                               confirmation_reason=reason, **base)

@@ -21,8 +21,14 @@
 
 ## Status
 
-- **Current phase:** Phase 3 — **3.3 `get_dose` slice complete for all 28 protocols** (`**extra_slots` + 118 `--target new` harness cases, all PASS). Next: **3.4** — migrate calculator protocols + vancomycin/tmpsmx (need engine extensions), then Phase 4 (router).
+- **Current phase:** Phase 3 — **3.4 vancomycin migrated** (TDM + weight×renal, 24 verbatim tiers; `get_dose` out-of-range check generalized to every numeric slot). `--target new` **131/131 PASS**. Remaining dose work: **tmpsmx** (`table_lookup` — own phase) + calculators. Next per agreed split: **Phase 4 (router)**.
 - **Branch:** `rebuild-d` (created off `main`; live bot on `main` untouched).
+- **Last session (2026-06-16, Opus):** Phase 3.4 — **vancomycin migrated** (the TDM/weight drug) on `rebuild-d`:
+  - `id_bot2/protocols/vancomycin.yaml` — 24 verbatim tiers (6 TDM level bands; 6 renal × 2 weight first-dose tiers; weight-only & renal-only fallbacks; GFR<10 gap), 25-rung `select` ladder encoding source priority (TDM level 300 > IHD+TBW 220 > CRRT+TBW 210 > GFR+TBW 200–180 > IHD/CRRT/GFR-only 120–80 > TBW-only 60 > GFR<10 50 > default). **No computation** — fixed gram doses selected by bands, so it fits the existing engine.
+  - **`get_dose` out-of-range check generalized** from gfr-only to *every declared numeric slot* (implausible `vancomycin_level`/`body_weight`/`mic` → `needs_confirmation`, not a silent band). Verified no regression: 28 `test_get_dose.py` + the prior 118 `--target new` cases still green.
+  - `id_bot2/docs/vancomycin_handcheck.md` — full row-by-row sheet (loading/maintenance/TDM tables, selection priority, slots, guardrails, 5 modelling deviations incl. a verbatim source footer typo). **Sign-off pending.**
+  - 13 `--target new` vanco cases (TDM bands, renal×weight, fallbacks, IHD-beats-GFR, out-of-range, default) → `--target new` **131 PASS / 0 FAIL / 19 SKIP**.
+  - **tmpsmx still deferred** (`table_lookup` 2-D indication×renal + required-slot gating = genuinely new engine work; carries the F3/F4 bug fixes). Agreed next: build the Phase 4 router; tmpsmx is its own phase.
 - **Last session (2026-06-16, Sonnet):** Phase 3.2 — **migrated 28 antibiotic drug_dose YAMLs** on `rebuild-d`:
   - All migratable antibiotic source files converted: 5 trivial single-tier, 6 simple GFR-ladder, 6 CI-ladder (GFR≥20 cutoff), 11 extended (multi-tier, ANURIA_IHD, STEP_UP-in-select, or complex combos). Commit: `b04b4d4`.
   - All 29 protocol YAMLs (incl. meropenem) parse clean (29 OK / 0 FAIL). STEP_UP tiers without a selection rule kept in `tiers:` only. Distinct ANURIA_IHD tiers preserved. Source GFR gaps faithfully preserved (cefiderocol >90, colomycin 10–30, imipenem_cilastatin <15) → fall-through to DEFAULT_ANSWER.
@@ -69,7 +75,7 @@
 
 ## Next action (do this first, next session)
 
-> **Phase 3.4 — migrate calculator protocols; extend engine for vancomycin (TDM-based) and tmpsmx (table_lookup); or skip to Phase 4 (router) if calculators are lower priority. Discuss with owner L.**
+> **Phase 4 — build the router (maps user messages → `get_dose` calls) over the 29 working drug_dose protocols (28 antibiotics + meropenem + vancomycin). tmpsmx (`table_lookup`) + calculators are their own later phases. The 28+vanco hand-check sign-offs gate go-live, not the router.**
 > 1. `git checkout rebuild-d && ./check.sh` — green except noted pre-existing env failure.
 > 2. For each of the 28 new drug YAMLs produce `id_bot2/docs/<drug>_handcheck.md` (row-by-row: every dose/when/admin/cutoff/selection-priority/slots/guardrails/aliases vs source .txt). Human clinical sign-off required per sheet.
 > 3. Add `--target new` harness cases (≥1 per tier per drug) to `regression_cases.yaml`; all must PASS.
@@ -100,6 +106,7 @@ After this: the rest of the drug_dose kind (~20 antibiotic files under `protocol
 | 2026-06-16 | Phase 2.4 | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | First real protocol migrated: `meropenem.yaml` (drug_dose) schema-valid + linter-green over **non-empty** corpus (1 record, no alias collisions). 58 id_bot2 unit + 11 contract tests green. Clinical hand-check sheet produced; **human sign-off pending**. Legacy 330/331 (same noted env failure). |
 | 2026-06-16 | Phase 2.4 rev 2 | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | Schema extended (`prep`/`notes` on drug_dose, +2 tests → 60 id_bot2 unit). Owner edits to meropenem.yaml: NORMAL 4 g/day @ 8.3 mL/h, footer placeholder, prep field carries reduced-dose note. Hand-check rev 2; **sign-off (incl. NORMAL change) pending**. Legacy 330/331 (same noted env failure). |
 | 2026-06-16 | Phase 3.3 | **`--target new` 118/118 PASS** (100%); 28 test_get_dose.py still pass | `get_dose.py` `**extra_slots` patch; 111 new call: cases (28 protocols) + 7 existing meropenem = 118 total. Commit `590af33`. |
+| 2026-06-16 | Phase 3.4 | **`--target new` 131/131 PASS**; 88 id_bot2 unit; 30/30 protocols valid | vancomycin migrated (24 tiers, TDM + weight×renal, no computation) + 13 harness cases; `get_dose` out-of-range generalized to all numeric slots (no regression). Hand-check written, **sign-off pending**. Legacy 330/331 (same noted env failure). |
 | 2026-06-16 | Phase 3.2 | 29/29 YAMLs parse valid; harness cases TBD | 28 new drug_dose YAMLs committed (`b04b4d4`). Hand-check sheets + `--target new` cases pending. |
 | 2026-06-16 | Phase 3.1 | offline 26/26 cases valid; `--target new` 6/6 meropenem slice PASS; old-bot baseline **deferred** | `get_dose` vertical slice: 88 id_bot2 unit tests (28 new) + schema/linter + 11 contract green. Harness `--target new` exercises the slice via explicit `call:` (6 PASS / 20 SKIP — router not built). Meropenem clinical **sign-off still pending**. Legacy 330/331 (same noted env failure). |
 

@@ -1137,3 +1137,102 @@ cases:
     expect: { route: drug_dose, tool: get_dose, protocol: voriconazole, output_has: ["NORMAL", "2 x 4 mg/kg"] }
     status: new
     note: "IHD → same NORMAL dose. Use oral route in AKI if possible (IV vehicle accumulation)."
+
+  # ---- Phase 3.4: vancomycin (TDM + weight + renal, 24 tiers) ----
+  - id: vancomycin_tdm_11_20
+    input: "Vancomycin level 15"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { vancomycin_level: 15 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["TDM_LEVEL_11_TO_20", "Increase by 500 mg/24h"] }
+    status: new
+    note: "Level 11-20 -> increase by 500 mg/24h."
+
+  - id: vancomycin_tdm_21_25_no_change
+    input: "Vancomycin level 23"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { vancomycin_level: 23 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["TDM_LEVEL_21_TO_25", "No change"] }
+    status: new
+
+  - id: vancomycin_tdm_ge30
+    input: "Vancomycin level 35"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { vancomycin_level: 35 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["TDM_LEVEL_GE_30", "Decrease by 1000 mg/24h"] }
+    status: new
+
+  - id: vancomycin_tdm_beats_renal
+    input: "Vancomycin level 15 gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { vancomycin_level: 15, gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["TDM_LEVEL_11_TO_20"], output_not: ["GFR_GE_50"] }
+    status: new
+    note: "Level supplied -> TDM adjustment only, never a first-dose renal tier (SAFETY_RULES)."
+
+  - id: vancomycin_ihd_tbw_lt65
+    input: "Vancomycin IHD 60 kg"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { ihd: true, body_weight_kg: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["IHD_TBW_LT_65", "500 mg bolus after HD", "1.5 g"] }
+    status: new
+
+  - id: vancomycin_crrt_tbw_ge65
+    input: "Vancomycin CRRT 70 kg"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { crrt: true, body_weight_kg: 70 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["CRRT_TBW_GE_65", "2 g/24h"] }
+    status: new
+
+  - id: vancomycin_gfr_ge50_tbw_lt65
+    input: "Vancomycin gfr 60 60 kg"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { gfr: 60, body_weight_kg: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["GFR_GE_50_TBW_LT_65", "2 g/24h"] }
+    status: new
+
+  - id: vancomycin_gfr_20_49_tbw_ge65
+    input: "Vancomycin gfr 30 70 kg"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { gfr: 30, body_weight_kg: 70 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["GFR_20_TO_49_TBW_GE_65", "1.5 g/24h"] }
+    status: new
+
+  - id: vancomycin_gfr_only
+    input: "Vancomycin gfr 60"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { gfr: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["GFR_GE_50_ONLY", "2 g/24h"] }
+    status: new
+    note: "Renal known, weight unknown -> renal-only tier with both loading options."
+
+  - id: vancomycin_weight_only
+    input: "Vancomycin 60 kg"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { body_weight_kg: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["TBW_LT_65_ONLY", "send GFR/CRRT/IHD"] }
+    status: new
+    note: "Weight known, renal unknown -> loading + ask for GFR/CRRT/IHD."
+
+  - id: vancomycin_ihd_beats_gfr
+    input: "Vancomycin IHD gfr 60 60 kg"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { ihd: true, gfr: 60, body_weight_kg: 60 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["IHD_TBW_LT_65"], output_not: ["GFR_GE_50"] }
+    status: new
+    note: "IHD priority over numeric GFR (SAFETY_RULES)."
+
+  - id: vancomycin_level_out_of_range
+    input: "Vancomycin level 500"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin, slots: { vancomycin_level: 500 } }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, clarifies: true, output_has: ["confirmation"] }
+    status: new
+    note: "Implausible level above declared max 150 -> ask confirmation, no band selected."
+
+  - id: vancomycin_default_table
+    input: "Vancomycin dose"
+    lang: en
+    call: { tool: get_dose, drug_id: vancomycin }
+    expect: { route: drug_dose, tool: get_dose, protocol: vancomycin, output_has: ["GFR_GE_50_ONLY", "IHD_ONLY", "TDM_LEVEL_GE_30"] }
+    status: new
+    note: "No input -> full table (all 24 tiers)."
