@@ -1,0 +1,240 @@
+# biofire_pneumonia.yaml — kind: pcr_panel
+# Migrated VERBATIM from protocols/pneumonia_pcr.txt (source v0.1) +
+# pneumonia_pcr.route_claims.json. Organism tiers / baseline therapies /
+# selected-output answer strings / resistance rules are copied straight from the
+# source SELECTED_OUTPUTS, PCR_ORGANISM_MAPPING and PCR_RESISTANCE_RULES.
+# NOTE: in THIS panel CTX-M escalates the gram-negative backbone to ERTAPENEM
+# (Tier 3); the joint-infection panel uses meropenem. Verbatim per source.
+# The engine (interpret_pcr) only ever SELECTS among the verbatim outputs below.
+# Clinical hand-check vs source: id_bot2/docs/biofire_pneumonia_handcheck.md
+# (Phase 2.5 — owner sign-off PENDING).
+id: biofire_pneumonia
+kind: pcr_panel
+source_label: BioFire
+canonical_name: BioFire Pneumonia Panel
+status: draft
+version: 0.1
+
+# --- panel-level aliases (source ## ALIASES platform_aliases, verbatim) ---
+aliases:
+  - BioFire PN
+  - BioFire pneumonia
+  - BioFire pneumonia panel
+  - pneumonia PCR
+  - pneumonia panel
+  - respiratory PCR
+  - PN panel
+  - biofire
+  - filmarray pneumonia
+
+answers_intents: [test_interpretation, panel_list]
+refuses_intents: [dose]
+
+requires:
+  - at_least_one_detected_pathogen
+
+dose_via: drug_dose
+
+# --- verbatim fixed outputs (source DEFAULT_ANSWER / OUTPUT_TEMPLATES) ---
+default_answer: >-
+  BioFire PN interpretation requires at least one detected pathogen.
+  Resistance markers can only be interpreted together with detected pathogen(s).
+  Send a result, for example: Streptococcus pneumoniae, Pseudomonas aeruginosa,
+  Staphylococcus aureus + mecA/C, E. coli + CTX-M, influenza.
+default_answer_hu: >-
+  BioFire PN interpretaciohoz kell legalabb egy detektalt korokozo.
+  Rezisztencia marker csak detektalt korokozoval egyutt ertelmezheto.
+  Kuldj egy eredmenyt, peldaul: Streptococcus pneumoniae, Pseudomonas aeruginosa,
+  Staphylococcus aureus + mecA/C, E. coli + CTX-M, influenza.
+marker_without_pathogen: "Resistance markers can only be interpreted together with detected pathogen(s). Which pathogen was positive?"
+marker_without_pathogen_hu: "Rezisztencia marker csak detektalt korokozoval egyutt ertelmezheto. Melyik korokozo volt pozitiv?"
+conflict_answer: "Conflicting polymicrobial / resistance pattern - ID consultation recommended."
+
+# --- spectrum hierarchy for polymicrobial escalation (source Spectrum hierarchy
+#     + SELECTED_OUTPUTS TIER_1..TIER_4, verbatim). CTX-M tier here = ertapenem. ---
+spectrum_tiers:
+  "1": { therapy: ceftriaxone, answer: "Tier 1 - ceftriaxone." }
+  "2": { therapy: cefepime,    answer: "Tier 2 - cefepime." }
+  "3": { therapy: ertapenem,   answer: "Tier 3 - ertapenem." }
+  "4": { therapy: "meropenem + colistin", answer: "Tier 4 - meropenem + colistin. High MDR risk; ID consultation recommended." }
+
+# --- bare-genus disambiguation (panel carries 3 Klebsiella species; ask which).
+#     MODELLING ADDITION flagged in hand-check: source PN has no explicit
+#     CHECK_AMBIGUOUS_GENUS step, but asking is safer than silently picking. ---
+disambiguate_genus:
+  - genus: Klebsiella
+    species: [Klebsiella pneumoniae group, Klebsiella oxytoca, Klebsiella aerogenes]
+
+# --- resistance markers (source PCR_RESISTANCE_MARKER_ALIASES + PCR_RESISTANCE_RULES) ---
+markers:
+  - name: mecA/C & MREJ
+    rule: mrsa
+    therapy: vancomycin
+    note: MRSA likely where applicable.
+    aliases: [mecA/C, mecA, mecC, MREJ]
+  - name: VanA/B
+    rule: vre
+    therapy: linezolid
+    note: VRE likely where applicable.
+    aliases: [VanA, VanB, VanA/B]
+  - name: CTX-M
+    rule: ctx_m
+    therapy: ertapenem
+    answer: "Tier 3 - ertapenem."
+    note: ESBL marker; use ertapenem in this protocol.
+    aliases: [CTX-M, CTXM, ESBL]
+  - name: carbapenemase
+    rule: carbapenemase
+    therapy: "meropenem + colistin"
+    answer: "Tier 4 - meropenem + colistin. High MDR risk; ID consultation recommended."
+    note: ID consultation recommended.
+    aliases: [IMP, KPC, NDM, VIM, OXA-48-like, OXA-48, OXA48, carbapenemase]
+
+# --- organisms (source PCR_ORGANISM_MAPPING + SELECTED_OUTPUTS, verbatim) ---
+organisms:
+  - name: Acinetobacter calcoaceticus-baumannii complex
+    entity_type: gram_negative
+    enterobacterales: false
+    tier: 4
+    therapy: meropenem + colistin
+    answer: "Tier 4 - meropenem + colistin. High MDR risk; ID consultation recommended."
+    aliases: [Acinetobacter calcoaceticus-baumannii complex, Acinetobacter, baumannii, ACB]
+  - name: Enterobacter cloacae
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 2
+    therapy: cefepime
+    answer: "Tier 2 - cefepime."
+    marker_rules: ["CTX-M positive -> Tier 3 (ertapenem)"]
+    aliases: [Enterobacter cloacae, Enterobacter]
+  - name: Escherichia coli
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    marker_rules: ["CTX-M positive -> Tier 3 (ertapenem)"]
+    aliases: [Escherichia coli, E. coli, E coli, ecoli, e.coli]
+  - name: Haemophilus influenzae
+    entity_type: gram_negative
+    enterobacterales: false
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Haemophilus influenzae, Haemophilus, H. influenzae]
+  - name: Klebsiella aerogenes
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 2
+    therapy: cefepime
+    answer: "Tier 2 - cefepime."
+    marker_rules: ["CTX-M positive -> Tier 3 (ertapenem)"]
+    aliases: [Klebsiella aerogenes]
+  - name: Klebsiella oxytoca
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    marker_rules: ["CTX-M positive -> Tier 3 (ertapenem)"]
+    aliases: [Klebsiella oxytoca]
+  - name: Klebsiella pneumoniae group
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    marker_rules: ["CTX-M positive -> Tier 3 (ertapenem)"]
+    aliases: [Klebsiella pneumoniae group, Klebsiella pneumoniae, Klebsiella pn, KPN]
+  - name: Moraxella catarrhalis
+    entity_type: gram_negative
+    enterobacterales: false
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Moraxella catarrhalis, Moraxella]
+  - name: Proteus spp.
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 2
+    therapy: cefepime
+    answer: "Tier 2 - cefepime."
+    marker_rules: ["CTX-M positive -> Tier 3 (ertapenem)"]
+    aliases: [Proteus spp., Proteus]
+  - name: Pseudomonas aeruginosa
+    entity_type: gram_negative
+    enterobacterales: false
+    tier: 2
+    therapy: cefepime
+    answer: "Tier 2 - cefepime."
+    aliases: [Pseudomonas aeruginosa, Pseudomonas, PA, PSA]
+  - name: Serratia marcescens
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 2
+    therapy: cefepime
+    answer: "Tier 2 - cefepime."
+    marker_rules: ["CTX-M positive -> Tier 3 (ertapenem)"]
+    aliases: [Serratia marcescens, Serratia]
+
+  # ---- gram-positives ----
+  - name: Staphylococcus aureus
+    entity_type: bacteria
+    tier: 1
+    therapy: cefazolin
+    answer: "Staphylococcus aureus without mecA/C or MREJ - MSSA likely - cefazolin."
+    marker_answer: "Staphylococcus aureus + mecA/C or MREJ - MRSA likely - vancomycin."
+    marker_rules: ["mecA/C or MREJ -> vancomycin"]
+    aliases: [Staphylococcus aureus, Staph aureus, S. aureus, MSSA, MRSA]
+  - name: Streptococcus agalactiae
+    entity_type: bacteria
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Streptococcus agalactiae, Strep agalactiae, GBS, group B strep]
+  - name: Streptococcus pneumoniae
+    entity_type: bacteria
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Streptococcus pneumoniae, Strep pneumoniae, Strep pneumo, Strep pn, S. pneumoniae, S.pneumoniae, pneumococcus, pneumococcal]
+  - name: Streptococcus pyogenes
+    entity_type: bacteria
+    tier: 2
+    therapy: penicillin + clindamycin
+    answer: "Streptococcus pyogenes - penicillin + clindamycin for toxin suppression."
+    aliases: [Streptococcus pyogenes, Strep pyogenes, GAS, group A strep]
+
+  # ---- atypicals (orthogonal add-on; not part of the numeric spectrum tiers) ----
+  - name: Legionella pneumophila
+    entity_type: atypical
+    therapy: clarithromycin
+    answer: "Atypical pathogen - clarithromycin. If bacterial coinfection is present, add it to bacterial coverage."
+    aliases: [Legionella pneumophila, Legionella]
+  - name: Mycoplasma pneumoniae
+    entity_type: atypical
+    therapy: clarithromycin
+    answer: "Atypical pathogen - clarithromycin. If bacterial coinfection is present, add it to bacterial coverage."
+    aliases: [Mycoplasma pneumoniae, Mycoplasma]
+  - name: Chlamydia pneumoniae
+    entity_type: atypical
+    therapy: clarithromycin
+    answer: "Atypical pathogen - clarithromycin. If bacterial coinfection is present, add it to bacterial coverage."
+    aliases: [Chlamydia pneumoniae, Chlamydia]
+
+  # ---- viruses ----
+  - name: Influenza A/B
+    entity_type: virus
+    therapy: oseltamivir
+    answer: "Influenza A/B - oseltamivir. Antibiotics only if bacterial coinfection is suspected."
+    aliases: [Influenza A, Influenza B, Influenza A/B, influenza]
+  - name: Other respiratory virus
+    entity_type: virus
+    therapy: supportive therapy
+    answer: "Viral pathogen only - supportive therapy; antibacterial therapy is not routinely indicated unless bacterial coinfection is suspected."
+    aliases: [Adenovirus, Coronavirus, Parainfluenza virus, RSV, Rhinovirus/Enterovirus, Human metapneumovirus, MERS coronavirus]
+
+# --- footer (source DEFAULT_FOOTER, verbatim; HU) ---
+footer: >-
+  ! Nézd meg, nincs-e rezisztencia gén, további kórokozó.
+  Ha antimikrobiális szer dózisára van szükség, csak írd meg a nevét.

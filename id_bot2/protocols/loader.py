@@ -182,6 +182,9 @@ def _check_drug_dose(rec: dict, problems: list[str]) -> None:
             problems.append(f"'{key}' must be a string")
 
 
+_MARKER_RULES = ("mrsa", "vre", "ctx_m", "carbapenemase")
+
+
 def _check_pcr_panel(rec: dict, problems: list[str]) -> None:
     organisms = rec.get("organisms")
     if not isinstance(organisms, list) or not organisms:
@@ -196,17 +199,73 @@ def _check_pcr_panel(rec: dict, problems: list[str]) -> None:
                 problems.append(f"{where}: missing 'name' (string)")
             if "tier" in org and not isinstance(org["tier"], int):
                 problems.append(f"{where}: 'tier' must be an integer")
-            if "therapy" in org and not _is_str(org["therapy"]):
-                problems.append(f"{where}: 'therapy' must be a string")
+            if "enterobacterales" in org and not isinstance(org["enterobacterales"], bool):
+                problems.append(f"{where}: 'enterobacterales' must be a boolean")
+            for skey in ("therapy", "entity_type", "answer", "answer_hu",
+                         "marker_answer", "marker_answer_hu"):
+                if skey in org and not _is_str(org[skey]):
+                    problems.append(f"{where}: '{skey}' must be a string")
             if "aliases" in org and not _is_list_of_str(org["aliases"]):
                 problems.append(f"{where}: 'aliases' must be a list of strings")
             if "marker_rules" in org and not _is_list_of_str(org["marker_rules"]):
                 problems.append(f"{where}: 'marker_rules' must be a list of strings")
-    for key in ("markers", "disambiguate_genus", "requires"):
-        if key in rec and not _is_list_of_str(rec[key]):
-            problems.append(f"'{key}' must be a list of strings")
-    if "dose_via" in rec and not _is_str(rec["dose_via"]):
-        problems.append("'dose_via' must be a string")
+
+    markers = rec.get("markers")
+    if markers is not None:
+        if not isinstance(markers, list):
+            problems.append("'markers' must be a list of marker mappings")
+        else:
+            for i, mk in enumerate(markers):
+                where = f"markers[{i}]"
+                if not isinstance(mk, dict):
+                    problems.append(f"{where}: must be a mapping")
+                    continue
+                if not mk.get("name") or not _is_str(mk["name"]):
+                    problems.append(f"{where}: missing 'name' (string)")
+                rule = mk.get("rule")
+                if rule is not None and rule not in _MARKER_RULES:
+                    problems.append(f"{where}: rule {rule!r} not in {list(_MARKER_RULES)}")
+                for skey in ("therapy", "answer", "note"):
+                    if skey in mk and not _is_str(mk[skey]):
+                        problems.append(f"{where}: '{skey}' must be a string")
+                if "aliases" in mk and not _is_list_of_str(mk["aliases"]):
+                    problems.append(f"{where}: 'aliases' must be a list of strings")
+
+    spec = rec.get("spectrum_tiers")
+    if spec is not None:
+        if not isinstance(spec, dict):
+            problems.append("'spectrum_tiers' must be a mapping of tier -> {answer, ...}")
+        else:
+            for tname, tspec in spec.items():
+                if not isinstance(tspec, dict):
+                    problems.append(f"spectrum_tiers[{tname}]: must be a mapping")
+                    continue
+                for skey in ("therapy", "answer", "answer_hu"):
+                    if skey in tspec and not _is_str(tspec[skey]):
+                        problems.append(f"spectrum_tiers[{tname}]: '{skey}' must be a string")
+
+    dg = rec.get("disambiguate_genus")
+    if dg is not None:
+        if not isinstance(dg, list):
+            problems.append("'disambiguate_genus' must be a list")
+        else:
+            for i, ent in enumerate(dg):
+                where = f"disambiguate_genus[{i}]"
+                if not isinstance(ent, dict):
+                    problems.append(f"{where}: must be a mapping")
+                    continue
+                if not ent.get("genus") or not _is_str(ent["genus"]):
+                    problems.append(f"{where}: missing 'genus' (string)")
+                if not _is_list_of_str(ent.get("species")):
+                    problems.append(f"{where}: 'species' must be a list of strings")
+
+    if "requires" in rec and not _is_list_of_str(rec["requires"]):
+        problems.append("'requires' must be a list of strings")
+    for key in ("dose_via", "default_answer", "default_answer_hu",
+                "marker_without_pathogen", "marker_without_pathogen_hu",
+                "conflict_answer"):
+        if key in rec and not _is_str(rec[key]):
+            problems.append(f"'{key}' must be a string")
 
 
 def _check_pathway(rec: dict, problems: list[str]) -> None:

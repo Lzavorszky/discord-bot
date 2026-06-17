@@ -118,11 +118,29 @@ def lint_corpus(records: list[tuple[str, dict]]) -> tuple[list[str], list[str]]:
             if isinstance(name, str):
                 resolvable.add(_drug_token(name))
 
+    # Non-drug "therapies" a PCR panel may legitimately recommend — these are
+    # clinical actions, not antibiotics, so they never resolve to a drug_dose
+    # file and must NOT be flagged (else Phase 2.6 would promote them to errors).
+    _non_drug_actions = {
+        _drug_token(x) for x in (
+            "anaerobe guidance", "supportive therapy",
+            "infectious_diseases_consultation", "infectious diseases consultation",
+            "id consultation", "highest_required_tier_agent",
+        )
+    }
+
     def _maybe_ref(label: str, value: str, rid: str) -> None:
-        tok = _drug_token(value)
-        if tok and tok not in resolvable:
-            warnings.append(f"'{rid}': {label} {value!r} does not resolve to a "
-                            f"kind:drug_dose protocol")
+        # Combination regimens ("meropenem + colistin") resolve agent-by-agent;
+        # warn only for an individual agent that is neither a migrated drug nor a
+        # recognised non-drug action.
+        for agent in str(value).split("+"):
+            tok = _drug_token(agent)
+            if not tok or tok in _non_drug_actions or tok in resolvable:
+                continue
+            msg = (f"'{rid}': {label} agent {agent.strip()!r} does not resolve to "
+                   f"a kind:drug_dose protocol")
+            if msg not in warnings:
+                warnings.append(msg)
 
     if drug_ids:  # only meaningful once at least one drug is migrated
         for _, rec in records:

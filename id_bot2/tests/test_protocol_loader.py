@@ -75,11 +75,48 @@ def test_reject_non_string_prep():
 def test_valid_pcr_panel():
     rec = {
         "id": "biofire_ji", "kind": "pcr_panel",
+        "requires": ["at_least_one_detected_pathogen"],
+        "spectrum_tiers": {"1": {"therapy": "ceftriaxone",
+                                 "answer": "Tier 1 - ceftriaxone."}},
+        "disambiguate_genus": [{"genus": "Klebsiella",
+                                "species": ["Klebsiella oxytoca",
+                                            "Klebsiella pneumoniae group"]}],
+        "default_answer": "Send at least one pathogen.",
+        "marker_without_pathogen": "Which pathogen was positive?",
         "organisms": [{"name": "Staphylococcus aureus", "tier": 1,
-                       "therapy": "cefazolin", "aliases": ["S. aureus"]}],
-        "markers": ["mecA"],
+                       "entity_type": "bacteria", "therapy": "cefazolin",
+                       "answer": "MSSA likely - cefazolin.",
+                       "marker_answer": "MRSA likely - vancomycin.",
+                       "aliases": ["S. aureus"]}],
+        "markers": [{"name": "mecA/C & MREJ", "rule": "mrsa",
+                     "therapy": "vancomycin", "aliases": ["mecA", "MREJ"]}],
     }
     assert loader.validate_record(rec) == []
+
+
+def test_reject_unknown_marker_rule():
+    p = loader.validate_record({
+        "id": "x", "kind": "pcr_panel",
+        "organisms": [{"name": "E. coli"}],
+        "markers": [{"name": "weird", "rule": "made_up_rule"}]})
+    assert any("rule 'made_up_rule' not in" in m for m in p)
+
+
+def test_reject_markers_list_of_strings():
+    # the old (pre-2.5) shape is no longer valid: markers must be mappings now.
+    p = loader.validate_record({
+        "id": "x", "kind": "pcr_panel",
+        "organisms": [{"name": "E. coli"}],
+        "markers": ["mecA"]})
+    assert any("markers[0]: must be a mapping" in m for m in p)
+
+
+def test_reject_disambiguate_genus_missing_species():
+    p = loader.validate_record({
+        "id": "x", "kind": "pcr_panel",
+        "organisms": [{"name": "Klebsiella oxytoca"}],
+        "disambiguate_genus": [{"genus": "Klebsiella"}]})
+    assert any("'species' must be a list of strings" in m for m in p)
 
 
 def test_valid_pathway():

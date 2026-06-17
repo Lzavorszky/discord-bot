@@ -1,0 +1,309 @@
+# biofire_joint_infection.yaml — kind: pcr_panel
+# Migrated VERBATIM from protocols/joint_infection_pcr.txt (source v0.2) +
+# joint_infection_pcr.route_claims.json. Organism tiers / baseline therapies /
+# selected-output answer strings / resistance rules are copied straight from the
+# source SELECTED_OUTPUTS, PCR_ORGANISM_MAPPING and PCR_RESISTANCE_RULES.
+# The engine (interpret_pcr) only ever SELECTS among the verbatim outputs below;
+# it never composes a novel recommendation.
+# Clinical hand-check vs source: id_bot2/docs/biofire_joint_infection_handcheck.md
+# (Phase 2.5 — owner sign-off PENDING).
+id: biofire_joint_infection
+kind: pcr_panel
+source_label: BioFire JI
+canonical_name: BioFire Joint Infection Panel
+status: draft
+version: 0.2
+
+# --- panel-level aliases (source ## ALIASES, verbatim) ---
+aliases:
+  - BioFire JI
+  - BioFire joint infection
+  - BioFire joint infection panel
+  - joint infection panel
+  - joint infection PCR
+  - JI panel
+  - JI PCR
+  - FilmArray JI
+  - JiPCR
+
+answers_intents: [test_interpretation, panel_list]
+refuses_intents: [dose]
+
+# --- required input gate (source INPUT_SLOTS.required_for_selection) ---
+requires:
+  - at_least_one_detected_pathogen
+
+# dosing is never emitted from the panel; it is forwarded to a drug_dose protocol
+dose_via: drug_dose
+
+# --- verbatim fixed outputs (source DEFAULT_ANSWER / OUTPUT_TEMPLATES) ---
+default_answer: >-
+  BioFire JI interpretation requires at least one detected pathogen.
+  Resistance markers can only be interpreted together with detected pathogen(s).
+  Send a result, for example: Staphylococcus aureus, Klebsiella pneumoniae group,
+  Pseudomonas aeruginosa, Enterococcus faecium, E. coli + CTX-M.
+default_answer_hu: >-
+  BioFire JI interpretaciohoz kell legalabb egy detektalt korokozo.
+  Rezisztencia marker csak detektalt korokozoval egyutt ertelmezheto.
+  Kuldj egy eredmenyt, peldaul: Staphylococcus aureus, Klebsiella pneumoniae group,
+  Pseudomonas aeruginosa, Enterococcus faecium, E. coli + CTX-M.
+marker_without_pathogen: "Resistance markers can only be interpreted together with detected pathogen(s). Which pathogen was positive?"
+marker_without_pathogen_hu: "Rezisztencia marker csak detektalt korokozoval egyutt ertelmezheto. Melyik korokozo volt pozitiv?"
+conflict_answer: "Conflicting polymicrobial / resistance pattern - ID consultation recommended."
+
+# --- spectrum hierarchy for polymicrobial escalation (source SELECTED_OUTPUTS
+#     TIER_1..TIER_4, verbatim). Used only when >1 organism is detected. ---
+spectrum_tiers:
+  "1": { therapy: ceftriaxone, answer: "Tier 1 - ceftriaxone." }
+  "2": { therapy: cefepime,    answer: "Tier 2 - cefepime." }
+  "3": { therapy: meropenem,   answer: "Tier 3 - meropenem." }
+  "4": { therapy: "meropenem + colistin", answer: "Tier 4 - meropenem + colistin. High MDR risk; ID consultation recommended." }
+
+# --- bare-genus disambiguation (source CHECK_AMBIGUOUS_GENUS; F5) ---
+disambiguate_genus:
+  - genus: Klebsiella
+    species: [Klebsiella pneumoniae group, Klebsiella oxytoca, Klebsiella aerogenes]
+
+# --- resistance markers (source PCR_RESISTANCE_MARKER_ALIASES + PCR_RESISTANCE_RULES) ---
+markers:
+  - name: mecA/C & MREJ
+    rule: mrsa
+    therapy: vancomycin
+    note: MRSA likely where applicable.
+    aliases: [mecA/C, mecA/B, mecA, mecB, mecC, MREJ]
+  - name: VanA/B
+    rule: vre
+    therapy: linezolid
+    note: VRE likely where applicable.
+    aliases: [VanA, VanB, VanA/B]
+  - name: CTX-M
+    rule: ctx_m
+    therapy: meropenem
+    answer: "Tier 3 - meropenem."
+    note: ESBL marker; use meropenem in this protocol.
+    aliases: [CTX-M, CTXM, ESBL]
+  - name: carbapenemase
+    rule: carbapenemase
+    therapy: "meropenem + colistin"
+    answer: "Tier 4 - meropenem + colistin. High MDR risk; ID consultation recommended."
+    note: Carbapenemase marker; ID consultation recommended.
+    aliases: [IMP, KPC, NDM, VIM, OXA-48-like, OXA-48, OXA48, carbapenemase]
+
+# --- organisms: tier + baseline therapy + verbatim single-organism answer ---
+#     (source PCR_ORGANISM_MAPPING + SELECTED_OUTPUTS, verbatim). ---
+organisms:
+  # ---- anaerobes (all share the verbatim ANAEROBE_GUIDANCE output) ----
+  - name: Anaerococcus prevotii/vaginalis
+    entity_type: anaerobe
+    tier: 1
+    therapy: anaerobe guidance
+    answer: "Anaerobe detected. If using cephalosporin therapy, add metronidazole. No additional anaerobe agent is needed with a penicillin derivative such as amoxicillin/clavulanate or piperacillin/tazobactam, or with a carbapenem such as imipenem or meropenem."
+    answer_hu: "Anaerob korokozo detektalodott. Cefalosporin kezeles melle metronidazol kiegeszites szukseges. Penicillin szarmazek vagy karbapenem melle nem szukseges kiegeszites."
+    aliases: [Anaerococcus prevotii/vaginalis, Anaerococcus prevotii, Anaerococcus vaginalis]
+  - name: Clostridium perfringens
+    entity_type: anaerobe
+    tier: 1
+    therapy: anaerobe guidance
+    answer: "Anaerobe detected. If using cephalosporin therapy, add metronidazole. No additional anaerobe agent is needed with a penicillin derivative such as amoxicillin/clavulanate or piperacillin/tazobactam, or with a carbapenem such as imipenem or meropenem."
+    aliases: [Clostridium perfringens]
+  - name: Cutibacterium avidum/granulosum
+    entity_type: anaerobe
+    tier: 1
+    therapy: anaerobe guidance
+    answer: "Anaerobe detected. If using cephalosporin therapy, add metronidazole. No additional anaerobe agent is needed with a penicillin derivative such as amoxicillin/clavulanate or piperacillin/tazobactam, or with a carbapenem such as imipenem or meropenem."
+    aliases: [Cutibacterium avidum/granulosum, Cutibacterium avidum, Cutibacterium granulosum]
+  - name: Finegoldia magna
+    entity_type: anaerobe
+    tier: 1
+    therapy: anaerobe guidance
+    answer: "Anaerobe detected. If using cephalosporin therapy, add metronidazole. No additional anaerobe agent is needed with a penicillin derivative such as amoxicillin/clavulanate or piperacillin/tazobactam, or with a carbapenem such as imipenem or meropenem."
+    aliases: [Finegoldia magna]
+  - name: Parvimonas micra
+    entity_type: anaerobe
+    tier: 1
+    therapy: anaerobe guidance
+    answer: "Anaerobe detected. If using cephalosporin therapy, add metronidazole. No additional anaerobe agent is needed with a penicillin derivative such as amoxicillin/clavulanate or piperacillin/tazobactam, or with a carbapenem such as imipenem or meropenem."
+    aliases: [Parvimonas micra]
+  - name: Peptoniphilus
+    entity_type: anaerobe
+    tier: 1
+    therapy: anaerobe guidance
+    answer: "Anaerobe detected. If using cephalosporin therapy, add metronidazole. No additional anaerobe agent is needed with a penicillin derivative such as amoxicillin/clavulanate or piperacillin/tazobactam, or with a carbapenem such as imipenem or meropenem."
+    aliases: [Peptoniphilus]
+  - name: Peptostreptococcus anaerobius
+    entity_type: anaerobe
+    tier: 1
+    therapy: anaerobe guidance
+    answer: "Anaerobe detected. If using cephalosporin therapy, add metronidazole. No additional anaerobe agent is needed with a penicillin derivative such as amoxicillin/clavulanate or piperacillin/tazobactam, or with a carbapenem such as imipenem or meropenem."
+    aliases: [Peptostreptococcus anaerobius, Peptosptreptococcus anaerobius]
+  - name: Bacteroides fragilis
+    entity_type: anaerobe
+    tier: 1
+    therapy: anaerobe guidance
+    answer: "Anaerobe detected. If using cephalosporin therapy, add metronidazole. No additional anaerobe agent is needed with a penicillin derivative such as amoxicillin/clavulanate or piperacillin/tazobactam, or with a carbapenem such as imipenem or meropenem."
+    aliases: [Bacteroides fragilis]
+
+  # ---- enterococci ----
+  - name: Enterococcus faecalis
+    entity_type: bacteria
+    tier: 1
+    therapy: ampicillin + vancomycin
+    answer: "Enterococcus faecalis - ampicillin + vancomycin. Vancomycin can be de-escalated if the isolate is ampicillin-susceptible."
+    answer_hu: "Enterococcus faecalis - ampicillin + vancomycin. Vancomycin deeszkalalhato, ha ampicillin-erzekeny a torzs."
+    marker_answer: "Enterococcus faecalis + VanA/B - linezolid; baseline ampicillin + vancomycin context requires susceptibility review."
+    marker_rules: ["VanA/B -> linezolid"]
+    aliases: [Enterococcus faecalis, E. faecalis, E faecalis]
+  - name: Enterococcus faecium
+    entity_type: bacteria
+    tier: 1
+    therapy: linezolid
+    answer: "Enterococcus faecium - linezolid."
+    aliases: [Enterococcus faecium, E. faecium, E faecium]
+
+  # ---- staphylococci ----
+  - name: Staphylococcus aureus
+    entity_type: bacteria
+    tier: 1
+    therapy: cefazolin
+    answer: "Staphylococcus aureus without mecA/C, mecA/B, or MREJ - MSSA likely - cefazolin."
+    marker_answer: "Staphylococcus aureus + mecA/C, mecA/B, or MREJ - MRSA likely - vancomycin."
+    marker_rules: ["mecA/C, mecA/B, or MREJ -> vancomycin"]
+    aliases: [Staphylococcus aureus, Staph aureus, S. aureus]
+  - name: Staphylococcus lugdunensis
+    entity_type: bacteria
+    tier: 1
+    therapy: cefazolin
+    answer: "Cefazolin."
+    aliases: [Staphylococcus lugdunensis, Staph lugdunensis, S. lugdunensis]
+
+  # ---- streptococci ----
+  - name: Streptococcus agalactiae
+    entity_type: bacteria
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Streptococcus agalactiae, Strep agalactiae, GBS, group B strep]
+  - name: Streptococcus pneumoniae
+    entity_type: bacteria
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Streptococcus pneumoniae, Strep pneumoniae, Strep pneumo, Strep pn, S. pneumoniae, S.pneumoniae, pneumococcus, pneumococcal]
+  - name: Streptococcus pyogenes
+    entity_type: bacteria
+    tier: 2
+    therapy: penicillin + clindamycin
+    answer: "Streptococcus pyogenes - penicillin + clindamycin."
+    aliases: [Streptococcus pyogenes, Strep pyogenes, GAS, group A strep]
+
+  # ---- gram-negatives ----
+  - name: Citrobacter
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Citrobacter]
+  - name: Enterobacter cloacae
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 2
+    therapy: cefepime
+    answer: "Tier 2 - cefepime."
+    marker_rules: ["CTX-M positive -> meropenem"]
+    aliases: [Enterobacter cloacae, Enterobacter cloaceae]
+  - name: Escherichia coli
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    marker_rules: ["CTX-M positive -> meropenem"]
+    aliases: [Escherichia coli, E. coli, E coli, ecoli, e.coli]
+  - name: Haemophilus influenzae
+    entity_type: gram_negative
+    enterobacterales: false
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Haemophilus influenzae, Haemophilus, H. influenzae]
+  - name: Kingella kingae
+    entity_type: gram_negative
+    enterobacterales: false
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Kingella kingae, Kingella]
+  - name: Klebsiella aerogenes
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 2
+    therapy: cefepime
+    answer: "Tier 2 - cefepime."
+    marker_rules: ["CTX-M positive -> meropenem"]
+    aliases: [Klebsiella aerogenes]
+  - name: Klebsiella oxytoca
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    marker_rules: ["CTX-M positive -> meropenem"]
+    aliases: [Klebsiella oxytoca]
+  - name: Klebsiella pneumoniae group
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    marker_rules: ["CTX-M positive -> meropenem"]
+    aliases: [Klebsiella pneumoniae group, Klebsiella pneumoniae, Klebsiella pn, KPN]
+  - name: Morganella morganii
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    marker_rules: ["CTX-M positive -> meropenem"]
+    aliases: [Morganella morganii, Morganella]
+  - name: Neisseria gonorrhoeae
+    entity_type: gram_negative
+    enterobacterales: false
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Neisseria gonorrhoeae, Neisseria gonorhoeae, Neisseria]
+  - name: Proteus spp.
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 2
+    therapy: cefepime
+    answer: "Tier 2 - cefepime."
+    aliases: [Proteus spp., Proteus]
+  - name: Pseudomonas aeruginosa
+    entity_type: gram_negative
+    enterobacterales: false
+    tier: 2
+    therapy: cefepime
+    answer: "Tier 2 - cefepime."
+    aliases: [Pseudomonas aeruginosa, Pseudomonas]
+  - name: Salmonella spp.
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 1
+    therapy: ceftriaxone
+    answer: "Tier 1 - ceftriaxone."
+    aliases: [Salmonella spp., Salmonella]
+  - name: Serratia marcescens
+    entity_type: gram_negative
+    enterobacterales: true
+    tier: 2
+    therapy: cefepime
+    answer: "Tier 2 - cefepime."
+    aliases: [Serratia marcescens, Serratia]
+
+# --- footer (source DEFAULT_FOOTER, verbatim) ---
+footer: >-
+  For skin-soft tissue infections safe to use this protocol as is. For nosocomial
+  intra-abdominal infection, use JI PCR for regimen broadening only. Do not narrow
+  below meropenem from PCR alone; wait for conventional culture and susceptibility.

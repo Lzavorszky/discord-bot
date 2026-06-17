@@ -137,15 +137,61 @@ PROTOCOL_JSON_SCHEMA = {
                     "name": {"type": "string"},
                     "tier": {"type": "integer"},
                     "therapy": {"type": "string"},
+                    "entity_type": {"type": "string"},
+                    "enterobacterales": {"type": "boolean"},
+                    "answer": {"type": "string"},
+                    "answer_hu": {"type": "string"},
+                    "marker_answer": {"type": "string"},
+                    "marker_answer_hu": {"type": "string"},
                     "aliases": {"type": "array", "items": {"type": "string"}},
                     "marker_rules": {"type": "array", "items": {"type": "string"}},
                 },
             },
         },
-        "markers": {"type": "array", "items": {"type": "string"}},
-        "disambiguate_genus": {"type": "array", "items": {"type": "string"}},
+        "markers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string"},
+                    "rule": {"type": "string"},
+                    "therapy": {"type": "string"},
+                    "answer": {"type": "string"},
+                    "note": {"type": "string"},
+                    "aliases": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        },
+        "spectrum_tiers": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "therapy": {"type": "string"},
+                    "answer": {"type": "string"},
+                    "answer_hu": {"type": "string"},
+                },
+            },
+        },
+        "disambiguate_genus": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["genus", "species"],
+                "properties": {
+                    "genus": {"type": "string"},
+                    "species": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        },
         "requires": {"type": "array", "items": {"type": "string"}},
         "dose_via": {"type": "string"},
+        "default_answer": {"type": "string"},
+        "default_answer_hu": {"type": "string"},
+        "marker_without_pathogen": {"type": "string"},
+        "marker_without_pathogen_hu": {"type": "string"},
+        "conflict_answer": {"type": "string"},
         # pathway
         "outputs": {
             "type": "object",
@@ -205,7 +251,10 @@ KIND_REQUIRED = {
 # during the bulk migration). Common fields are allowed on every kind.
 KIND_FIELDS = {
     "drug_dose": {"slots", "tiers", "select", "never", "prep", "notes"},
-    "pcr_panel": {"organisms", "markers", "disambiguate_genus", "requires", "dose_via"},
+    "pcr_panel": {"organisms", "markers", "disambiguate_genus", "requires",
+                  "dose_via", "spectrum_tiers", "default_answer", "default_answer_hu",
+                  "marker_without_pathogen", "marker_without_pathogen_hu",
+                  "conflict_answer"},
     "pathway": {"slots", "outputs", "select", "doses"},
     "prose": {"sections"},
 }
