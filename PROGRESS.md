@@ -4,13 +4,15 @@
 
 ---
 
-## ⚠ Standing reminders (surface to owner L EVERY session until cleared)
+## ✅ Clinical sign-offs — COMPLETE (2026-06-17)
 
-- **CLINICAL SIGN-OFFS — nearly complete; remind the owner each session, but DO NOT block on it.** The hand-check sheets (`id_bot2/docs/*_handcheck.md`) for the 28 antibiotics + vancomycin (29 protocols total after imipenem/cilastatin/relebactam was removed 2026-06-17) need owner L's clinical sign-off. This gates **go-live (cutover, Phase 6) only — NOT the refactor.** So: at the start of every session, tell L these are still outstanding and offer to walk through a batch; then carry on with the planned chunk regardless. Tick drugs off below as they're signed, and **delete this whole reminder once all are signed.**
-  - **Signed (26 of 29)** — meropenem ✓ (2026-06-16); all signed 2026-06-17 unless noted. Trivial: amikacin, clindamycin, linezolid, moxifloxacin, tigecycline, voriconazole. Mid: ceftriaxone, clarithromycin, metronidazole, oseltamivir, penicillin. Complex: cefazolin, cefepime, cefuroxime, ceftazidime, cefiderocol, ceftazidime_avibactam, ceftolozane_tazobactam, ampicillin, ampsul, piperacillin_tazobactam, ciprofloxacin, levofloxacin, imipenem_cilastatin, colomycin.
-  - **Removed 2026-06-17 (owner L): imipenem/cilastatin/relebactam** — not on the hospital formulary. Dropped from id_bot2 (protocol YAML + hand-check + 6 harness cases removed; router auto-updates; total drug_dose protocols 30 → **29**). Legacy `protocols/antibiotics/imipenem_cilastatin_relebactam.txt` left untouched (old bot retires at cutover).
-  - **Pending (3):** fosfomycin, fluconazole, **vancomycin**.
+**All 29 drug_dose hand-checks are signed off by owner L** (`id_bot2/docs/*_handcheck.md`):
+meropenem (2026-06-16) + the other 28 on 2026-06-17. No longer a go-live blocker.
+imipenem/cilastatin/relebactam was **removed** (not on formulary), so the set is 29 protocols.
 
+Remaining go-live (Phase 6) tidy-ups — NOT sign-off, do before cutover:
+- **meropenem** `footer` is still the placeholder `"Think TDM! replace later"` — replace with real guidance.
+- (vancomycin footer source typo "Ae you"→"Are you" already corrected 2026-06-17.)
 ---
 
 ## How we run this build
@@ -18,7 +20,7 @@
 - **One coherent chunk per session.** Each ends green (`./check.sh`) and committed. A session running out mid-chunk is fine — this file is the bookmark.
 - **Branch, never main.** All work on `rebuild-d`. The live bot on `main` is untouched until cutover (Phase 6).
 - **Per-session ritual:**
-  1. Read this file (incl. the **⚠ Standing reminders** above — surface them to the owner before starting).
+  1. Read this file (the sign-off section is now COMPLETE; surface any remaining go-live tidy-ups if relevant).
   2. `git checkout rebuild-d && ./check.sh`  → confirm prior phases still green.
   3. Do the session's chunk.
   4. `./check.sh` → must be green.
@@ -134,6 +136,7 @@ These are intentionally deferred to the very end of the rebuild; come back to th
 | 2026-06-16 | Phase 2.4 | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | First real protocol migrated: `meropenem.yaml` (drug_dose) schema-valid + linter-green over **non-empty** corpus (1 record, no alias collisions). 58 id_bot2 unit + 11 contract tests green. Clinical hand-check sheet produced; **human sign-off pending**. Legacy 330/331 (same noted env failure). |
 | 2026-06-16 | Phase 2.4 rev 2 | offline 20/20 cases valid; old-bot baseline **pending (needs key)** | Schema extended (`prep`/`notes` on drug_dose, +2 tests → 60 id_bot2 unit). Owner edits to meropenem.yaml: NORMAL 4 g/day @ 8.3 mL/h, footer placeholder, prep field carries reduced-dose note. Hand-check rev 2; **sign-off (incl. NORMAL change) pending**. Legacy 330/331 (same noted env failure). |
 | 2026-06-16 | Phase 3.3 | **`--target new` 118/118 PASS** (100%); 28 test_get_dose.py still pass | `get_dose.py` `**extra_slots` patch; 111 new call: cases (28 protocols) + 7 existing meropenem = 118 total. Commit `590af33`. |
+| 2026-06-17 | Sign-off COMPLETE | **`--target new` 125/125 PASS**; 119 id_bot2 unit; 29/29 protocols valid | All 29 hand-checks signed by owner L. vancomycin footer typo corrected ("Ae you"→"Are you"). Standing sign-off reminder retired. Legacy 330/331 (same noted env failure). |
 | 2026-06-17 | Sign-off + formulary | **`--target new` 125/125 PASS**; 119 id_bot2 unit; 29/29 protocols valid | Clinical sign-off batches 1–3c: 26/29 hand-checks signed by owner L (pending: fosfomycin, fluconazole, vancomycin). **imipenem/cilastatin/relebactam removed** (not on formulary): protocol+sheet+6 harness cases dropped, router tests re-pointed to ceftazidime/avibactam. Legacy 330/331 (same noted env failure). |
 | 2026-06-17 | Phase 4 (router) | **`--target new` 131/131 PASS** (with router input→call cross-check); 119 id_bot2 unit (31 new router tests); 30/30 protocols valid | `router.py`: deterministic alias+slot resolver (compound-name containment, declared-slot gating) + LLM `call_with_tools` dispatch; no-drug→unsupported, 2+→clarify. Harness routes `input` and asserts same drug/tool as `call:`. Legacy 330/331 (same noted env failure). |
 | 2026-06-16 | Phase 3.4 | **`--target new` 131/131 PASS**; 88 id_bot2 unit; 30/30 protocols valid | vancomycin migrated (24 tiers, TDM + weight×renal, no computation) + 13 harness cases; `get_dose` out-of-range generalized to all numeric slots (no regression). Hand-check written, **sign-off pending**. Legacy 330/331 (same noted env failure). |

@@ -1,5 +1,7 @@
 # Clinical hand-check — `vancomycin.yaml` vs source `vancomycin.txt`
 
+> **SIGNED OFF — owner L, 2026-06-17.** Doses/tiers/selection confirmed against source; faithful migration. Footer source typo 'Ae you'→'Are you' corrected per owner 2026-06-17. (Batch 3d, final.)
+
 **Phase 3.4 sign-off sheet (2026-06-16).** The non-delegable human check: confirm every dose,
 band, and TDM action in `id_bot2/protocols/vancomycin.yaml` matches the source
 `protocols/antibiotics/vancomycin.txt`. Validator green (`python id_bot2/validate_protocols.py`);
@@ -78,7 +80,7 @@ out-of-range vancomycin_level / body_weight / gfr / mic. No-input → full table
    maintenance_dose. Migrated as `"loading <X>, then <maintenance>"`. No value altered.
 2. **`when` carries the weight context** for weight-qualified tiers (e.g. `TBW <65 kg + GFR >=50`,
    from the source display_name) so the tier is self-describing.
-3. **Footer transcribed verbatim, including a source typo** ("Ae you sure", "Does this pt has MRSA").
+3. **Footer transcribed verbatim.** Source typo "Ae you sure" → **corrected to "Are you sure" per owner L 2026-06-17**; the colloquial "Does this pt has MRSA" left verbatim (clinically clear).
    Flagged for an optional copy-edit before go-live — kept verbatim here per the no-edit migration rule.
 4. **INFO_BLOCKS / OUTPUT_TEMPLATES not migrated** (target/monitoring/MIC info, render templates). The key
    MIC>1.0 and target-level guidance is preserved in `notes` + `footer`; the rest is rendering/meta the
