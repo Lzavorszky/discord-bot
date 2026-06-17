@@ -46,12 +46,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from textnorm import fold_accents  # noqa: E402
 
 VALID_ROUTES = {
-    "drug_dose", "pcr_panel", "pathway", "prose", "table_lookup",
+    "drug_dose", "pcr_panel", "pathway", "prose", "table_lookup", "calculator",
     "clarify", "unsupported", "out_of_scope",
 }
 VALID_TOOLS = {
     "get_dose", "interpret_pcr", "select_pathway", "answer_from_section",
-    "list_panel", "get_table_dose", "ask_clarification", "none",
+    "list_panel", "get_table_dose", "calculate", "ask_clarification", "none",
 }
 VALID_STATUS = {"known_fail", "baseline", "new"}
 VALID_EXPECT_KEYS = {
@@ -139,6 +139,12 @@ def validate_cases(cases: list[dict]) -> list[str]:
                     # table_lookup calls key off a table_id.
                     if "table_id" not in call:
                         problems.append(f"{where}: table_lookup call needs a 'table_id'")
+                    if "slots" in call and not isinstance(call["slots"], dict):
+                        problems.append(f"{where}: 'call.slots' must be a mapping")
+                elif ctool == "calculate":
+                    # calculator calls key off a calculator_id.
+                    if "calculator_id" not in call:
+                        problems.append(f"{where}: calculator call needs a 'calculator_id'")
                     if "slots" in call and not isinstance(call["slots"], dict):
                         problems.append(f"{where}: 'call.slots' must be a mapping")
                 else:
@@ -282,6 +288,15 @@ def _get_table_module():
     return td
 
 
+def _get_calc_module():
+    """Import the calculate tool lazily."""
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here / "tools"))
+    sys.path.insert(0, _PROTOCOLS_DIR)
+    import calculate as ca  # noqa: E402
+    return ca
+
+
 _ROUTER = None
 
 
@@ -345,6 +360,15 @@ def _router_crosscheck(case: dict, call: dict) -> list[str]:
         if res.protocol != call["table_id"]:
             problems.append(f"router: input routed to table {res.protocol!r}, "
                             f"expected {call['table_id']!r}")
+    elif tool == "calculate":
+        if res.route != "calculator":
+            problems.append(f"router: input routed to {res.route!r}, expected "
+                            f"'calculator' (answer: {res.answer[:60]!r})")
+        if res.tool != "calculate":
+            problems.append(f"router: tool {res.tool!r}, expected 'calculate'")
+        if res.protocol != call["calculator_id"]:
+            problems.append(f"router: input routed to calculator {res.protocol!r}, "
+                            f"expected {call['calculator_id']!r}")
     return problems
 
 
@@ -360,6 +384,8 @@ def _evaluate_new_call(case: dict, call: dict, result: dict) -> dict:
         return _evaluate_pathway_call(case, call, result)
     if tool == "get_table_dose":
         return _evaluate_table_call(case, call, result)
+    if tool == "calculate":
+        return _evaluate_calculator_call(case, call, result)
     if tool != "get_dose":
         result["result"] = SKIP
         result["reasons"] = [f"call.tool {tool!r} not implemented in the slice yet"]
@@ -428,6 +454,44 @@ def _evaluate_pcr_call(case: dict, call: dict, result: dict) -> dict:
         reasons.append("expected a clarifying response, got an interpretation")
     if "clarifies" in expect and not expect.get("clarifies") and clar:
         reasons.append(f"unexpected clarifying response ({res.clarify_reason})")
+    _, text_reasons = check_text_expectations(answer, expect)
+    reasons += text_reasons
+    reasons += _router_crosscheck(case, call)
+    result["result"] = FAIL if reasons else PASS
+    result["reasons"] = reasons
+    return result
+
+
+def _evaluate_calculator_call(case: dict, call: dict, result: dict) -> dict:
+    """Run a calculator `call:` (calculate) and check the structured + text
+    expectations, plus the router input->call cross-check. This is the only tool
+    that COMPUTES; the harness asserts the computed numbers via output_has."""
+    expect = case.get("expect", {}) or {}
+    try:
+        ca = _get_calc_module()
+        slots = call.get("slots") or {}
+        res = ca.calculate(call["calculator_id"], protocols_dir=_PROTOCOLS_DIR,
+                           **slots)
+        answer = ca.render_calc(res)
+    except Exception as exc:  # noqa: BLE001
+        result["result"] = ERROR
+        result["reasons"] = [f"{type(exc).__name__}: {exc}"]
+        return result
+
+    result["answer"] = answer
+    reasons: list[str] = []
+    actual = {"route": res.route, "tool": res.tool, "protocol": res.calculator_id}
+    for key in ("route", "tool", "protocol"):
+        if key in expect and expect[key] != actual[key]:
+            reasons.append(f"{key}: expected {expect[key]!r}, got {actual[key]!r}")
+    # `clarifies` for a calculator = a non-compute outcome (default / needs_input
+    # / needs_confirmation / unsupported_value) — i.e. it did NOT emit a number.
+    clar = res.mode != "compute"
+    if "clarifies" in expect:
+        if expect.get("clarifies") and not clar:
+            reasons.append("expected a clarifying/ask response, got a computed answer")
+        if not expect.get("clarifies") and clar:
+            reasons.append(f"unexpected non-compute response (mode={res.mode})")
     _, text_reasons = check_text_expectations(answer, expect)
     reasons += text_reasons
     reasons += _router_crosscheck(case, call)

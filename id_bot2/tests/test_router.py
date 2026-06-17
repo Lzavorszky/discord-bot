@@ -21,6 +21,7 @@ from router import (   # noqa: E402
     PanelCall, resolve_pcr,
     PathwayCall, resolve_pathway,
     TableCall, resolve_table,
+    CalcCall, resolve_calculator,
     SAFETY_RULES, ROUTER_SYSTEM, PHRASING_SYSTEM,
 )
 from llm.tools import Tool, ToolCall                                 # noqa: E402
@@ -838,3 +839,122 @@ class TestTableLookupRouting(unittest.TestCase):
             arguments={"table_id": "not_a_table", "indication": "PCP"}))
         r = self.R.route("zzzqqq nonsense", provider=prov)
         self.assertEqual(r.route, "unsupported")
+
+
+# --------------------------------------------------------------------------- #
+# Calculator routing (Plan D, final migration phase). A named calculator (body  #
+# size / steroid equivalence) is the only COMPUTING route; precedence is        #
+# panel > table_lookup > pathway > calculator > drug.                           #
+# --------------------------------------------------------------------------- #
+class TestCalculatorRouting(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.router = Router(protocols_dir=PROTOCOLS)
+
+    # registry / tool schema ------------------------------------------------
+    def test_registry_has_both_calculators(self):
+        self.assertIn("body_size_calculators", self.router.calcs)
+        self.assertIn("steroid_equivalence", self.router.calcs)
+
+    def test_calc_tool_has_closed_enum(self):
+        tool = next(t for t in self.router.tools() if t.name == "calculate")
+        enum = tool.parameters["properties"]["calculator_id"]["enum"]
+        self.assertEqual(set(enum), {"body_size_calculators", "steroid_equivalence"})
+        # steroid_agent surfaced as a closed enum too
+        self.assertIn("steroid_agent", tool.parameters["properties"])
+        self.assertIn("dexamethasone",
+                      tool.parameters["properties"]["steroid_agent"]["enum"])
+
+    # deterministic alias resolution ---------------------------------------
+    def test_resolve_body_size_by_alias(self):
+        call = resolve_calculator("body size calculator height 170 cm weight 70 kg",
+                                  self.router.calcs)
+        self.assertIsInstance(call, CalcCall)
+        self.assertEqual(call.calc_id, "body_size_calculators")
+        self.assertEqual(call.slots, {"height_cm": 170, "actual_weight_kg": 70})
+
+    def test_resolve_bmi_alias_and_unit_extraction(self):
+        call = resolve_calculator("bmi calculator 180 cm 90 kg", self.router.calcs)
+        self.assertEqual(call.calc_id, "body_size_calculators")
+        self.assertEqual(call.slots["height_cm"], 180)
+        self.assertEqual(call.slots["actual_weight_kg"], 90)
+
+    def test_resolve_steroid_equivalence(self):
+        call = resolve_calculator("steroid equivalence dexamethasone 6 mg",
+                                  self.router.calcs)
+        self.assertEqual(call.calc_id, "steroid_equivalence")
+        self.assertEqual(call.slots,
+                         {"steroid_agent": "dexamethasone", "steroid_dose_mg": 6})
+
+    def test_resolve_steroid_via_conversion_alias(self):
+        call = resolve_calculator("hydrocortisone conversion 100 mg", self.router.calcs)
+        self.assertEqual(call.calc_id, "steroid_equivalence")
+        self.assertEqual(call.slots["steroid_agent"], "hydrocortisone")
+        self.assertEqual(call.slots["steroid_dose_mg"], 100)
+
+    def test_steroid_synonym_dexa(self):
+        call = resolve_calculator("steroid equivalence dexa 6 mg", self.router.calcs)
+        self.assertEqual(call.slots.get("steroid_agent"), "dexamethasone")
+
+    def test_no_calculator_named_returns_none(self):
+        self.assertIsNone(resolve_calculator("meropenem gfr 40", self.router.calcs))
+
+    # end-to-end route ------------------------------------------------------
+    def test_route_body_size_computes(self):
+        res = self.router.route("body size calculator height 170 cm weight 70 kg")
+        self.assertEqual(res.route, "calculator")
+        self.assertEqual(res.tool, "calculate")
+        self.assertEqual(res.protocol, "body_size_calculators")
+        self.assertIn("BMI: 24.2", res.answer)
+        self.assertFalse(res.needs_clarification)
+
+    def test_route_steroid_computes(self):
+        res = self.router.route("steroid equivalence dexamethasone 6 mg")
+        self.assertEqual(res.protocol, "steroid_equivalence")
+        self.assertIn("hydrocortisone: 160.00 mg", res.answer)
+
+    def test_route_calculator_no_input_is_default(self):
+        res = self.router.route("body size calculator")
+        self.assertEqual(res.route, "calculator")
+        self.assertIn("cm", res.answer)
+
+    def test_route_calculator_partial_asks(self):
+        res = self.router.route("ideal body weight calculator height 165 cm")
+        self.assertEqual(res.route, "calculator")
+        self.assertTrue(res.needs_clarification)
+
+    def test_route_calculator_out_of_range_confirms(self):
+        res = self.router.route("body size calculator height 400 cm weight 70 kg")
+        self.assertEqual(res.route, "calculator")
+        self.assertTrue(res.needs_clarification)
+
+    def test_drug_query_not_captured_by_calculator(self):
+        res = self.router.route("meropenem gfr 40")
+        self.assertEqual(res.route, "drug_dose")
+        self.assertEqual(res.protocol, "meropenem")
+
+    # LLM path --------------------------------------------------------------
+    def test_llm_dispatch_calculate(self):
+        prov = ScriptedProvider(ToolCall(
+            name="calculate",
+            arguments={"calculator_id": "body_size_calculators",
+                       "height_cm": 170, "actual_weight_kg": 70}))
+        # use an input with no deterministic calculator alias so the LLM stage runs
+        res = self.router.route("compute body metrics 170 70", provider=prov)
+        self.assertEqual(prov.calls, 1)
+        self.assertEqual(res.route, "calculator")
+        self.assertEqual(res.protocol, "body_size_calculators")
+        self.assertIn("BMI", res.answer)
+
+    def test_llm_unknown_calculator_id_unsupported(self):
+        prov = ScriptedProvider(ToolCall(
+            name="calculate", arguments={"calculator_id": "made_up_calc"}))
+        res = self.router.route("compute something weird", provider=prov)
+        self.assertEqual(res.route, "unsupported")
+        self.assertIsNone(res.dose)
+
+    def test_llm_prose_not_treated_as_answer(self):
+        prov = ScriptedProvider("BMI is weight over height squared")
+        res = self.router.route("how do i compute body metrics", provider=prov)
+        self.assertEqual(res.route, "unsupported")
+

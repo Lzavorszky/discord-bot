@@ -1541,3 +1541,83 @@ cases:
     expect: { route: table_lookup, tool: get_table_dose, protocol: tmpsmx, clarifies: false, output_has: ["HIGH_DOSE", "3 x 4 amp"], output_not: ["1 tablet"] }
     status: new
     note: "F3/F4: a treatment indication in an immunosuppressed patient is HIGH_DOSE, not prophylaxis."
+
+  # ---------------------------------------------------------------------------
+  # calculator (kind: calculator) — the final migration phase, and the ONLY tool
+  # that COMPUTES. Each case carries an explicit `call:` (calculate +
+  # calculator_id + slots) AND its `input` is routed through the deterministic
+  # router and cross-checked to land on the same calculator. The output_has
+  # substrings are the HAND-COMPUTED values (re-derivable from the source
+  # formulas) — so the harness pins the arithmetic, not just the routing.
+  # ---------------------------------------------------------------------------
+  - id: bmi_bsa_170_70
+    input: "body size calculator height 170 cm weight 70 kg"
+    lang: en
+    call: { tool: calculate, calculator_id: body_size_calculators, slots: { height_cm: 170, actual_weight_kg: 70 } }
+    expect: { route: calculator, tool: calculate, protocol: body_size_calculators, clarifies: false, output_has: ["BMI: 24.2", "BSA (Mosteller): 1.82", "IBW (male formula): 66.0", "IBW (female formula): 61.5", "67.6", "64.9"] }
+    status: new
+    note: "Hand: BMI 70/1.7^2=24.2; BSA sqrt(170*70/3600)=1.82; IBWm 66.0; IBWf 61.5; AdjBWm 67.6; AdjBWf 64.9."
+
+  - id: bmi_reports_both_sex
+    input: "ideal body weight calculator 180 cm 90 kg"
+    lang: en
+    call: { tool: calculate, calculator_id: body_size_calculators, slots: { height_cm: 180, actual_weight_kg: 90 } }
+    expect: { route: calculator, tool: calculate, protocol: body_size_calculators, clarifies: false, output_has: ["male formula", "female formula"] }
+    status: new
+    note: "Source SAFETY_RULE: report BOTH male- and female-formula IBW/AdjBW; never ask for sex."
+
+  - id: bmi_partial_input_asks
+    input: "bmi calculator height 165 cm"
+    lang: en
+    call: { tool: calculate, calculator_id: body_size_calculators, slots: { height_cm: 165 } }
+    expect: { route: calculator, tool: calculate, protocol: body_size_calculators, clarifies: true, output_has: ["height in cm and actual body weight in kg"] }
+    status: new
+    note: "Required-slot gate: weight missing -> verbatim missing-input ask, never a guess."
+
+  - id: bmi_out_of_range_confirms
+    input: "body size calculator height 400 cm weight 70 kg"
+    lang: en
+    call: { tool: calculate, calculator_id: body_size_calculators, slots: { height_cm: 400, actual_weight_kg: 70 } }
+    expect: { route: calculator, tool: calculate, protocol: body_size_calculators, clarifies: true }
+    status: new
+    note: "Out-of-range numeric (ask_confirmation) -> needs_confirmation, run no formula."
+
+  - id: bmi_no_input_default
+    input: "body size calculator"
+    lang: en
+    call: { tool: calculate, calculator_id: body_size_calculators, slots: {} }
+    expect: { route: calculator, tool: calculate, protocol: body_size_calculators, clarifies: true, output_has: ["cm and kg"] }
+    status: new
+    note: "No input -> verbatim DEFAULT_ANSWER (asks for cm + kg)."
+
+  - id: steroid_dexamethasone_6mg
+    input: "steroid equivalence dexamethasone 6 mg"
+    lang: en
+    call: { tool: calculate, calculator_id: steroid_equivalence, slots: { steroid_agent: dexamethasone, steroid_dose_mg: 6 } }
+    expect: { route: calculator, tool: calculate, protocol: steroid_equivalence, clarifies: false, output_has: ["methylprednisone: 32.00 mg", "hydrocortisone: 160.00 mg", "prednisolone: 40.00 mg", "fludrocortisone: 16.00 mg"] }
+    status: new
+    note: "Hand: factor=6/1.5=4; methylpred 32, hydro 160, pred 40, fludro 16, dexa 6."
+
+  - id: steroid_hydrocortisone_100mg
+    input: "hydrocortisone conversion 100 mg"
+    lang: en
+    call: { tool: calculate, calculator_id: steroid_equivalence, slots: { steroid_agent: hydrocortisone, steroid_dose_mg: 100 } }
+    expect: { route: calculator, tool: calculate, protocol: steroid_equivalence, clarifies: false, output_has: ["dexamethasone: 3.75 mg", "prednisolone: 25.00 mg", "methylprednisone: 20.00 mg"] }
+    status: new
+    note: "Hand: factor=100/40=2.5; dexa 3.75, pred 25, methylpred 20."
+
+  - id: steroid_unsupported_agent_routes_but_asks
+    input: "steroid equivalence calculator budesonide 5 mg"
+    lang: en
+    call: { tool: calculate, calculator_id: steroid_equivalence, slots: { steroid_agent: budesonide, steroid_dose_mg: 5 } }
+    expect: { route: calculator, tool: calculate, protocol: steroid_equivalence, clarifies: true, output_has: ["only for methylprednisone"] }
+    status: new
+    note: "An unsupported steroid -> verbatim UNSUPPORTED_STEROID message (lookup miss), never a guessed conversion."
+
+  - id: steroid_missing_dose_asks
+    input: "dexamethasone equivalent"
+    lang: en
+    call: { tool: calculate, calculator_id: steroid_equivalence, slots: { steroid_agent: dexamethasone } }
+    expect: { route: calculator, tool: calculate, protocol: steroid_equivalence, clarifies: true, output_has: ["steroid and dose in mg"] }
+    status: new
+    note: "Required-slot gate: dose missing -> verbatim missing-input ask."

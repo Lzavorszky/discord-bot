@@ -8,6 +8,7 @@ declares a `kind`, and the shared engine answers it accordingly:
   pcr_panel  — a BioFire-style organism panel (joint infection, pneumonia).
   pathway    — an empiric-treatment ladder (CAP, UTI, ...).
   prose      — bounded-text, section-addressable protocols (periop meds).
+  calculator — explicit-formula calculators (body size, steroid equivalence).
 
 This module is the single declarative source of truth for what a valid protocol
 looks like. It exposes:
@@ -27,7 +28,8 @@ from __future__ import annotations
 # --------------------------------------------------------------------------- #
 # Enums shared across the loader, the linter, and (later) the tools.          #
 # --------------------------------------------------------------------------- #
-KINDS = ("drug_dose", "pcr_panel", "pathway", "prose", "table_lookup")
+KINDS = ("drug_dose", "pcr_panel", "pathway", "prose", "table_lookup",
+         "calculator")
 
 # Intents a protocol may declare it answers / refuses (routing metadata that
 # replaces the old .route_claims.json sidecars). Kept permissive but closed so a
@@ -293,6 +295,36 @@ PROTOCOL_JSON_SCHEMA = {
                 },
             },
         },
+        # calculator (the only computing kind — explicit declared formulas)
+        "methods": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "compute"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "requires": {"type": "array", "items": {"type": "string"}},
+                    "compute": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["name"],
+                            "properties": {
+                                "name": {"type": "string"},
+                                "expr": {"type": "string"},
+                                "lookup": {"type": "string"},
+                                "table": {"type": "object"},
+                            },
+                        },
+                    },
+                    "outputs": {"type": "array", "items": {"type": "string"}},
+                    "template_en": {"type": "string"},
+                    "template_hu": {"type": "string"},
+                },
+            },
+        },
+        "unsupported_value": {"type": "string"},
+        "unsupported_value_hu": {"type": "string"},
     },
     "allOf": [
         {"if": {"properties": {"kind": {"const": "drug_dose"}}},
@@ -305,6 +337,8 @@ PROTOCOL_JSON_SCHEMA = {
          "then": {"required": ["sections"]}},
         {"if": {"properties": {"kind": {"const": "table_lookup"}}},
          "then": {"required": ["tables", "indication_rules", "renal_rules"]}},
+        {"if": {"properties": {"kind": {"const": "calculator"}}},
+         "then": {"required": ["methods"]}},
     ],
 }
 
@@ -322,6 +356,7 @@ KIND_REQUIRED = {
     "pathway": ("outputs", "select"),
     "prose": ("sections",),
     "table_lookup": ("tables", "indication_rules", "renal_rules"),
+    "calculator": ("methods",),
 }
 
 # Fields that only make sense for a given kind. Presence on the wrong kind is a
@@ -342,6 +377,9 @@ KIND_FIELDS = {
                      "output_template_en", "output_template_hu",
                      "default_answer", "default_answer_hu",
                      "missing_inputs", "missing_inputs_hu"},
+    "calculator": {"slots", "methods", "default_answer", "default_answer_hu",
+                   "missing_inputs", "missing_inputs_hu",
+                   "unsupported_value", "unsupported_value_hu", "notes", "never"},
 }
 
 COMMON_FIELDS = set(_COMMON_PROPERTIES.keys())

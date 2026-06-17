@@ -1,0 +1,107 @@
+# body_size_calculators.yaml — kind: calculator  (final migration phase — Plan D)
+# Migrated VERBATIM from protocols/body_size_calculators.txt (source v0.1) +
+# body_size_calculators.route_claims.json. Every FORMULA below is transcribed
+# character-for-character from the source ## SELECTION_RULES "Calculation rules".
+# This is the first COMPUTING protocol: the engine evaluates these declared
+# formulas with a restricted arithmetic AST (no eval); it invents no formula.
+#
+# Display rounding (BMI 1 dp, BSA 2 dp, weights 1 dp) is an engine presentation
+# choice, NOT in the source — flagged in the hand-check for sign-off.
+# Clinical hand-check vs source: id_bot2/docs/body_size_calculators_handcheck.md (sign-off PENDING).
+id: body_size_calculators
+kind: calculator
+source_label: Body size calculators
+canonical_name: body size calculators
+status: draft
+version: 0.1
+
+# --- aliases: full set from source ## ALIASES (verbatim) ---
+aliases:
+  - body size calculator
+  - bmi bsa ibw abw calculator
+  - bmi bsa calculator
+  - bmi calculator
+  - bsa calculator
+  - ideal body weight calculator
+  - ibw calculator
+  - adjusted body weight calculator
+  - adjbw calculator
+  - abw calculator
+  - testtomeg kalkulator
+  - bmi kalkulator
+  - bsa kalkulator
+  - idealis testsuly
+  - korrigalt testsuly
+
+answers_intents: [info]
+
+# --- slots: source ## SLOT_SCHEMA (cm + kg only, verbatim ranges) ---
+slots:
+  height_cm:
+    type: number
+    unit: cm
+    min: 80
+    max: 250
+    on_out_of_range: ask_confirmation
+  actual_weight_kg:
+    type: number
+    unit: kg
+    min: 1
+    max: 350
+    on_out_of_range: ask_confirmation
+
+# --- the single calculation method. Formulas VERBATIM from source ## SELECTION_RULES.
+# Sex changes the IBW/AdjBW equation, so per the source we compute and report BOTH
+# the male-formula and female-formula results and never ask for sex.
+methods:
+  - id: body_size
+    requires: [height_cm, actual_weight_kg]
+    compute:
+      # height_m = height_cm / 100
+      - {name: height_m, expr: "height_cm / 100"}
+      # BMI = actual_weight_kg / (height_m * height_m)
+      - {name: bmi, expr: "actual_weight_kg / (height_m ** 2)"}
+      # BSA_Mosteller_m2 = square_root((height_cm * actual_weight_kg) / 3600)
+      - {name: bsa_m2, expr: "sqrt((height_cm * actual_weight_kg) / 3600)"}
+      # IBW_male_kg = 50 + 0.91 * (height_cm - 152.4)
+      - {name: ibw_male_kg, expr: "50 + 0.91 * (height_cm - 152.4)"}
+      # IBW_female_kg = 45.5 + 0.91 * (height_cm - 152.4)
+      - {name: ibw_female_kg, expr: "45.5 + 0.91 * (height_cm - 152.4)"}
+      # Adjusted_body_weight_male_kg = IBW_male_kg + 0.4 * (actual_weight_kg - IBW_male_kg)
+      - {name: adjbw_male_kg, expr: "ibw_male_kg + 0.4 * (actual_weight_kg - ibw_male_kg)"}
+      # Adjusted_body_weight_female_kg = IBW_female_kg + 0.4 * (actual_weight_kg - IBW_female_kg)
+      - {name: adjbw_female_kg, expr: "ibw_female_kg + 0.4 * (actual_weight_kg - ibw_female_kg)"}
+    outputs: [bmi, bsa_m2, ibw_male_kg, ibw_female_kg, adjbw_male_kg, adjbw_female_kg]
+    template_en: |-
+      Body size calculations for height {height_cm:g} cm and actual body weight {actual_weight_kg:g} kg:
+      - BMI: {bmi:.1f} kg/m2
+      - BSA (Mosteller): {bsa_m2:.2f} m2
+      - IBW (male formula): {ibw_male_kg:.1f} kg
+      - IBW (female formula): {ibw_female_kg:.1f} kg
+      - Adjusted body weight (male-formula IBW): {adjbw_male_kg:.1f} kg
+      - Adjusted body weight (female-formula IBW): {adjbw_female_kg:.1f} kg
+
+# Source ## DEFAULT_ANSWER (verbatim).
+default_answer: >-
+  Provide height in cm and actual body weight in kg. This calculator intentionally
+  requires cm and kg input.
+
+# Source ## OUTPUT_TEMPLATES ### MISSING_INPUT (verbatim).
+missing_inputs: Please provide height in cm and actual body weight in kg.
+
+# Source ## INFO_BLOCKS + ## RESTRICTED_OUTPUTS + ## SAFETY_RULES (carried as notes;
+# the tool computes only the declared formulas, never clinical interpretation).
+notes: >-
+  Calculator output only. These equations are mathematical estimates: BMI = kg /
+  m^2; BSA by Mosteller; IBW by the Devine-style adult cm equation; adjusted body
+  weight is AdjBW40 = IBW + 0.4 * (actual body weight - IBW). They do not
+  determine which weight scalar applies to any drug, nutrition plan, ventilator
+  setting, or renal estimate unless another active protocol says so. If actual
+  body weight is at or below IBW, adjusted body weight may not be the appropriate
+  dosing scalar. Inputs are cm and kg only; lb/in are not converted - ask for cm
+  and kg instead. No pediatric or pregnancy interpretation.
+
+# Source ## DEFAULT_FOOTER (verbatim).
+footer: >-
+  Calculator output only; use the relevant clinical protocol to decide which
+  weight scalar applies.

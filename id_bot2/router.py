@@ -60,6 +60,7 @@ import get_dose as _gd                            # noqa: E402
 import interpret_pcr as _ip                       # noqa: E402
 import select_pathway as _sp                     # noqa: E402
 import get_table_dose as _td                     # noqa: E402
+import calculate as _ca                           # noqa: E402
 from llm.tools import Tool, ToolCall              # noqa: E402
 from verifier import verify_grounding             # noqa: E402
 
@@ -122,6 +123,7 @@ class RouterResult:
     pcr: object = None               # the PcrResult, when route == "pcr_panel"
     pathway: object = None           # the PathwayResult, when route == "pathway"
     table: object = None             # the TableDoseResult, when route == "table_lookup"
+    calc: object = None              # the CalcResult, when route == "calculator"
     organisms: list = field(default_factory=list)  # detected organisms (pcr)
     markers: list = field(default_factory=list)    # detected markers (pcr)
     phrased: bool = False            # True if the phrasing model rewrote the answer
@@ -789,6 +791,176 @@ def _get_table_tools(tables: dict) -> list:
 
 
 # --------------------------------------------------------------------------- #
+# calculator registry + resolver (Plan D, final migration phase). A named
+# calculator (body size / steroid equivalence) is a strong, specific signal —
+# its aliases never collide with the drug/panel/pathway sets — so it is resolved
+# AHEAD of the generic drug stage. Numeric/enum slots are keyword-extracted from
+# the message (unit-anchored: "170 cm", "70 kg", "6 mg", plus the steroid name);
+# an incomplete extraction simply yields the tool's verbatim missing-input ask,
+# never a guessed value. The tool itself does the (declared, AST-evaluated)
+# arithmetic — the router only selects which calculator to run.
+# --------------------------------------------------------------------------- #
+# Unit-anchored numeric extractors, keyed by the slot's declared `unit`.
+_CALC_UNIT_RE = {
+    "cm": re.compile(r"(?P<v>\d+(?:[.,]\d+)?)\s*cm\b"),
+    "kg": re.compile(r"(?P<v>\d+(?:[.,]\d+)?)\s*kg\b"),
+    "mg": re.compile(r"(?P<v>\d+(?:[.,]\d+)?)\s*mg\b"),
+}
+# Keyword fallbacks (used only when the unit-anchored pattern misses).
+_CALC_KEYWORD_RE = {
+    "height_cm": re.compile(r"\bheight\b[\s:=]*(?P<v>\d+(?:[.,]\d+)?)"),
+    "actual_weight_kg": re.compile(r"\b(?:body ?weight|weight|wt)\b[\s:=]*(?P<v>\d+(?:[.,]\d+)?)"),
+    "steroid_dose_mg": re.compile(r"\b(?:dose|adag|dozis)\b[\s:=]*(?P<v>\d+(?:[.,]\d+)?)"),
+}
+# Steroid-name synonyms → the canonical enum value (kept small + safe).
+_STEROID_SYNONYMS = {
+    "dexa": "dexamethasone",
+    "methylprednisolone": "methylprednisone",
+    "medrol": "methylprednisone",
+}
+
+
+@dataclass(frozen=True)
+class _CalcEntry:
+    calc_id: str
+    aliases: tuple            # folded aliases, longest first
+    slots: tuple              # declared slot names
+    specs: dict               # slot name -> spec (type/unit/values)
+
+
+@dataclass(frozen=True)
+class CalcCall:
+    """A deterministic (or LLM) calculator routing decision."""
+    tool: str                 # calculate
+    calc_id: str
+    slots: dict = field(default_factory=dict)
+    via: str = "deterministic"
+
+
+def _build_calc_registry(protocols_dir) -> dict:
+    records = load_protocol_dir(protocols_dir)
+    reg: dict = {}
+    for _path, rec in records:
+        if rec.get("kind") != "calculator":
+            continue
+        cid = rec["id"]
+        aliases = set(rec.get("aliases") or [])
+        aliases.add(cid)
+        aliases.add(rec.get("canonical_name") or "")
+        aliases.add(rec.get("source_label") or "")
+        folded = tuple(sorted(
+            {_norm(a) for a in aliases if a and a.strip()}, key=len, reverse=True))
+        specs = dict(rec.get("slots") or {})
+        reg[cid] = _CalcEntry(
+            calc_id=cid, aliases=folded, slots=tuple(specs.keys()), specs=specs)
+    return reg
+
+
+def _match_calcs(folded_msg: str, calcs: dict) -> list:
+    spans = []
+    for cid, entry in calcs.items():
+        for alias in entry.aliases:        # longest alias first
+            m = re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", folded_msg)
+            if m:
+                spans.append((m.start(), m.end(), cid))
+                break
+    kept = _span_dedup(spans)
+    out, seen = [], set()
+    for _s, _e, cid in kept:
+        if cid not in seen:
+            seen.add(cid)
+            out.append(cid)
+    return out
+
+
+def _num(val: str):
+    n = float(val.replace(",", "."))
+    return int(n) if n.is_integer() else n
+
+
+def _extract_calc_slots(folded_msg: str, specs: dict) -> dict:
+    """Pull only this calculator's declared slots from the message. Numeric slots
+    are unit-anchored (then keyword fallback); enum slots match their declared
+    values (+ a small synonym map). Anything not found is simply absent → the tool
+    asks for it. Never guesses."""
+    out: dict = {}
+    for name, spec in specs.items():
+        stype = spec.get("type")
+        if stype == "number":
+            unit = spec.get("unit")
+            m = _CALC_UNIT_RE[unit].search(folded_msg) if unit in _CALC_UNIT_RE else None
+            if not m and name in _CALC_KEYWORD_RE:
+                m = _CALC_KEYWORD_RE[name].search(folded_msg)
+            if m:
+                out[name] = _num(m.group("v"))
+        elif stype == "enum":
+            values = spec.get("values") or spec.get("enum") or []
+            # exact value token first (longest first to avoid partial hits)
+            for val in sorted(values, key=len, reverse=True):
+                if _alias_hit(folded_msg, _norm(val)):
+                    out[name] = val
+                    break
+            else:
+                for syn, canon in _STEROID_SYNONYMS.items():
+                    if canon in values and _alias_hit(folded_msg, syn):
+                        out[name] = canon
+                        break
+    return out
+
+
+def resolve_calculator(message: str, calcs: dict):
+    """Deterministic calculator stage. Returns:
+        * a CalcCall          — exactly one calculator named
+        * a list[str]         — >1 named (ambiguous; ids)
+        * None                — none named (let drug logic run)
+    """
+    folded = _norm(message)
+    matched = _match_calcs(folded, calcs)
+    if not matched:
+        return None
+    if len(matched) > 1:
+        return matched
+    cid = matched[0]
+    slots = _extract_calc_slots(folded, calcs[cid].specs)
+    return CalcCall(tool="calculate", calc_id=cid, slots=slots, via="deterministic")
+
+
+def _get_calc_tools(calcs: dict) -> list:
+    """The calculate tool exposed to the LLM: calculator_id constrained to the
+    loaded calculator protocols (closed enum), plus their union of slots. The
+    model fills only slots the user actually stated; the tool computes the rest
+    from its own declared formulas (and asks for anything missing)."""
+    if not calcs:
+        return []
+    props = {
+        "calculator_id": {"type": "string", "enum": sorted(calcs.keys()),
+                           "description": "Which calculator protocol."},
+    }
+    for entry in calcs.values():
+        for name, spec in entry.specs.items():
+            if name in props:
+                continue
+            if spec.get("type") == "number":
+                props[name] = {"type": "number"}
+            elif spec.get("type") == "enum":
+                props[name] = {"type": "string",
+                               "enum": list(spec.get("values") or spec.get("enum") or [])}
+            else:
+                props[name] = {"type": "string"}
+    tool = Tool(
+        name="calculate",
+        description=("Run an explicit-formula clinical calculator (body size: "
+                     "BMI/BSA/IBW/adjusted weight; steroid dose equivalence). Set "
+                     "only the inputs the user stated (e.g. height_cm, "
+                     "actual_weight_kg, or steroid_agent + steroid_dose_mg); never "
+                     "invent values. The tool computes from its declared formulas."),
+        parameters={"type": "object", "properties": props,
+                    "required": ["calculator_id"]},
+    )
+    return [tool]
+
+
+# --------------------------------------------------------------------------- #
 # The router                                                                  #
 # --------------------------------------------------------------------------- #
 _BOOL_SLOT_NAMES = set(_BOOL_SLOTS)
@@ -883,11 +1055,14 @@ class Router:
         # table_lookup protocols (final migration phase): parallel registry + tool.
         self.tables = _build_table_registry(self.protocols_dir)
         self._table_tools = _get_table_tools(self.tables)
+        # calculator protocols (final migration phase): parallel registry + tool.
+        self.calcs = _build_calc_registry(self.protocols_dir)
+        self._calc_tools = _get_calc_tools(self.calcs)
 
     # public ---------------------------------------------------------------
     def tools(self) -> list[Tool]:
         return [self._tool, *self._pcr_tools, *self._pathway_tools,
-                *self._table_tools]
+                *self._table_tools, *self._calc_tools]
 
     def route(self, message: str, *, provider=None, phrasing_provider=None) -> RouterResult:
         phraser = phrasing_provider or self.phrasing_provider
@@ -930,6 +1105,19 @@ class Router:
                 route="clarify", tool="ask_clarification", needs_clarification=True,
                 candidates=pw, via="deterministic",
                 answer=("Which pathway do you mean: " + ", ".join(pw) + "?"))
+
+        # 1d) deterministic CALCULATOR stage — a NAMED calculator (body size /
+        #     steroid equivalence) is a strong, specific signal whose aliases
+        #     never collide with the drug set, so it precedes drug resolution.
+        #     Precedence: panel > table_lookup > pathway > calculator > drug.
+        calc = resolve_calculator(message, self.calcs)
+        if isinstance(calc, CalcCall):
+            return self._run_calc_call(calc)
+        if isinstance(calc, list):               # >1 calculator named → clarify
+            return RouterResult(
+                route="clarify", tool="ask_clarification", needs_clarification=True,
+                candidates=calc, via="deterministic",
+                answer=("Which calculator do you mean: " + ", ".join(calc) + "?"))
 
 
         # 2) deterministic drug stage
@@ -1046,6 +1234,22 @@ class Router:
             needs_clarification=bool(res.needs_input or res.needs_confirmation),
             via=call.via, slots=dict(call.slots), table=res)
 
+    def _run_calc_call(self, call: "CalcCall") -> RouterResult:
+        if call.calc_id not in self.calcs:
+            return RouterResult(route="unsupported", tool="none",
+                                answer=f"No uploaded calculator for {call.calc_id!r}.")
+        res = _ca.calculate(call.calc_id, protocols_dir=str(self.protocols_dir),
+                            **call.slots)
+        grounded = _ca.render_calc(res)
+        # A calculator always returns SOME text (a computed answer, a verbatim
+        # default_answer / missing_inputs ask, an out-of-range confirmation, or
+        # the unsupported_value message), so this is never a silent answer.
+        return RouterResult(
+            route="calculator", tool="calculate", protocol=res.calculator_id,
+            answer=grounded, grounded_answer=grounded,
+            needs_clarification=bool(res.needs_input or res.needs_confirmation),
+            via=call.via, slots=dict(call.slots), calc=res)
+
     def _phrase(self, result: "RouterResult", grounded: str, kind: str,
                 provider) -> None:
         """Rewrite `grounded` into natural prose, then verify it is grounded.
@@ -1113,6 +1317,19 @@ class Router:
                 return self._run_pathway_call(PathwayCall(
                     tool="select_pathway", pathway_id=pathway_id,
                     slots=slots, via="llm"))
+            # calculate (calculator; body size / steroid equivalence).
+            if out.name == "calculate":
+                tool = next((t for t in self._calc_tools if t.name == out.name), None)
+                if tool is None or tool.validate_arguments(out.arguments):
+                    return None
+                args = dict(out.arguments)
+                calc_id = args.pop("calculator_id", None)
+                if calc_id not in self.calcs:
+                    return None
+                declared = set(self.calcs[calc_id].slots)
+                slots = {k: v for k, v in args.items() if k in declared}
+                return self._run_calc_call(CalcCall(
+                    tool="calculate", calc_id=calc_id, slots=slots, via="llm"))
             # get_table_dose (table_lookup; tmpsmx).
             if out.name == "get_table_dose":
                 tool = next((t for t in self._table_tools if t.name == out.name), None)

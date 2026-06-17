@@ -75,6 +75,7 @@ VERIFIER_MODES: dict[str, str] = {
     "pcr_panel": "hard",
     "pathway": "soft",
     "prose": "soft",
+    "calculator": "hard",
 }
 DEFAULT_MODE = "soft"
 

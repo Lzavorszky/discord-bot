@@ -1,0 +1,137 @@
+# steroid_equivalence.yaml — kind: calculator  (final migration phase — Plan D)
+# Migrated VERBATIM from protocols/steroid_equivalence.txt (source v0.1) +
+# steroid_equivalence.route_claims.json. The reference equivalent doses and the
+# conversion rule below are copied character-for-character from the source
+# ## SELECTION_RULES table + "Calculation rule". The generic equivalence table in
+# the footer is copied verbatim from the source ## DEFAULT_FOOTER.
+#
+# Engine note: the conversion is a table lookup (input steroid -> its reference
+# mg) feeding one division, then a multiply per steroid. All declared here; the
+# tool evaluates with a restricted arithmetic AST (no eval). Display rounding to
+# 2 dp is an engine presentation choice, NOT in the source - flagged for sign-off.
+# Clinical hand-check vs source: id_bot2/docs/steroid_equivalence_handcheck.md (sign-off PENDING).
+id: steroid_equivalence
+kind: calculator
+source_label: Steroid equivalence table
+canonical_name: steroid equivalence calculator
+status: draft
+version: 0.1
+
+# --- aliases: full set from source ## ALIASES (verbatim) ---
+aliases:
+  - steroid equivalence calculator
+  - steroid equivalence
+  - steroid equivalency
+  - steroid conversion
+  - steroid dose conversion
+  - corticosteroid equivalence
+  - corticosteroid conversion
+  - glucocorticoid equivalence
+  - hydrocortisone equivalent
+  - hydrocortisone conversion
+  - methylprednisone equivalent
+  - methylprednisolone equivalent
+  - methylprednisone conversion
+  - methylprednisolone conversion
+  - dexamethasone equivalent
+  - dexamethasone conversion
+  - dexa equivalent
+  - dexa conversion
+  - prednisolone equivalent
+  - prednisolone conversion
+  - fludrocortisone equivalent
+  - fludrocortisone conversion
+  - szteroid ekvivalencia
+  - szteroid ekvivalens
+  - szteroid atvaltas
+  - szteroid konverzio
+  - kortikoszteroid ekvivalencia
+  - kortikoszteroid atvaltas
+  - hydrocortison ekvivalens
+  - hydrocortison atvaltas
+  - methylprednison ekvivalens
+  - medrol ekvivalens
+  - medrol equivalent
+  - methylprednison atvaltas
+  - dexamethason ekvivalens
+  - prednisolon ekvivalens
+  - fludrocortison ekvivalens
+
+answers_intents: [info]
+
+# --- slots: steroid name (closed list = source supported steroids) + dose in mg.
+slots:
+  steroid_agent:
+    type: enum
+    values: [methylprednisone, dexamethasone, hydrocortisone, prednisolone, fludrocortisone]
+  steroid_dose_mg:
+    type: number
+    unit: mg
+    min: 0
+    max: 10000
+    on_out_of_range: ask_confirmation
+
+# --- one method. Source ## SELECTION_RULES:
+#   Supported steroids and reference equivalent doses:
+#     methylprednisone 8 mg | dexamethasone 1.5 mg | hydrocortisone 40 mg
+#     prednisolone 10 mg     | fludrocortisone 4 mg
+#   conversion_factor = input_dose_mg / reference_equivalent_dose_for_input_steroid
+#   equivalent_dose_for_each_steroid = conversion_factor * reference_equivalent_dose_for_that_steroid
+methods:
+  - id: equivalence
+    requires: [steroid_agent, steroid_dose_mg]
+    compute:
+      - name: ref_in
+        lookup: steroid_agent
+        table:
+          methylprednisone: 8
+          dexamethasone: 1.5
+          hydrocortisone: 40
+          prednisolone: 10
+          fludrocortisone: 4
+      - {name: factor, expr: "steroid_dose_mg / ref_in"}
+      - {name: eq_methylprednisone, expr: "factor * 8"}
+      - {name: eq_dexamethasone, expr: "factor * 1.5"}
+      - {name: eq_hydrocortisone, expr: "factor * 40"}
+      - {name: eq_prednisolone, expr: "factor * 10"}
+      - {name: eq_fludrocortisone, expr: "factor * 4"}
+    outputs:
+      [eq_methylprednisone, eq_dexamethasone, eq_hydrocortisone, eq_prednisolone, eq_fludrocortisone]
+    template_en: |-
+      Steroid equivalence for {steroid_dose_mg:g} mg {steroid_agent}:
+      - methylprednisone: {eq_methylprednisone:.2f} mg
+      - dexamethasone: {eq_dexamethasone:.2f} mg
+      - hydrocortisone: {eq_hydrocortisone:.2f} mg
+      - prednisolone: {eq_prednisolone:.2f} mg
+      - fludrocortisone: {eq_fludrocortisone:.2f} mg
+
+# Source ## DEFAULT_ANSWER (verbatim).
+default_answer: To calculate steroid equivalence, provide a supported steroid and dose in mg.
+
+# Source ## OUTPUT_TEMPLATES ### MISSING_INPUT (verbatim).
+missing_inputs: "Please provide the steroid and dose in mg, for example: methylprednisone 8 mg."
+
+# Source ## OUTPUT_TEMPLATES ### UNSUPPORTED_STEROID (verbatim).
+unsupported_value: >-
+  I can calculate equivalence only for methylprednisone, dexamethasone,
+  hydrocortisone, prednisolone, and fludrocortisone.
+
+# Source ## RESTRICTED_OUTPUTS + ## SAFETY_RULES (carried as notes). This protocol
+# computes mathematical equivalents only; for perioperative hydrocortisone
+# supplementation use the separate perioperative steroid guide.
+notes: >-
+  Mathematical dose equivalence only, from the source equivalence table. Not
+  clinical steroid treatment, tapering, adrenal-insufficiency, pediatric, or
+  pregnancy advice. For perioperative steroid supplementation use the separate
+  perioperative steroid guide.
+
+# Source ## DEFAULT_FOOTER (verbatim) - the generic equivalence table.
+footer: |-
+  Generic steroid equivalence table:
+  | Steroid | Equivalent dose | Glucocorticoid:mineralocorticoid activity | Duration |
+  |---|---:|---|---|
+  | methylprednisone | 8 mg | 5:0.5 | 12-36 h |
+  | dexamethasone | 1.5 mg | 30:0 | 36-54 h |
+  | hydrocortisone | 40 mg | 1:1 | 8-12 h |
+  | prednisolone | 10 mg | 4:0.8 | 12-36 h |
+  | fludrocortisone | 4 mg | 10:250 | 24 h |

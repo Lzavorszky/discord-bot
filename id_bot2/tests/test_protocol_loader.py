@@ -30,7 +30,7 @@ BAD = os.path.join(FIX, "bad")
 # Schema enums / JSON Schema sanity                                           #
 # --------------------------------------------------------------------------- #
 def test_kinds_and_json_schema_consistent():
-    assert set(schema.KINDS) == {"drug_dose", "pcr_panel", "pathway", "prose", "table_lookup"}
+    assert set(schema.KINDS) == {"drug_dose", "pcr_panel", "pathway", "prose", "table_lookup", "calculator"}
     js = schema.PROTOCOL_JSON_SCHEMA
     assert js["required"] == ["id", "kind"]
     # every kind has a required-fields entry
@@ -425,3 +425,126 @@ def test_table_lookup_bad_table_type():
     rec["tables"]["WEIRD"] = {"type": "not_a_type", "text_en": "x"}
     probs = loader.validate_record(rec)
     assert any("not in ['dosing_table'" in p for p in probs)
+
+
+# --------------------------------------------------------------------------- #
+# calculator kind (body size / steroid equivalence) — final migration phase.  #
+# The only COMPUTING kind: declared formulas (arithmetic expr or lookup table).#
+# --------------------------------------------------------------------------- #
+def _good_calculator():
+    return {
+        "id": "body_size_calculators", "kind": "calculator",
+        "slots": {
+            "height_cm": {"type": "number", "unit": "cm", "min": 80, "max": 250,
+                          "on_out_of_range": "ask_confirmation"},
+            "actual_weight_kg": {"type": "number", "unit": "kg", "min": 1,
+                                 "max": 350, "on_out_of_range": "ask_confirmation"},
+        },
+        "methods": [
+            {
+                "id": "body_size",
+                "requires": ["height_cm", "actual_weight_kg"],
+                "compute": [
+                    {"name": "height_m", "expr": "height_cm / 100"},
+                    {"name": "bmi", "expr": "actual_weight_kg / (height_m ** 2)"},
+                    {"name": "bsa_m2",
+                     "expr": "sqrt((height_cm * actual_weight_kg) / 3600)"},
+                ],
+                "outputs": ["bmi", "bsa_m2"],
+                "template_en": "BMI {bmi:.1f}, BSA {bsa_m2:.2f}",
+            },
+        ],
+        "missing_inputs": "Provide height in cm and weight in kg.",
+        "default_answer": "Provide height in cm and weight in kg.",
+        "footer": "Calculator output only.",
+    }
+
+
+def _good_lookup_calculator():
+    return {
+        "id": "steroid_equivalence", "kind": "calculator",
+        "slots": {
+            "steroid_agent": {"type": "enum",
+                              "values": ["dexamethasone", "hydrocortisone"]},
+            "steroid_dose_mg": {"type": "number", "min": 0, "max": 10000,
+                                "on_out_of_range": "ask_confirmation"},
+        },
+        "methods": [
+            {
+                "id": "equivalence",
+                "requires": ["steroid_agent", "steroid_dose_mg"],
+                "compute": [
+                    {"name": "ref_in", "lookup": "steroid_agent",
+                     "table": {"dexamethasone": 1.5, "hydrocortisone": 40}},
+                    {"name": "factor", "expr": "steroid_dose_mg / ref_in"},
+                    {"name": "eq_dexamethasone", "expr": "factor * 1.5"},
+                ],
+                "template_en": "dexamethasone {eq_dexamethasone:.2f} mg",
+            },
+        ],
+        "unsupported_value": "Not a supported steroid.",
+        "missing_inputs": "Provide a steroid and dose in mg.",
+    }
+
+
+def test_valid_calculator():
+    assert loader.validate_record(_good_calculator()) == []
+
+
+def test_valid_lookup_calculator():
+    assert loader.validate_record(_good_lookup_calculator()) == []
+
+
+def test_calculator_requires_methods():
+    probs = loader.validate_record({"id": "c", "kind": "calculator"})
+    assert any("requires 'methods'" in p for p in probs)
+
+
+def test_calculator_method_needs_compute():
+    rec = _good_calculator()
+    rec["methods"][0]["compute"] = []
+    probs = loader.validate_record(rec)
+    assert any("'compute' must be a non-empty list" in p for p in probs)
+
+
+def test_calculator_step_needs_expr_or_lookup():
+    rec = _good_calculator()
+    rec["methods"][0]["compute"].append({"name": "x"})
+    probs = loader.validate_record(rec)
+    assert any("exactly one of 'expr' or 'lookup'" in p for p in probs)
+
+
+def test_calculator_step_rejects_both_expr_and_lookup():
+    rec = _good_calculator()
+    rec["methods"][0]["compute"].append(
+        {"name": "x", "expr": "1+1", "lookup": "height_cm", "table": {"a": 1}})
+    probs = loader.validate_record(rec)
+    assert any("exactly one of 'expr' or 'lookup'" in p for p in probs)
+
+
+def test_calculator_requires_undeclared_slot_caught():
+    rec = _good_calculator()
+    rec["methods"][0]["requires"].append("nonexistent_slot")
+    probs = loader.validate_record(rec)
+    assert any("undeclared slot 'nonexistent_slot'" in p for p in probs)
+
+
+def test_calculator_lookup_table_values_must_be_numbers():
+    rec = _good_lookup_calculator()
+    rec["methods"][0]["compute"][0]["table"]["hydrocortisone"] = "forty"
+    probs = loader.validate_record(rec)
+    assert any("must be a number" in p for p in probs)
+
+
+def test_calculator_method_needs_template():
+    rec = _good_calculator()
+    del rec["methods"][0]["template_en"]
+    probs = loader.validate_record(rec)
+    assert any("needs a 'template_en' or 'template_hu'" in p for p in probs)
+
+
+def test_calculator_rejects_wrong_kind_field():
+    rec = _good_calculator()
+    rec["tiers"] = {"N": {"dose": "1 g"}}
+    probs = loader.validate_record(rec)
+    assert any("unexpected field 'tiers'" in p for p in probs)

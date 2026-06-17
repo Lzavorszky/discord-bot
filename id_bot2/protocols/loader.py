@@ -428,12 +428,103 @@ def _check_table_lookup(rec: dict, problems: list[str]) -> None:
             problems.append(f"'{skey}' must be a string")
 
 
+def _check_calculator(rec: dict, problems: list[str]) -> None:
+    """A `calculator` protocol: declared slots + one or more `methods`, each an
+    ordered list of compute steps (arithmetic `expr` or a `lookup` table) and a
+    verbatim render template. This is the only kind that COMPUTES; every formula
+    is declared here (verbatim from source) and evaluated by a restricted AST in
+    the tool, never `eval`."""
+    slots = rec.get("slots")
+    declared_slots: set = set()
+    if slots is not None:
+        _check_slots(slots, problems)
+        if isinstance(slots, dict):
+            declared_slots = set(slots.keys())
+
+    methods = rec.get("methods")
+    if not isinstance(methods, list) or not methods:
+        problems.append("'methods' must be a non-empty list")
+        methods = []
+
+    seen_ids: set = set()
+    for i, m in enumerate(methods):
+        where = f"methods[{i}]"
+        if not isinstance(m, dict):
+            problems.append(f"{where}: must be a mapping")
+            continue
+        mid = m.get("id")
+        if not _is_str(mid):
+            problems.append(f"{where}: needs an 'id' (string)")
+        elif mid in seen_ids:
+            problems.append(f"{where}: duplicate method id {mid!r}")
+        else:
+            seen_ids.add(mid)
+
+        req = m.get("requires", [])
+        if req and not _is_list_of_str(req):
+            problems.append(f"{where}: 'requires' must be a list of strings")
+        elif declared_slots:
+            for slot in req:
+                if slot not in declared_slots:
+                    problems.append(f"{where}: requires undeclared slot {slot!r}")
+
+        compute = m.get("compute")
+        produced: set = set()
+        if not isinstance(compute, list) or not compute:
+            problems.append(f"{where}: 'compute' must be a non-empty list of steps")
+        else:
+            for j, step in enumerate(compute):
+                sw = f"{where} compute[{j}]"
+                if not isinstance(step, dict):
+                    problems.append(f"{sw}: must be a mapping")
+                    continue
+                name = step.get("name")
+                if not _is_str(name):
+                    problems.append(f"{sw}: needs a 'name' (string)")
+                has_expr = "expr" in step
+                has_lookup = "lookup" in step
+                if has_expr == has_lookup:
+                    problems.append(f"{sw}: needs exactly one of 'expr' or 'lookup'")
+                if has_expr and not _is_str(step["expr"]):
+                    problems.append(f"{sw}: 'expr' must be a string")
+                if has_lookup:
+                    if not _is_str(step["lookup"]):
+                        problems.append(f"{sw}: 'lookup' must be a slot name (string)")
+                    elif declared_slots and step["lookup"] not in declared_slots:
+                        problems.append(f"{sw}: lookup references undeclared slot "
+                                        f"{step['lookup']!r}")
+                    table = step.get("table")
+                    if not isinstance(table, dict) or not table:
+                        problems.append(f"{sw}: lookup needs a non-empty 'table' mapping")
+                    else:
+                        for k, v in table.items():
+                            if not isinstance(v, (int, float)):
+                                problems.append(f"{sw}: table[{k!r}] must be a number")
+                if _is_str(name):
+                    produced.add(name)
+
+        outputs = m.get("outputs")
+        if outputs is not None and not _is_list_of_str(outputs):
+            problems.append(f"{where}: 'outputs' must be a list of strings")
+
+        if not any(_is_str(m.get(k)) for k in ("template_en", "template_hu")):
+            problems.append(f"{where}: needs a 'template_en' or 'template_hu'")
+
+    for skey in ("default_answer", "default_answer_hu", "missing_inputs",
+                 "missing_inputs_hu", "unsupported_value", "unsupported_value_hu"):
+        if skey in rec and not _is_str(rec[skey]):
+            problems.append(f"'{skey}' must be a string")
+    if "never" in rec and not _is_list_of_str(rec["never"]):
+        problems.append("'never' must be a list of strings")
+
+
 _KIND_CHECKERS = {
     "drug_dose": _check_drug_dose,
     "pcr_panel": _check_pcr_panel,
     "pathway": _check_pathway,
     "prose": _check_prose,
     "table_lookup": _check_table_lookup,
+    "calculator": _check_calculator,
 }
 
 
