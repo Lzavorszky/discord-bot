@@ -7,8 +7,8 @@
 ## ⚠ Standing reminders (surface to owner L EVERY session until cleared)
 
 - **CLINICAL SIGN-OFFS PENDING — remind the owner each session, but DO NOT block on it.** The hand-check sheets for the 28 antibiotics + vancomycin (`id_bot2/docs/*_handcheck.md`) still need owner L's clinical sign-off. This gates **go-live (cutover, Phase 6) only — NOT the refactor.** So: at the start of every session, tell L these are still outstanding and offer to walk through a batch; then carry on with the planned chunk regardless. Tick drugs off below as they're signed, and **delete this whole reminder once all are signed.**
-  - Signed: **meropenem ✓** (2026-06-16).
-  - Pending: the 28 antibiotics + **vancomycin** (29 sheets total).
+  - Signed (12 of 30): **meropenem ✓** (2026-06-16); **batch 1** (2026-06-17): amikacin, clindamycin, linezolid, moxifloxacin, tigecycline, voriconazole ✓; **batch 2** (2026-06-17): ceftriaxone, clarithromycin, metronidazole, oseltamivir, penicillin ✓.
+  - Pending (18, the 5+-tier complex group incl. vancomycin): ampicillin, ampsul, cefazolin, cefepime, cefiderocol, ceftazidime, ceftazidime_avibactam, ceftolozane_tazobactam, cefuroxime, ciprofloxacin, colomycin, fluconazole, fosfomycin, imipenem_cilastatin, imipenem_cilastatin_relebactam, levofloxacin, piperacillin_tazobactam, **vancomycin**.
 
 ---
 

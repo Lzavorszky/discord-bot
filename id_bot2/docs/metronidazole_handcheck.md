@@ -1,5 +1,7 @@
 # Metronidazole — Clinical Hand-Check Sheet
 
+> **SIGNED OFF — owner L, 2026-06-17.** Doses/tiers/selection confirmed against source; faithful migration, no deviations. (Batch 2, mid 3–4 tier drugs.)
+
 **Protocol ID:** `metronidazole`
 **Source:** uploaded antibiotic renal dosing PDF
 **YAML version:** 0.1
