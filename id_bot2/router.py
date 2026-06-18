@@ -1440,6 +1440,30 @@ class Router:
             self._phrase(result, grounded, "drug_dose", phrasing_provider)
         return result
 
+    def followup_dose(self, message: str, active_drug: str, prior_slots=None):
+        """Minimal conversation-memory slice (Decision 2, 2026-06-18). Given the
+        currently-active drug and the slots used so far, see if THIS message is a
+        bare numeric follow-up (e.g. 'gfr 40', '70 kg', 'level 12') for that drug.
+        Returns (RouterResult, merged_slots) when at least one numeric slot is
+        present, else None. Only NUMERIC slots are carried (gfr / body_weight /
+        vancomycin_level / mic) — never booleans/CNS, and never a different drug.
+        The caller (channel) only invokes this when the message otherwise routed to
+        unsupported/clarify, so it can't override a real new subject."""
+        if active_drug not in self.registry:
+            return None
+        declared = self.registry[active_drug].slots
+        folded = _norm(message)
+        extracted = _extract_slots(folded, declared)
+        numeric = {k: v for k, v in extracted.items() if k in _NUMERIC_SLOTS}
+        if not numeric:
+            return None
+        merged = {**(dict(prior_slots) if prior_slots else {}), **numeric}
+        result = self._run_call(
+            RoutedCall(tool="get_dose", drug_id=active_drug, slots=merged,
+                       via="followup"),
+            phrasing_provider=self.phrasing_provider)
+        return result, merged
+
     def _run_pcr_call(self, call: "PanelCall") -> RouterResult:
         if call.panel_id not in self.panels:
             return RouterResult(route="unsupported", tool="none",
@@ -1639,6 +1663,16 @@ class Router:
             args = dict(out.arguments)
             drug_id = args.pop("drug_id", None)
             if drug_id not in self.registry:
+                return None
+            # SAFETY (Decision 1, 2026-06-18): the LLM stage only runs when the
+            # deterministic stage found NO named drug. So if the model returns a
+            # drug whose alias is absent from the message, it invented it from
+            # outside medical knowledge (e.g. "Stenotrophomonas" -> ceftazidime).
+            # Refuse — never an ungrounded drug pick. (Semantic pathway/panel
+            # routing is still allowed; only drug_dose selection is gated.)
+            folded = _norm(message)
+            if not any(re.search(r"(?<!\w)" + re.escape(a) + r"(?!\w)", folded)
+                       for a in self.registry[drug_id].aliases):
                 return None
             # keep only slots the chosen protocol declares
             declared = set(self.registry[drug_id].slots)

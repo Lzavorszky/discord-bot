@@ -233,16 +233,15 @@ class TestLLMPath(unittest.TestCase):
         self.assertEqual(res.protocol, "meropenem")
         self.assertEqual(res.via, "deterministic")
 
-    def test_llm_resolves_when_deterministic_fails(self):
-        # A message the keyword resolver can't crack, but the model can.
+    def test_llm_cannot_invent_an_undescribed_drug(self):
+        # Decision 1 (2026-06-18): the LLM may not resolve a drug whose name is
+        # absent from the message ("the big gun carbapenem" -> meropenem is the
+        # model inferring a drug from a description). Refuse, never guess.
         prov = ScriptedProvider(ToolCall(name="get_dose",
                                          arguments={"drug_id": "meropenem", "gfr": 55}))
         res = self.R.route("the big gun carbapenem, kidneys at 55", provider=prov)
         self.assertEqual(prov.calls, 1)
-        self.assertEqual(res.route, "drug_dose")
-        self.assertEqual(res.protocol, "meropenem")
-        self.assertEqual(res.via, "llm")
-        self.assertIn("4 g/day", res.answer)   # gfr 55 -> NORMAL
+        self.assertEqual(res.route, "unsupported")
 
     def test_llm_invalid_args_falls_through_to_unsupported(self):
         # drug_id missing required -> validate_arguments fails -> no silent dose.
@@ -262,14 +261,14 @@ class TestLLMPath(unittest.TestCase):
         res = self.R.route("cryptic ask", provider=prov)
         self.assertEqual(res.route, "unsupported")
 
-    def test_llm_drops_slots_not_declared_by_protocol(self):
-        # Model hallucinates septic_shock on meropenem (which lacks that slot):
-        # the router must drop it (get_dose would ignore it, but we keep state clean).
+    def test_llm_invented_drug_with_slots_is_refused(self):
+        # Even with plausible slots, an un-named drug pick is refused outright
+        # (Decision 1) — so no ungrounded dose and no slot leak.
         prov = ScriptedProvider(ToolCall(name="get_dose",
                                          arguments={"drug_id": "meropenem",
                                                     "septic_shock": True, "gfr": 60}))
         res = self.R.route("cryptic", provider=prov)
-        self.assertEqual(res.slots, {"gfr": 60})
+        self.assertEqual(res.route, "unsupported")
 
 class TestPhrasingVerifierLoop(unittest.TestCase):
     """The router -> get_dose -> phrase -> verify loop (roadmap 4.1).
@@ -330,14 +329,15 @@ class TestPhrasingVerifierLoop(unittest.TestCase):
         self.assertFalse(res.phrased)
         self.assertIn("confirm", res.answer.lower())
 
-    def test_phrasing_via_llm_route(self):
-        # The phrasing step also runs when the drug was resolved by the LLM router.
+    def test_llm_invented_drug_refused_before_phrasing(self):
+        # Decision 1 gates LLM drug invention, so the "phrase an LLM-resolved drug"
+        # path no longer occurs: an un-named drug pick is refused before phrasing.
         prov = ScriptedProvider(ToolCall(name="get_dose",
                                          arguments={"drug_id": "meropenem", "gfr": 40}))
         faithful = _Phraser(lambda g: "Dosing:\n" + g)
         res = self.R.route("cryptic", provider=prov, phrasing_provider=faithful)
-        self.assertEqual(res.via, "llm")
-        self.assertTrue(res.phrased)
+        self.assertEqual(res.route, "unsupported")
+        self.assertFalse(res.phrased)
 
     def test_init_level_phraser_used_by_default(self):
         R = Router(protocols_dir=PROTOCOLS,
@@ -1213,3 +1213,36 @@ class TestProseRouting(unittest.TestCase):
         res = self.R.route("zzz nonsense topic", provider=prov)
         self.assertEqual(res.route, "unsupported")
 
+
+
+class TestLLMDrugInventionGuard(unittest.TestCase):
+    """Decision 1 (2026-06-18): the LLM stage must not introduce a drug whose
+    name is absent from the message (e.g. organism -> guessed drug). Semantic
+    pathway routing stays allowed."""
+    @classmethod
+    def setUpClass(cls):
+        cls.R = Router(protocols_dir=PROTOCOLS)
+
+    def test_llm_invented_drug_is_refused(self):
+        # "Stenotrophomonas severe infection" names no drug; model picks ceftazidime.
+        prov = ScriptedProvider(ToolCall(name="get_dose",
+                                         arguments={"drug_id": "ceftazidime"}))
+        res = self.R.route("stenotrophomonas severe infection 70kg gfr 70", provider=prov)
+        self.assertEqual(res.route, "unsupported")
+        self.assertEqual(res.tool, "none")
+
+    def test_llm_drug_allowed_when_named_in_message(self):
+        # Control: the drug IS in the message -> the guard permits the pick.
+        prov = ScriptedProvider(ToolCall(name="get_dose",
+                                         arguments={"drug_id": "ceftazidime"}))
+        res = self.R.route("ceftazidime please", provider=prov)
+        self.assertEqual(res.route, "drug_dose")
+        self.assertEqual(res.protocol, "ceftazidime")
+
+    def test_llm_pathway_routing_still_semantic(self):
+        # Pathways are NOT gated — a semantic CAP pick with no literal 'cap' stands.
+        prov = ScriptedProvider(ToolCall(name="select_pathway",
+                                         arguments={"pathway_id": "cap"}))
+        res = self.R.route("tudogyulladasra mit adjak", provider=prov)
+        self.assertEqual(res.route, "pathway")
+        self.assertEqual(res.protocol, "cap")

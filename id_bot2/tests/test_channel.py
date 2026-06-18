@@ -169,3 +169,45 @@ def test_bot_core_gate_flag_on_uses_new(monkeypatch):
     monkeypatch.setattr(bc, "_ask_ai_impl", lambda q, c: "OLD-PIPELINE")
     monkeypatch.setattr(bc, "_answer_via_id_bot2", lambda q, c: "NEW-PIPELINE")
     assert bc.ask_ai("meropenem gfr 40", chat_id=-1) == "NEW-PIPELINE"
+
+
+
+# --------------------------------------------------------------------------- #
+# Minimal conversation memory (Decision 2): active drug + numeric follow-ups   #
+# --------------------------------------------------------------------------- #
+def test_memory_numeric_followup_applies_to_active_drug(router):
+    ch.reset_memory()
+    a1 = ch.answer_for("meropenem", chat_id=101, router=router)
+    assert "meropenem" in a1.lower()
+    a2 = ch.answer_for("gfr 40", chat_id=101, router=router)   # bare follow-up
+    assert "g/day" in a2.lower()              # applied to meropenem, real dose
+    assert "don't have an uploaded protocol" not in a2.lower()
+
+
+def test_memory_cleared_on_new_subject(router):
+    ch.reset_memory()
+    ch.answer_for("meropenem", chat_id=102, router=router)
+    ch.answer_for("aspirin before surgery", chat_id=102, router=router)  # new subject
+    a3 = ch.answer_for("gfr 40", chat_id=102, router=router)
+    assert "don't have an uploaded protocol" in a3.lower()    # memory dropped
+
+
+def test_memory_no_numeric_stays_unsupported(router):
+    ch.reset_memory()
+    ch.answer_for("meropenem", chat_id=103, router=router)
+    a = ch.answer_for("tell me something", chat_id=103, router=router)
+    assert "don't have an uploaded protocol" in a.lower()
+
+
+def test_memory_is_per_chat(router):
+    ch.reset_memory()
+    ch.answer_for("meropenem", chat_id=104, router=router)
+    other = ch.answer_for("gfr 40", chat_id=999, router=router)   # different chat
+    assert "don't have an uploaded protocol" in other.lower()
+
+
+def test_stateless_when_no_chat_id(router):
+    ch.reset_memory()
+    ch.answer_for("meropenem", chat_id=None, router=router)
+    a = ch.answer_for("gfr 40", chat_id=None, router=router)
+    assert "don't have an uploaded protocol" in a.lower()

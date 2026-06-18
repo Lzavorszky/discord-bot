@@ -93,14 +93,54 @@ def route(question: str, chat_id=None, *, router: Optional[Router] = None) -> Ro
     return r.route(question)
 
 
+# Per-chat conversation memory — the MINIMAL slice (Decision 2, 2026-06-18):
+# remember only the active DRUG and the numeric slots used, so a bare numeric
+# follow-up ("gfr 40", "70 kg") applies to that drug. Cleared the instant a new
+# subject (any other protocol/drug) is seen. In-process, keyed by chat_id — good
+# enough for slim memory; the router + replay stay stateless. NOT used when
+# chat_id is None (then the pipeline is fully stateless).
+_CHAT_STATE: dict = {}
+_NEW_SUBJECT_ROUTES = ("pathway", "pcr_panel", "table_lookup", "calculator", "prose")
+
+
+def reset_memory(chat_id=None) -> None:
+    """Forget the active drug for a chat (or all chats when chat_id is None)."""
+    if chat_id is None:
+        _CHAT_STATE.clear()
+    else:
+        _CHAT_STATE.pop(chat_id, None)
+
+
 def answer_for(question: str, chat_id=None, *, router: Optional[Router] = None) -> str:
     """Message text in → final grounded answer text out. The single seam the
     Telegram channel calls. Returns the verbatim tool text (offline / no phraser)
-    or the phrased-and-verified text (when a phrasing model is attached)."""
+    or the phrased-and-verified text (when a phrasing model is attached).
+
+    Carries the minimal drug+numeric-slot memory when a chat_id is supplied."""
     if not question or not question.strip():
         return ""
-    result = route(question, chat_id, router=router)
+    r = router or get_router()
+    result = r.route(question)
+
+    if chat_id is None:                      # stateless path
+        return result.answer or ""
+
+    if result.route == "drug_dose":          # remember the active drug + its slots
+        _CHAT_STATE[chat_id] = {"drug": result.protocol, "slots": dict(result.slots or {})}
+        return result.answer or ""
+    if result.route in _NEW_SUBJECT_ROUTES:  # a different subject -> drop drug memory
+        _CHAT_STATE.pop(chat_id, None)
+        return result.answer or ""
+
+    # unsupported / clarify: try it as a numeric follow-up to the active drug.
+    st = _CHAT_STATE.get(chat_id)
+    if st and st.get("drug"):
+        fu = r.followup_dose(question, st["drug"], st.get("slots"))
+        if fu is not None:
+            res2, merged = fu
+            _CHAT_STATE[chat_id] = {"drug": st["drug"], "slots": merged}
+            return res2.answer or ""
     return result.answer or ""
 
 
-__all__ = ["answer_for", "route", "get_router", "has_llm"]
+__all__ = ["answer_for", "route", "get_router", "has_llm", "reset_memory"]
