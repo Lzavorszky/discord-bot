@@ -23,7 +23,8 @@ from typing import Optional
 import sys as _sys
 
 _HERE = Path(__file__).resolve().parent
-for _p in (_HERE, _HERE / "llm", _HERE / "tools", _HERE / "protocols"):
+_REPO_ROOT = _HERE.parent   # repo root: so `import config` / `import bot_core` resolve standalone
+for _p in (_REPO_ROOT, _HERE, _HERE / "llm", _HERE / "tools", _HERE / "protocols"):
     if str(_p) not in _sys.path:
         _sys.path.insert(0, str(_p))
 

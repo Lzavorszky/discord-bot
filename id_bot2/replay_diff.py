@@ -34,7 +34,8 @@ from pathlib import Path
 from typing import Optional
 
 _HERE = Path(__file__).resolve().parent
-for _p in (_HERE, _HERE / "llm", _HERE / "tools", _HERE / "protocols"):
+_REPO_ROOT = _HERE.parent   # so `import bot_core` / `import config` (root modules) resolve
+for _p in (_REPO_ROOT, _HERE, _HERE / "llm", _HERE / "tools", _HERE / "protocols"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
