@@ -147,6 +147,17 @@ Owner has confirmed they are **not returning for further clinical review** (2026
   - **Deliberate noted exception:** the one legacy failure, `test_missing_allowlist_allowed_with_local_debug_warning`, is **pre-existing and environmental** — it fails identically on the original `HEAD:config.py` and in isolation, because this sandbox has a `runtime_options.json` that defines access, so the "ALLOWED USERS NOT DEFINED" warning the test asserts never fires. Not caused by the rebuild. Re-confirm it passes in the real deploy env; otherwise it's a stale test to fix separately.
 - **Old-bot harness baseline: DEFERRED — do not chase.** The before-picture is already encoded in `regression_cases.yaml` via the `status:` labels (8 `baseline` = works on the old bot, 8 `known_fail` = broken, 4 `new` = not yet specified). A `--live` run would only *confirm* those labels — it adds no new information. The user's OpenAI key lives only on Railway (they test online; no local key or local deps), so a live run isn't worth the friction now. Revisit only if an empirically-measured number is wanted before Phase 3; the easiest route then is to run the 20 cases in a Cowork sandbox with a key pasted in once.
 
+## Phase 5 parity — IN PROGRESS (first keyed Railway run done 2026-06-18)
+
+The new code is shipped dark on Railway (merged to main, `USE_ID_BOT2` OFF — live bot unchanged, verified by Telegram smoke test). Model vars set: `ID_BOT2_ROUTER_MODEL`/`ID_BOT2_PHRASING_MODEL` = `gpt-4o-mini` (the real model; the config default `gpt-5.5` is not yet a valid model — override via env).
+
+**First keyed replay (`--with-old`, 78 real turns) surfaced + FIXED three deploy bugs (all committed on rebuild-d):**
+1. `pyyaml` missing from `requirements.txt` → added (id_bot2 needs it at runtime).
+2. `replay_diff.py`/`channel.py` didn't put the repo root on `sys.path` → `import bot_core`/`import config` failed (`ModuleNotFoundError`) → fixed (`_REPO_ROOT` added).
+3. **`channel._make_provider` used `from provider import …`** (top-level) which raised a relative-import error that a bare `except` swallowed → the LLM stage was silently never attached → the new pipeline refused every Hungarian/semantic turn (the 78/78-differ artifact). Fixed to `from llm.provider import get_provider`; failures now log loudly; +2 regression tests.
+
+**Next:** push (`git push origin rebuild-d && git push origin rebuild-d:main`), re-run the same Railway start-command-swap replay. Expect a NON-zero "via LLM router stage" count and far fewer diffs. Triage the remaining diffs (meropenem 3→4 g/day + footer are EXPECTED owner-approved changes). THEN flip `USE_ID_BOT2=1` once parity holds.
+
 ## Next action (do this first, next session)
 
 > **The CALCULATOR ENGINE is DONE (this session) — the new `calculator` kind is built, two calculators migrated, router-wired, and harness-tested with hand-computed values.** Clinical sign-offs now **PENDING** (owner L): the new **body_size_calculators** + **steroid_equivalence** hand-checks (`id_bot2/docs/*_handcheck.md`, esp. their flagged display-rounding + both-sex-reporting decisions) + the still-open tmpsmx + 2 BioFire panel + 6 pathway hand-checks. None blocks the next chunk, but all are required before cutover.
