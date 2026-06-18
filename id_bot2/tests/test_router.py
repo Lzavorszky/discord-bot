@@ -1246,3 +1246,31 @@ class TestLLMDrugInventionGuard(unittest.TestCase):
         res = self.R.route("tudogyulladasra mit adjak", provider=prov)
         self.assertEqual(res.route, "pathway")
         self.assertEqual(res.protocol, "cap")
+
+
+
+class TestOrganismPathwayGuard(unittest.TestCase):
+    """An organism query must not be guessed into a syndrome pathway by the LLM
+    (Decision 2026-06-18): 'Stenotrophomonas bsi' -> UTI is refused. Pure-syndrome
+    queries (no organism token) still route."""
+    @classmethod
+    def setUpClass(cls):
+        cls.R = Router(protocols_dir=PROTOCOLS)
+
+    def test_organism_bsi_not_routed_to_pathway(self):
+        prov = ScriptedProvider(ToolCall(name="select_pathway",
+                                         arguments={"pathway_id": "uti"}))
+        res = self.R.route("Stenotrophomonas bsi, 60kg, gfr 60", provider=prov)
+        self.assertNotEqual(res.route, "pathway")     # never UTI for a BSI
+        self.assertIn(res.route, ("unsupported", "clarify"))
+
+    def test_pure_syndrome_still_routes(self):
+        prov = ScriptedProvider(ToolCall(name="select_pathway",
+                                         arguments={"pathway_id": "cap"}))
+        res = self.R.route("tudogyulladasra mit adjak", provider=prov)   # no organism token
+        self.assertEqual(res.route, "pathway")
+        self.assertEqual(res.protocol, "cap")
+
+    def test_names_organism_helper(self):
+        self.assertTrue(self.R._names_organism("stenotrophomonas bsi"))
+        self.assertFalse(self.R._names_organism("what to give for pneumonia"))

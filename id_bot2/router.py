@@ -1260,6 +1260,12 @@ def _get_pcr_tools(panels: dict) -> list:
     return [interpret, listing]
 
 
+# Organisms not (yet) carried by any protocol's own vocabulary but seen in real
+# traffic — used to REFUSE an LLM pathway guess for a bare-organism query (Decision
+# 2026-06-18). INTERIM list; the proper organism registry is a registered deferral.
+_EXTRA_ORGANISMS = ("stenotrophomonas", "stenotrophomonas maltophilia", "maltophilia")
+
+
 class Router:
     def __init__(self, protocols_dir=None, provider=None, phrasing_provider=None):
         self.protocols_dir = Path(protocols_dir) if protocols_dir else DEFAULT_PROTOCOLS_DIR
@@ -1291,6 +1297,14 @@ class Router:
         # prose protocols (final migration): parallel registry + tool.
         self.prose = _build_prose_registry(self.protocols_dir)
         self._prose_tools = _get_prose_tools(self.prose)
+        # Recognised-organism tokens: every panel organism/genus alias + the interim
+        # _EXTRA_ORGANISMS list. Used to gate LLM pathway picks for organism queries.
+        toks = set(_EXTRA_ORGANISMS)
+        for _pe in self.panels.values():
+            toks.update(a for a, _c in _pe.organisms)
+            toks.update(g for g, _n in _pe.genera)
+        self._organism_tokens = tuple(sorted((_norm(t) for t in toks if t and t.strip()),
+                                             key=len, reverse=True))
 
     # public ---------------------------------------------------------------
     def tools(self) -> list[Tool]:
@@ -1575,6 +1589,16 @@ class Router:
         result.phrased = not verdict.blocked
         result.phrasing_blocked = verdict.blocked
 
+    def _names_organism(self, folded_msg: str) -> bool:
+        """True if the message contains a recognised organism token (panel organisms
+        + interim _EXTRA_ORGANISMS). Used to refuse an LLM pathway guess for a
+        bare-organism query — the organism should go to its protocol (today only the
+        BioFire panels) or be refused, never guessed into a syndrome pathway."""
+        for tok in self._organism_tokens:
+            if re.search(r"(?<!\w)" + re.escape(tok) + r"(?!\w)", folded_msg):
+                return True
+        return False
+
     def _route_via_llm(self, message: str, provider, *, phrasing_provider=None) -> Optional[RouterResult]:
         messages = [
             {"role": "system", "content": _ROUTER_SYSTEM},
@@ -1606,6 +1630,12 @@ class Router:
             if out.name == "select_pathway":
                 tool = next((t for t in self._pathway_tools if t.name == out.name), None)
                 if tool is None or tool.validate_arguments(out.arguments):
+                    return None
+                # Organism guard (Decision 2026-06-18): never let the model route a
+                # named organism into a syndrome pathway (e.g. "Stenotrophomonas bsi"
+                # -> UTI). Refuse -> the organism falls to the panel-hint clarify or
+                # "not covered". Pure-syndrome queries (no organism token) still route.
+                if self._names_organism(_norm(message)):
                     return None
                 args = dict(out.arguments)
                 pathway_id = args.pop("pathway_id", None)
