@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -184,38 +185,56 @@ def summarize(rows: list[ReplayRow]) -> dict:
     }
 
 
-def print_report(rows: list[ReplayRow], *, with_old: bool, show_answers: bool) -> None:
-    for i, r in enumerate(rows, 1):
-        head = f"[{i:>3}] {r.route:<11} {(r.tool or '-'):<18} {r.protocol or '-'}"
-        print(head)
-        print(f"      Q: {r.input}")
-        if r.error:
-            print(f"      ! {r.error}")
-        if show_answers and r.answer:
-            first = r.answer.strip().splitlines()[0] if r.answer.strip() else ""
-            print(f"      A: {first}")
-        if with_old and r.old_answer is not None:
-            flag = "DIFF" if r.differs else "same"
-            print(f"      [{flag}] old: {r.old_answer.strip().splitlines()[0] if r.old_answer.strip() else ''}")
+def _emit(line: str, _state={"n": 0}) -> None:
+    """Print one line, throttled to stay well under Railway's 500-logs/sec limit
+    (which silently drops messages and ate the tail of earlier replays)."""
+    print(line)
+    _state["n"] += 1
+    if _state["n"] % 20 == 0:
+        sys.stdout.flush()
+        time.sleep(0.12)
+
+
+def _summary_lines(rows, with_old):
     s = summarize(rows)
-    print("\n" + "=" * 60)
-    print(f"  REPLAY SUMMARY — {s['total']} turns")
-    print("=" * 60)
-    print(f"  answered (a protocol fired)   : {s['answered']}")
-    print(f"    via deterministic stage     : {s['deterministic']}  (offline / free)")
-    print(f"    via LLM router stage        : {s['llm']}  (needs a key)")
-    print(f"  clarify (asked the user)      : {s['clarify']}")
-    print(f"  unsupported (not covered)     : {s['unsupported']}")
+    out = ["=" * 60, f"  REPLAY SUMMARY — {s['total']} turns", "=" * 60,
+           f"  answered (a protocol fired)   : {s['answered']}",
+           f"    via deterministic stage     : {s['deterministic']}",
+           f"    via LLM router stage        : {s['llm']}",
+           f"  clarify (asked the user)      : {s['clarify']}",
+           f"  unsupported (not covered)     : {s['unsupported']}"]
     if s["errors"]:
-        print(f"  ERRORS                        : {s['errors']}")
-    print(f"  routes: {s['by_route']}")
+        out.append(f"  ERRORS                        : {s['errors']}")
+    out.append(f"  routes: {s['by_route']}")
     if with_old:
         diffs = sum(1 for r in rows if r.differs)
-        print(f"  OLD-vs-NEW differences        : {diffs} / {s['total']}  (triage each: better/equal/regression)")
+        out.append(f"  OLD-vs-NEW differences        : {diffs} / {s['total']}")
     if not _ch.has_llm():
-        print("\n  NOTE: no OPENAI_API_KEY — the LLM router stage was NOT exercised.")
-        print("  Turns that need the model show as 'unsupported' here; rerun with a")
-        print("  key (and --with-old) for the true parity diff.")
+        out.append("  NOTE: no OPENAI_API_KEY — LLM router stage NOT exercised.")
+    return out
+
+
+def _clip(txt: str, n: int = 80) -> str:
+    one = " ".join((txt or "").split())
+    return one[:n]
+
+
+def print_report(rows: list[ReplayRow], *, with_old: bool, show_answers: bool,
+                 diffs_only: bool = False) -> None:
+    # Summary FIRST so it always survives the rate limit, then one compact line
+    # per turn (throttled). Old-vs-new shown inline with a DIFF/same flag.
+    for line in _summary_lines(rows, with_old):
+        _emit(line)
+    _emit("-" * 60)
+    _emit("per-turn (NEW route/proto | Q | NEW ans" + (" || OLD" if with_old else "") + "):")
+    for i, r in enumerate(rows, 1):
+        if diffs_only and with_old and not r.differs:
+            continue
+        seg = f"[{i:>3}] {r.route}/{r.protocol or '-'} | Q: {_clip(r.input,60)} | NEW: {_clip(r.error or r.answer)}"
+        if with_old and r.old_answer is not None:
+            seg += f" || OLD[{'DIFF' if r.differs else 'same'}]: {_clip(r.old_answer)}"
+        _emit(seg)
+    sys.stdout.flush()
 
 
 def main(argv=None) -> int:
@@ -224,6 +243,7 @@ def main(argv=None) -> int:
     ap.add_argument("--limit", type=int, default=0, help="only the first N turns (0 = all)")
     ap.add_argument("--with-old", action="store_true", help="also run the old bot and diff (needs a key)")
     ap.add_argument("--answers", action="store_true", help="show the first line of each new answer")
+    ap.add_argument("--diffs-only", action="store_true", help="with --with-old: print only turns that differ")
     args = ap.parse_args(argv)
 
     turns = load_turns(args.source)
@@ -238,7 +258,7 @@ def main(argv=None) -> int:
         if not _ch.has_llm():
             print("WARNING: --with-old needs a live key; old bot answers may error without one.")
         add_old_answers(rows)
-    print_report(rows, with_old=args.with_old, show_answers=args.answers or args.with_old)
+    print_report(rows, with_old=args.with_old, show_answers=args.answers or args.with_old, diffs_only=args.diffs_only)
     return 0
 
 
