@@ -58,9 +58,11 @@ def _make_provider():
     if not has_llm():
         return None
     try:
-        from provider import get_provider  # id_bot2/llm/provider.py
+        from llm.provider import get_provider  # package import (provider.py uses `from .tools`)
         return get_provider()
-    except Exception:
+    except Exception as exc:  # surface loudly — a silent None disables the LLM stage
+        print(f"[id_bot2] WARNING: could not build LLM provider, running "
+              f"deterministic-only: {type(exc).__name__}: {exc}")
         return None
 
 

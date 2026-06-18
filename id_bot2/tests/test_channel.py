@@ -75,6 +75,26 @@ def test_get_router_offline_has_no_provider(monkeypatch):
     assert r.phrasing_provider is None
 
 
+def test_make_provider_imports_cleanly_with_key(monkeypatch):
+    # Regression: _make_provider used `from provider import ...` which failed with
+    # a relative-import error and was silently swallowed -> LLM stage never ran.
+    # With a key present and the OpenAI client stubbed, a provider MUST be built.
+    import openai
+    monkeypatch.setattr(openai, "OpenAI", lambda *a, **k: object(), raising=False)
+    monkeypatch.setattr(ch, "_api_key", lambda: "sk-test-key")
+    prov = ch._make_provider()
+    assert prov is not None, "provider should build when a key is present"
+
+
+def test_get_router_with_key_attaches_provider(monkeypatch):
+    import openai
+    monkeypatch.setattr(openai, "OpenAI", lambda *a, **k: object(), raising=False)
+    monkeypatch.setattr(ch, "_api_key", lambda: "sk-test-key")
+    r = ch.get_router(protocols_dir=PROTOCOLS)   # fresh build
+    assert r.provider is not None
+    assert r.phrasing_provider is not None
+
+
 # --------------------------------------------------------------------------- #
 # Replay tool                                                                  #
 # --------------------------------------------------------------------------- #
