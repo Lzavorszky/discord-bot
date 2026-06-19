@@ -35,9 +35,10 @@ run () {  # run <label> <command...>
 echo "=================  ID Bot health check  ================="
 echo
 
-# 1. Legacy suite — guards the OLD bot until it is decommissioned (Phase 6).
-if compgen -G "test_*.py" > /dev/null; then
-  run "legacy tests (test_*.py)" python -m pytest -q test_*.py
+# 1. Rota / on-call suite — the non-clinical features (independent of dosing).
+#    (The old clinical pipeline was decommissioned in Part C; its tests are gone.)
+if compgen -G "test_rota_lookup.py" > /dev/null || compgen -G "test_nursing_rota_lookup.py" > /dev/null; then
+  run "rota tests" python -m pytest -q test_rota_lookup.py test_nursing_rota_lookup.py
 fi
 
 # 2. New package unit tests — tools, loader, provider (grows from Phase 1+).
