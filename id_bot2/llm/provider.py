@@ -67,8 +67,8 @@ class OpenAIProvider:
         chat_model: Optional[str] = None,
         client: Any = None,
     ):
-        self.tool_model = tool_model or _cfg("ROUTER_MODEL", "ID_BOT2_ROUTER_MODEL", "gpt-5.5")
-        self.chat_model = chat_model or _cfg("PHRASING_MODEL", "ID_BOT2_PHRASING_MODEL", "gpt-5.5-mini")
+        self.tool_model = tool_model or _cfg("ROUTER_MODEL", "ID_BOT2_ROUTER_MODEL", "gpt-4o-mini")
+        self.chat_model = chat_model or _cfg("PHRASING_MODEL", "ID_BOT2_PHRASING_MODEL", "gpt-4o-mini")
         if client is not None:
             self._client = client
         else:

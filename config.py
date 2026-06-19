@@ -67,9 +67,9 @@ CHAT_MODEL      = "gpt-4o-mini"
 # Override any of these via environment variables without code changes.
 # ---------------------------------------------------------------------------
 
-ROUTER_MODEL    = os.getenv("ID_BOT2_ROUTER_MODEL",    "gpt-5.5")   # the single decision (tool-calling)
-PHRASING_MODEL  = os.getenv("ID_BOT2_PHRASING_MODEL",  "gpt-5.5-mini")  # phrase tool results (mini vs nano TBD, Phase 7)
-VERIFIER_MODEL  = os.getenv("ID_BOT2_VERIFIER_MODEL",  "gpt-5.5-mini")  # grounding checks (Phase 4)
+ROUTER_MODEL    = os.getenv("ID_BOT2_ROUTER_MODEL",    "gpt-4o-mini")   # the single decision (tool-calling)
+PHRASING_MODEL  = os.getenv("ID_BOT2_PHRASING_MODEL",  "gpt-4o-mini")  # phrase tool results (mini vs nano TBD, Phase 7)
+VERIFIER_MODEL  = os.getenv("ID_BOT2_VERIFIER_MODEL",  "gpt-4o-mini")  # grounding checks (Phase 4)
 ROUTER_PROVIDER = os.getenv("ID_BOT2_ROUTER_PROVIDER", "openai")    # provider key for the LLMProvider factory (Phase 1)
 
 # Cutover flag (Phase 6): when true, bot_core.ask_ai routes user messages through

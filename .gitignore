@@ -4,3 +4,12 @@ __pycache__/
 .venv/
 desktop.ini
 embeddings_cache.db
+
+# build/runtime artefacts (not source)
+window_logs.txt
+node_modules/
+package.json
+package-lock.json
+.__wtest
+tmp*/
+*.log

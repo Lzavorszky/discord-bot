@@ -147,6 +147,25 @@ Owner has confirmed they are **not returning for further clinical review** (2026
   - **Deliberate noted exception:** the one legacy failure, `test_missing_allowlist_allowed_with_local_debug_warning`, is **pre-existing and environmental** — it fails identically on the original `HEAD:config.py` and in isolation, because this sandbox has a `runtime_options.json` that defines access, so the "ALLOWED USERS NOT DEFINED" warning the test asserts never fires. Not caused by the rebuild. Re-confirm it passes in the real deploy env; otherwise it's a stale test to fix separately.
 - **Old-bot harness baseline: DEFERRED — do not chase.** The before-picture is already encoded in `regression_cases.yaml` via the `status:` labels (8 `baseline` = works on the old bot, 8 `known_fail` = broken, 4 `new` = not yet specified). A `--live` run would only *confirm* those labels — it adds no new information. The user's OpenAI key lives only on Railway (they test online; no local key or local deps), so a live run isn't worth the friction now. Revisit only if an empirically-measured number is wanted before Phase 3; the easiest route then is to run the 20 cases in a Cowork sandbox with a key pasted in once.
 
+## Cleanup + cutover state (2026-06-18)
+
+3rd keyed replay (log 1781852488048) clean: organism guard live (all bare-Stenotrophomonas -> refuse), 0 errors. Working great in live use per owner.
+
+**Safe cleanup DONE this session (committed):**
+- `.gitignore` extended (window_logs.txt, node_modules/, package*.json, .__wtest, tmp*/, *.log).
+- `git rm --cached upload_analysis.docx` (tracked non-source artifact).
+- **R3 closed:** model defaults `gpt-5.5`->`gpt-4o-mini` in `config.py` (3) + `id_bot2/llm/provider.py` fallbacks (2). No `gpt-5.5` left; the LLM stage no longer depends on the Railway env override to point at a real model.
+
+**Old-pipeline DECOMMISSION — NOT done (deliberately deferred; do post-cutover with live smoke test).** It is a ~4900-line refactor of the live entrypoint `bot_core`, not a mechanical delete: `bot_core` imports routing(10)/protocol_parser(13)/postprocess/aliases/retrieval at module load and uses them across `load_protocols`/`load_aliases`/`_build_drug_name_set`/`_ask_ai_impl`/`handle_protocols`/`handle_reload`/`handle_debug`/`main`. Deleting the old modules requires reworking those — including PRODUCT decisions on the `/protocols`, `/reload`, `/debug` command handlers (keep? repoint at id_bot2? drop?) — and can't be live-smoke-tested in the Cowork sandbox. The old code is preserved elsewhere, so the only risk is deploy stability, not loss.
+
+### Decommission runbook (the remaining cleanup — do after the flag flip is stable)
+1. In `bot_core`: make `ask_ai` unconditionally call `_answer_via_id_bot2` (retire the `USE_ID_BOT2` gate); delete `_ask_ai_impl` and its old-pipeline imports (`routing`, `protocol_parser`, `postprocess`, `aliases`, `retrieval`).
+2. Decide + rewire the clinical command handlers: `/protocols` (list id_bot2 protocols?), `/reload` (drop or no-op), `/debug` (show RouterResult trace instead of the old trace).
+3. Remove the old startup loaders in `main()` (`load_rule_files`/`load_aliases`/`load_protocols`/`_build_drug_name_set`) — id_bot2 loads its own protocols; faster boot, no embeddings build. Keep rota/auth/logging/state startup.
+4. Delete orphaned old modules + data + tests: `routing.py selection_engine.py protocol_parser.py retrieval.py aliases.py alias_sync.py postprocess.py prompting.py protocol_linter.py protocol_schema.py`, the old rule `.txt`s, `protocols/*.txt` + `protocols/aliases.json` + `embeddings_cache.db`, and old tests `test_bot.py test_route_claims_schema.py test_abdominal_protocols.py test_endocarditis_antibiotics.py`. Verify nothing imports them: `grep -rn "import routing\|protocol_parser\|selection_engine\|retrieval\|postprocess\|aliases\b" *.py`.
+5. Trim `check.sh` (drop retired legacy tests; keep rota + id_bot2 + harness). Drop now-unused deps (numpy?) from requirements after confirming.
+6. **Verify before deploy:** `bot_core` imports cleanly (stub OpenAI), rota test-suite passes, channel gate/ memory tests pass, then a dark deploy + live `/`-command smoke test.
+
 ## Phase 5 parity — 2nd clean keyed run; organism-guard added; CLEARED for cutover (2026-06-18)
 
 Second keyed Railway replay (78 turns, report fix made it survive the 500-logs/sec limit): `via LLM router 10`, 0 errors, 0 provider warnings. **Stenotrophomonas->ceftazidime is FIXED** (now refuses). Across all 78 turns the ONLY clinically-wrong route was `Stenotrophomonas bsi -> UTI pathway` (LLM guess; inconsistent — other phrasings already refused).
