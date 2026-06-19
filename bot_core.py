@@ -263,73 +263,10 @@ def run_startup_checks():
     if not os.getenv("OPENAI_API_KEY"):
         errors.append("OPENAI_API_KEY environment variable is not set.")
 
-    # 2. Rule files — bot will answer without personality/safety rules if missing
-    for rule_file in ["system_rules.txt", "answer_format_rules.txt",
-                       "answer_style_rules.txt", "safety_rules.txt"]:
-        if not os.path.exists(rule_file):
-            warnings.append(f"Rule file missing: {rule_file}")
-
-    # 3. aliases.json — must exist and be valid JSON
-    aliases_path = "protocols/aliases.json"
-    if not os.path.exists(aliases_path):
-        errors.append(
-            f"{aliases_path} not found. "
-            "This file must exist at protocols/aliases.json — "
-            "do not keep a copy in the root folder."
-        )
-    else:
-        try:
-            with open(aliases_path, "r", encoding="utf-8") as f:
-                alias_data = json.load(f)
-        except json.JSONDecodeError as e:
-            errors.append(f"{aliases_path} is not valid JSON: {e}")
-            alias_data = {}
-
-        # 4. Every protocol_file referenced in aliases.json must exist on disk
-        for category in ["drugs", "conditions"]:
-            for key, item in alias_data.get(category, {}).items():
-                pf = item.get("protocol_file", "")
-                if pf and not os.path.exists(pf):
-                    errors.append(
-                        f"aliases.json → {key}: protocol_file not found: {pf}"
-                    )
-
-    # 5. protocols/ folder must exist and contain at least one .txt file
-    if not os.path.isdir("protocols"):
-        errors.append("protocols/ folder not found.")
-    else:
-        txt_files = (
-            glob.glob("protocols/*.txt") +
-            glob.glob("protocols/**/*.txt", recursive=True)
-        )
-        real_files = list({
-            normalize_path(os.path.abspath(f)): f
-            for f in txt_files
-            if Path(f).name not in EXCLUDED_FROM_PROTOCOLS
-        }.values())
-        if not real_files:
-            errors.append("protocols/ folder contains no .txt protocol files.")
-        else:
-            print(f"[startup] Found {len(real_files)} protocol file(s): "
-                  f"{[Path(f).name for f in real_files]}")
-
-        try:
-            from protocol_linter import run_linter
-            lint_result = run_linter(proto_dir="protocols")
-            lint_errors = lint_result.errors()
-            lint_warnings = lint_result.warnings()
-            for issue in lint_errors:
-                errors.append(
-                    f"Protocol linter blocking error: {issue.protocol}: "
-                    f"[{issue.code}] {issue.message}"
-                )
-            if lint_warnings:
-                warnings.append(
-                    f"Protocol linter reported {len(lint_warnings)} warning(s); "
-                    "run 'python -m protocol_linter' for details."
-                )
-        except Exception as exc:
-            errors.append(f"Protocol linter failed during startup validation: {exc}")
+    # Part C: the old clinical pipeline's startup validation (rule files,
+    # aliases.json, protocols/ corpus, protocol linter) is decommissioned. The
+    # id_bot2 pipeline owns and validates its own protocol library under
+    # id_bot2/protocols/ (see id_bot2/validate_protocols.py + its test-suite).
 
     # 6. Production must fail closed. Local debug/open mode may run unrestricted.
     if access_mode == "closed" and not runtime_allowed:
@@ -4259,33 +4196,10 @@ def main():
         print(f"[startup] Admin commands enabled for {len(ADMIN_USER_IDS)} user(s).")
     _query_log = setup_logging()
     logging.info("Bot starting up")
-    print("Loading rule files...")
-    load_rule_files()
 
-    _maybe_run_alias_sync_on_startup()
-    print("Loading aliases...")
-    load_aliases("protocols/aliases.json")
-
-    print("Loading protocols and generating embeddings (this may take a moment)...")
-    load_protocols()
-    _build_drug_name_set()
-
-    # Run protocol linter — warning-only, does not block startup
-    print("Running protocol linter...")
-    try:
-        from protocol_linter import run_linter, print_report
-        _lint_result = run_linter(proto_dir="protocols")
-        _lint_warnings = _lint_result.warnings()
-        if _lint_warnings:
-            print(f"[linter] {len(_lint_warnings)} warning(s) — run 'python -m protocol_linter' for full report")
-            for _w in _lint_warnings[:5]:
-                print(f"  [linter] {_w.protocol}: [{_w.code}] {_w.message}")
-            if len(_lint_warnings) > 5:
-                print(f"  [linter] ... and {len(_lint_warnings) - 5} more")
-        else:
-            print("[linter] All protocols clean.")
-    except Exception as _lint_err:
-        print(f"[linter] WARNING: linter failed to run: {_lint_err}")
+    # Part C: the old clinical pipeline (rule files / aliases / protocol parse +
+    # embeddings) is decommissioned. The id_bot2 pipeline loads its own protocol
+    # library lazily on first use (cached Router). Nothing to load here.
 
     print(
         f"Bot version: {BOT_VERSION}; build: {get_build_id()}; "
