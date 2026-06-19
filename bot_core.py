@@ -3389,15 +3389,31 @@ def get_build_id():
 
 
 def format_protocols_output():
-    rows = _loaded_protocol_rows()
-    if not rows:
-        return "Loaded protocols: none"
-    lines = ["Loaded protocols:"]
-    for row in rows:
-        lines.append(
-            f"- {row['protocol_id']} | {row['source_label']} | "
-            f"{row['protocol_type']} | {row['status']} | {row['version']}"
-        )
+    """List the id_bot2 protocol ids, grouped by kind. Part C: the old loader is
+    gone; the new pipeline owns the protocol library under id_bot2/protocols/."""
+    try:
+        from id_bot2 import channel as _idch
+        router = _idch.get_router()
+    except Exception as exc:  # never crash the command
+        return f"Protocols: unavailable ({type(exc).__name__}: {exc})"
+
+    groups = [
+        ("Drug dosing", getattr(router, "registry", {})),
+        ("Pathways", getattr(router, "pathways", {})),
+        ("PCR panels", getattr(router, "panels", {})),
+        ("Table lookups", getattr(router, "tables", {})),
+        ("Calculators", getattr(router, "calcs", {})),
+        ("Prose", getattr(router, "prose", {})),
+    ]
+    total = sum(len(g) for _, g in groups)
+    lines = [f"id_bot2 protocols ({total}):"]
+    for label, reg in groups:
+        ids = sorted(reg.keys())
+        if not ids:
+            continue
+        lines.append(f"\n{label} ({len(ids)}):")
+        for pid in ids:
+            lines.append(f"  - {pid}")
     return "\n".join(lines)
 
 
@@ -3884,9 +3900,12 @@ async def handle_reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(user_id) or not _is_admin(user_id):
         await _safe_reply_text(update, "Authorization: blocked for admin command.")
         return
+    # Part C: the old pipeline's hot-reload is gone. id_bot2 loads its own
+    # protocol library at startup (and caches the Router); a reload now means a
+    # redeploy. Kept as a no-op so the command still responds politely.
     await _safe_reply_text(update,
-        "Reload deferred. TODO: implement an atomic admin-only reload that rebuilds "
-        "aliases, parsed protocols, chunks, and embeddings without serving a half-loaded state."
+        "Reload is no longer needed: the id_bot2 pipeline loads its protocol "
+        "library at startup. To pick up protocol changes, redeploy the bot."
     )
 
 
@@ -3908,9 +3927,41 @@ async def handle_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    answer = build_debug_trace(debug_question, chat_id)
+    answer = _format_id_bot2_debug_trace(debug_question)
 
     await _safe_reply_chunks(update, answer)
+
+
+def _format_id_bot2_debug_trace(question):
+    """Render a readable trace of the id_bot2 RouterResult for /debug. Stateless
+    (no chat memory) so the trace reflects exactly how the router sees the text."""
+    try:
+        from id_bot2 import channel as _idch
+        res = _idch.route(question)
+    except Exception as exc:
+        return f"DEBUG - id_bot2 routing trace\nERROR: {type(exc).__name__}: {exc}"
+
+    lines = [
+        "DEBUG - id_bot2 RouterResult",
+        f"question: {question}",
+        f"route: {res.route}",
+        f"tool: {res.tool}",
+        f"protocol: {res.protocol}",
+        f"via: {res.via}",
+        f"needs_clarification: {res.needs_clarification}",
+        f"slots: {dict(res.slots or {})}",
+    ]
+    if res.candidates:
+        lines.append(f"candidates: {list(res.candidates)}")
+    if res.organisms:
+        lines.append(f"organisms: {list(res.organisms)}")
+    if res.markers:
+        lines.append(f"markers: {list(res.markers)}")
+    lines.append(f"phrased: {res.phrased} / phrasing_blocked: {res.phrasing_blocked}")
+    lines.append("---")
+    lines.append("answer:")
+    lines.append(res.answer or "(none)")
+    return "\n".join(lines)
 
 
 ROTAHELY_USAGE = "Usage: /rotahely [date] <role>\nExample: /rotahely \u00c9g\u00e9s or /rotahely tomorrow \u00c9g\u00e9s"
