@@ -132,7 +132,7 @@ def test_run_new_never_raises_on_bad_input(router):
 
 
 # --------------------------------------------------------------------------- #
-# bot_core cutover gate (default OFF; flag flips to the adapter)               #
+# bot_core delegation (Part C: gate retired — ask_ai always uses the adapter)  #
 # --------------------------------------------------------------------------- #
 def _import_bot_core(monkeypatch):
     """Import the old bot_core in a no-key sandbox: it builds an OpenAI client at
@@ -153,20 +153,11 @@ def _import_bot_core(monkeypatch):
         pytest.skip(f"bot_core not importable in this environment: {exc}")
 
 
-def test_bot_core_gate_default_off_uses_old(monkeypatch):
+def test_bot_core_ask_ai_always_uses_adapter(monkeypatch):
+    """Part C: the USE_ID_BOT2 gate and the old _ask_ai_impl are gone. ask_ai now
+    unconditionally delegates to the id_bot2 Channel adapter."""
     bc = _import_bot_core(monkeypatch)
-    import config
-    monkeypatch.setattr(config, "USE_ID_BOT2", False, raising=False)
-    monkeypatch.setattr(bc, "_ask_ai_impl", lambda q, c: "OLD-PIPELINE")
-    monkeypatch.setattr(bc, "_answer_via_id_bot2", lambda q, c: "NEW-PIPELINE")
-    assert bc.ask_ai("meropenem gfr 40", chat_id=-1) == "OLD-PIPELINE"
-
-
-def test_bot_core_gate_flag_on_uses_new(monkeypatch):
-    bc = _import_bot_core(monkeypatch)
-    import config
-    monkeypatch.setattr(config, "USE_ID_BOT2", True, raising=False)
-    monkeypatch.setattr(bc, "_ask_ai_impl", lambda q, c: "OLD-PIPELINE")
+    assert not hasattr(bc, "_ask_ai_impl"), "old pipeline _ask_ai_impl must be removed"
     monkeypatch.setattr(bc, "_answer_via_id_bot2", lambda q, c: "NEW-PIPELINE")
     assert bc.ask_ai("meropenem gfr 40", chat_id=-1) == "NEW-PIPELINE"
 

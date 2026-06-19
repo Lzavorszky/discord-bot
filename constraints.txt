@@ -1,4 +1,0 @@
-python-telegram-bot<22
-openai<3
-numpy<3
-rapidfuzz<4
