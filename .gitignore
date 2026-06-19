@@ -13,3 +13,4 @@ package-lock.json
 .__wtest
 tmp*/
 *.log
+upload_analysis.docx
